@@ -283,8 +283,12 @@ export function getDataset(datasetId: string): Promise<DatasetDetailResponse> {
   return apiRequest<DatasetDetailResponse>(`/api/v1/dataset/${datasetId}`);
 }
 
-export function getDatasetVersions(datasetId: string): Promise<DatasetVersionsResponse> {
-  return apiRequest<DatasetVersionsResponse>(`/api/v1/dataset/${datasetId}/versions`);
+export function getDatasetVersions(
+  datasetId: string,
+): Promise<DatasetVersionsResponse> {
+  return apiRequest<DatasetVersionsResponse>(
+    `/api/v1/dataset/${datasetId}/versions`,
+  );
 }
 
 export function deleteDataset(datasetId: string): Promise<{ message: string }> {

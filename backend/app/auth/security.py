@@ -29,17 +29,23 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 def create_access_token(subject: dict[str, Any]) -> str:
     """Create signed JWT token with expiration and user claims."""
-    expire_at = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_expiration_minutes)
+    expire_at = datetime.now(timezone.utc) + timedelta(
+        minutes=settings.jwt_expiration_minutes
+    )
     payload = {
         **subject,
         "exp": expire_at,
     }
-    return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+    return jwt.encode(
+        payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm
+    )
 
 
 def decode_access_token(token: str) -> dict[str, Any]:
     """Decode and validate JWT token."""
     try:
-        return jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
+        return jwt.decode(
+            token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm]
+        )
     except JWTError as exc:
         raise InvalidTokenError("Invalid or expired token") from exc

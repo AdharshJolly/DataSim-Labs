@@ -30,10 +30,15 @@ export default function LoginPage() {
     <section className="mx-auto max-w-md space-y-5">
       <div className="space-y-2">
         <h1 className="text-3xl font-semibold">Login</h1>
-        <p className="text-muted-foreground">Sign in to access your datasets.</p>
+        <p className="text-muted-foreground">
+          Sign in to access your datasets.
+        </p>
       </div>
 
-      <form onSubmit={onSubmit} className="grid gap-4 rounded-xl border bg-white/70 p-5">
+      <form
+        onSubmit={onSubmit}
+        className="grid gap-4 rounded-xl border bg-white/70 p-5"
+      >
         <label className="space-y-1 text-sm font-medium">
           Email
           <input
@@ -61,11 +66,16 @@ export default function LoginPage() {
         >
           {isSubmitting ? "Signing in..." : "Login"}
         </button>
-        {status ? <p className="text-sm text-muted-foreground">{status}</p> : null}
+        {status ? (
+          <p className="text-sm text-muted-foreground">{status}</p>
+        ) : null}
       </form>
 
       <p className="text-sm text-muted-foreground">
-        New user? <Link className="underline" href="/register">Register here</Link>
+        New user?{" "}
+        <Link className="underline" href="/register">
+          Register here
+        </Link>
       </p>
     </section>
   );

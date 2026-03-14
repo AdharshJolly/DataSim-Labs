@@ -215,7 +215,9 @@ class DatasetService:
     def list_datasets(db: Session, user_id: uuid.UUID) -> list[Dataset]:
         """List all datasets owned by a user."""
         return db.scalars(
-            select(Dataset).where(Dataset.user_id == user_id).order_by(Dataset.created_at.desc())
+            select(Dataset)
+            .where(Dataset.user_id == user_id)
+            .order_by(Dataset.created_at.desc())
         ).all()
 
     @staticmethod
@@ -235,7 +237,9 @@ class DatasetService:
         dataset_id: uuid.UUID,
     ) -> list[DatasetVersion]:
         """Get all versions for one dataset if owned by user."""
-        dataset = DatasetService.get_dataset(db=db, user_id=user_id, dataset_id=dataset_id)
+        dataset = DatasetService.get_dataset(
+            db=db, user_id=user_id, dataset_id=dataset_id
+        )
         return db.scalars(
             select(DatasetVersion)
             .where(DatasetVersion.dataset_id == dataset.id)
@@ -245,7 +249,9 @@ class DatasetService:
     @staticmethod
     def delete_dataset(db: Session, user_id: uuid.UUID, dataset_id: uuid.UUID) -> None:
         """Delete dataset and all versions/attributes if owned by user."""
-        dataset = DatasetService.get_dataset(db=db, user_id=user_id, dataset_id=dataset_id)
+        dataset = DatasetService.get_dataset(
+            db=db, user_id=user_id, dataset_id=dataset_id
+        )
         db.delete(dataset)
         db.commit()
 
@@ -262,7 +268,9 @@ class DatasetService:
             for file_path in dataset_dir.glob("*"):
                 if not file_path.is_file():
                     continue
-                modified_at = datetime.fromtimestamp(file_path.stat().st_mtime, tz=timezone.utc)
+                modified_at = datetime.fromtimestamp(
+                    file_path.stat().st_mtime, tz=timezone.utc
+                )
                 if modified_at < cutoff:
                     file_path.unlink(missing_ok=True)
 

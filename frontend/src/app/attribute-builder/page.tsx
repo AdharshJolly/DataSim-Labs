@@ -68,7 +68,9 @@ export default function AttributeBuilderPage() {
   };
 
   useEffect(() => {
-    const fromQuery = new URLSearchParams(window.location.search).get("datasetId");
+    const fromQuery = new URLSearchParams(window.location.search).get(
+      "datasetId",
+    );
     if (fromQuery) {
       setDatasetId(fromQuery);
       return;
@@ -94,7 +96,8 @@ export default function AttributeBuilderPage() {
       if (versions.length > 0) {
         const latest = response.versions[0];
         const configuredAttributes =
-          (latest.config_json.attributes as AttributeConfig[] | undefined) ?? [];
+          (latest.config_json.attributes as AttributeConfig[] | undefined) ??
+          [];
         if (configuredAttributes.length > 0) {
           setAttributes(configuredAttributes);
           setSelectedVersionId(latest.id);
@@ -104,7 +107,9 @@ export default function AttributeBuilderPage() {
         setStatus("No versions available yet. Create attributes to start v1.");
       }
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Failed to load versions");
+      setStatus(
+        error instanceof Error ? error.message : "Failed to load versions",
+      );
     }
   };
 
@@ -114,20 +119,27 @@ export default function AttributeBuilderPage() {
     }
     try {
       const response = await getDatasetVersions(datasetId.trim());
-      const selected = response.versions.find((version) => version.id === versionId);
+      const selected = response.versions.find(
+        (version) => version.id === versionId,
+      );
       if (!selected) {
         setStatus("Selected version not found.");
         return;
       }
       const configuredAttributes =
-        (selected.config_json.attributes as AttributeConfig[] | undefined) ?? [];
+        (selected.config_json.attributes as AttributeConfig[] | undefined) ??
+        [];
       if (configuredAttributes.length > 0) {
         setAttributes(configuredAttributes);
       }
       setSelectedVersionId(versionId);
       setStatus(`Loaded version ${selected.version_number} for editing.`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Failed to load selected version");
+      setStatus(
+        error instanceof Error
+          ? error.message
+          : "Failed to load selected version",
+      );
     }
   };
 

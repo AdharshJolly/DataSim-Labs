@@ -58,7 +58,9 @@ export default function DatasetPreviewPage() {
   };
 
   useEffect(() => {
-    const fromQuery = new URLSearchParams(window.location.search).get("datasetVersionId");
+    const fromQuery = new URLSearchParams(window.location.search).get(
+      "datasetVersionId",
+    );
     if (fromQuery) {
       setDatasetVersionId(fromQuery);
       return;

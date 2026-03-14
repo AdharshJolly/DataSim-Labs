@@ -138,7 +138,9 @@ def download_dataset(
 ) -> Any:
     output_root = Path(settings.artifacts_dir)
     try:
-        DatasetService.get_dataset(db=db, user_id=current_user.id, dataset_id=dataset_id)
+        DatasetService.get_dataset(
+            db=db, user_id=current_user.id, dataset_id=dataset_id
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -242,7 +244,9 @@ def delete_dataset(
     current_user: User = Depends(get_current_user),
 ) -> dict[str, str]:
     try:
-        DatasetService.delete_dataset(db=db, user_id=current_user.id, dataset_id=dataset_id)
+        DatasetService.delete_dataset(
+            db=db, user_id=current_user.id, dataset_id=dataset_id
+        )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"message": "Dataset deleted"}

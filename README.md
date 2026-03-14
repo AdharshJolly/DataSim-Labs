@@ -72,8 +72,8 @@ Register request:
 
 ```json
 {
-   "email": "researcher@example.com",
-   "password": "strong-password-123"
+  "email": "researcher@example.com",
+  "password": "strong-password-123"
 }
 ```
 
@@ -81,8 +81,8 @@ Login request:
 
 ```json
 {
-   "email": "researcher@example.com",
-   "password": "strong-password-123"
+  "email": "researcher@example.com",
+  "password": "strong-password-123"
 }
 ```
 

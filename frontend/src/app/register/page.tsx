@@ -33,7 +33,10 @@ export default function RegisterPage() {
         <p className="text-muted-foreground">Create your DataSim account.</p>
       </div>
 
-      <form onSubmit={onSubmit} className="grid gap-4 rounded-xl border bg-white/70 p-5">
+      <form
+        onSubmit={onSubmit}
+        className="grid gap-4 rounded-xl border bg-white/70 p-5"
+      >
         <label className="space-y-1 text-sm font-medium">
           Email
           <input
@@ -62,11 +65,16 @@ export default function RegisterPage() {
         >
           {isSubmitting ? "Creating..." : "Register"}
         </button>
-        {status ? <p className="text-sm text-muted-foreground">{status}</p> : null}
+        {status ? (
+          <p className="text-sm text-muted-foreground">{status}</p>
+        ) : null}
       </form>
 
       <p className="text-sm text-muted-foreground">
-        Already have an account? <Link className="underline" href="/login">Login</Link>
+        Already have an account?{" "}
+        <Link className="underline" href="/login">
+          Login
+        </Link>
       </p>
     </section>
   );

@@ -41,7 +41,10 @@ export default function DownloadPage() {
 
   const onDownload = async (format: string) => {
     try {
-      const { blob, fileName } = await downloadDatasetFile(datasetId.trim(), format);
+      const { blob, fileName } = await downloadDatasetFile(
+        datasetId.trim(),
+        format,
+      );
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = url;
