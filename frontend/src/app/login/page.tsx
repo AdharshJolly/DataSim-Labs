@@ -27,51 +27,80 @@ export default function LoginPage() {
   };
 
   return (
-    <section className="mx-auto max-w-md space-y-5">
-      <div className="space-y-2">
-        <h1 className="font-[var(--font-title)] text-3xl font-bold">Login</h1>
-        <p className="text-muted-foreground">
+    <section className="mx-auto max-w-sm space-y-6 pt-4">
+      <div>
+        <Link
+          href="/"
+          className="mb-6 flex items-center gap-2 text-sm text-[hsl(var(--muted-foreground))] transition hover:text-[hsl(var(--foreground))]"
+        >
+          ← DataSim Lab
+        </Link>
+        <h1 className="font-[var(--font-title)] text-3xl font-black tracking-tight">
+          Welcome back
+        </h1>
+        <p className="mt-1 text-[hsl(var(--muted-foreground))]">
           Sign in to access your datasets.
         </p>
       </div>
 
-      <form onSubmit={onSubmit} className="sk-panel grid gap-4">
-        <label className="space-y-1 text-sm font-medium">
-          Email
+      <form onSubmit={onSubmit} className="studio-card grid gap-5">
+        <div className="studio-field">
+          <label htmlFor="email" className="studio-label">
+            Email address
+          </label>
           <input
+            id="email"
             type="email"
             className="sk-input"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            autoComplete="email"
             required
           />
-        </label>
-        <label className="space-y-1 text-sm font-medium">
-          Password
+        </div>
+        <div className="studio-field">
+          <label htmlFor="password" className="studio-label">
+            Password
+          </label>
           <input
+            id="password"
             type="password"
             className="sk-input"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
             required
           />
-        </label>
+        </div>
+
+        {status && (
+          <div className="sk-alert-error">
+            <span>{status}</span>
+          </div>
+        )}
+
         <button
           type="submit"
           disabled={isSubmitting}
-          className="sk-btn sk-btn-primary w-fit"
+          className="sk-btn sk-btn-primary w-full py-3"
         >
-          {isSubmitting ? "Signing in..." : "Login"}
+          {isSubmitting ? (
+            <span className="flex items-center justify-center gap-2">
+              <span className="sk-spinner h-4 w-4" /> Signing in…
+            </span>
+          ) : (
+            "Sign In"
+          )}
         </button>
-        {status ? (
-          <p className="text-sm text-muted-foreground">{status}</p>
-        ) : null}
       </form>
 
-      <p className="text-sm text-muted-foreground">
-        New user?{" "}
-        <Link className="underline" href="/register">
-          Register here
+      <p className="text-center text-sm text-[hsl(var(--muted-foreground))]">
+        Don&apos;t have an account?{" "}
+        <Link
+          className="font-semibold text-[hsl(var(--primary))] underline-offset-2 hover:underline"
+          href="/register"
+        >
+          Create one free
         </Link>
       </p>
     </section>
