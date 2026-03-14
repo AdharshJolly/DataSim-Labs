@@ -44,13 +44,38 @@ class DatasetAttributesRequest(BaseModel):
 
 
 class PreviewRequest(BaseModel):
-    attributes: list[AttributeConfig]
+    dataset_version_id: UUID
+
+
+class PreviewResponse(BaseModel):
+    dataset_version_id: UUID
+    rows: int
+    data: list[dict[str, Any]]
 
 
 class GenerateRequest(BaseModel):
     dataset_id: UUID
     row_count: int = Field(..., ge=1, le=10000000)
     formats: list[str] = Field(default_factory=lambda: ["csv"])
+
+
+class GeneratedFileInfo(BaseModel):
+    format: str
+    file_name: str
+    file_path: str
+    size_bytes: int
+
+
+class GenerateResponse(BaseModel):
+    dataset_id: UUID
+    status: str
+    row_count: int
+    files: list[GeneratedFileInfo]
+
+
+class DownloadListResponse(BaseModel):
+    dataset_id: UUID
+    files: list[GeneratedFileInfo]
 
 
 class DatasetCreateResponse(BaseModel):

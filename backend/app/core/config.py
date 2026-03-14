@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     )
 
     redis_url: str = "redis://localhost:6379/0"
+    artifacts_dir: str = "artifacts"
+    generation_chunk_size: int = 100000
 
     @property
     def sqlalchemy_database_url(self) -> str:
