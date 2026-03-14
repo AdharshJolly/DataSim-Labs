@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -59,38 +60,60 @@ export default function DownloadPage() {
   };
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const datasetFromQuery = params.get("datasetId");
+    if (datasetFromQuery) {
+      setDatasetId(datasetFromQuery);
+      return;
+    }
     const stored = localStorage.getItem("datasim:dataset_id");
     if (stored) {
       setDatasetId(stored);
     }
   }, []);
 
+  useEffect(() => {
+    if (!datasetId.trim()) {
+      return;
+    }
+    void loadFiles();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [datasetId]);
+
   return (
     <section className="space-y-4">
       <div className="space-y-2">
-        <h1 className="text-3xl font-semibold">Download</h1>
+        <h1 className="font-[var(--font-title)] text-3xl font-bold">
+          Download
+        </h1>
         <p className="text-muted-foreground">
-          Download generated files in CSV, JSON, or Excel format.
+          Your generated files are loaded automatically.
         </p>
       </div>
 
-      <div className="grid max-w-3xl gap-3 rounded-xl border bg-white/70 p-4">
+      <div className="flex flex-wrap gap-2">
+        <Link href="/dashboard" className="sk-btn sk-btn-muted">
+          Back to Dashboard
+        </Link>
+      </div>
+
+      <div className="sk-panel grid max-w-3xl gap-3">
         <label className="space-y-1 text-sm font-medium">
-          Dataset ID
+          Current Dataset
           <input
-            className="w-full rounded-md border border-border bg-white px-3 py-2"
+            className="sk-input"
             value={datasetId}
             onChange={(e) => setDatasetId(e.target.value)}
-            placeholder="Paste dataset id"
+            placeholder="Automatically selected from your last generation"
           />
         </label>
         <button
           type="button"
           disabled={isLoading}
           onClick={loadFiles}
-          className="w-fit rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+          className="sk-btn sk-btn-primary w-fit"
         >
-          {isLoading ? "Loading..." : "Load Files"}
+          {isLoading ? "Loading..." : "Refresh Files"}
         </button>
         {status ? (
           <p className="text-sm text-muted-foreground">{status}</p>
@@ -98,28 +121,28 @@ export default function DownloadPage() {
       </div>
 
       {hasFiles ? (
-        <div className="overflow-hidden rounded-xl border bg-white/70">
-          <table className="min-w-full text-sm">
-            <thead className="bg-muted/60 text-left">
+        <div className="sk-table-shell">
+          <table className="sk-table">
+            <thead>
               <tr>
-                <th className="px-3 py-2">Format</th>
-                <th className="px-3 py-2">File</th>
-                <th className="px-3 py-2">Size</th>
-                <th className="px-3 py-2">Action</th>
+                <th>Format</th>
+                <th>File</th>
+                <th>Size</th>
+                <th>Action</th>
               </tr>
             </thead>
             <tbody>
               {files.map((file) => (
-                <tr key={file.file_name} className="border-t">
-                  <td className="px-3 py-2 uppercase">{file.format}</td>
-                  <td className="px-3 py-2">{file.file_name}</td>
-                  <td className="px-3 py-2">
-                    {file.size_bytes.toLocaleString()} bytes
+                <tr key={file.file_name}>
+                  <td className="uppercase">
+                    <span className="sk-chip">{file.format}</span>
                   </td>
-                  <td className="px-3 py-2">
+                  <td>{file.file_name}</td>
+                  <td>{file.size_bytes.toLocaleString()} bytes</td>
+                  <td>
                     <button
                       type="button"
-                      className="rounded border px-3 py-1"
+                      className="sk-btn sk-btn-muted px-3 py-1.5"
                       onClick={() => void onDownload(file.format)}
                     >
                       Download

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useState } from "react";
 
 import { createDataset } from "@/lib/api-client";
@@ -25,7 +26,10 @@ export default function CreateDatasetPage() {
         description: description.trim() || undefined,
       });
       localStorage.setItem("datasim:dataset_id", response.dataset_id);
-      setStatus(`Created dataset: ${response.dataset_id}`);
+      setStatus("Dataset created. Moving to field setup...");
+      window.setTimeout(() => {
+        window.location.href = `/attribute-builder?datasetId=${response.dataset_id}`;
+      }, 700);
     } catch (error) {
       setStatus(
         error instanceof Error ? error.message : "Failed to create dataset",
@@ -38,20 +42,26 @@ export default function CreateDatasetPage() {
   return (
     <section className="space-y-5">
       <div className="space-y-2">
-        <h1 className="text-3xl font-semibold">Create Dataset</h1>
+        <h1 className="font-[var(--font-title)] text-3xl font-bold">
+          Create a New Dataset
+        </h1>
         <p className="text-muted-foreground">
-          Define dataset metadata and initialize a draft config.
+          Start with a name and optional description. We will guide you through
+          the next steps automatically.
         </p>
       </div>
 
-      <form
-        onSubmit={onSubmit}
-        className="grid max-w-2xl gap-4 rounded-xl border bg-white/70 p-5"
-      >
+      <div className="flex flex-wrap gap-2">
+        <Link href="/dashboard" className="sk-btn sk-btn-muted">
+          Back to Dashboard
+        </Link>
+      </div>
+
+      <form onSubmit={onSubmit} className="sk-panel grid max-w-2xl gap-4">
         <label className="space-y-1 text-sm font-medium">
           Dataset Name
           <input
-            className="w-full rounded-md border border-border bg-white px-3 py-2"
+            className="sk-input"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="customer_profile_synthetic"
@@ -61,7 +71,7 @@ export default function CreateDatasetPage() {
         <label className="space-y-1 text-sm font-medium">
           Description
           <textarea
-            className="min-h-28 w-full rounded-md border border-border bg-white px-3 py-2"
+            className="sk-textarea min-h-28"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Synthetic customer behavior dataset for experimentation"
@@ -71,7 +81,7 @@ export default function CreateDatasetPage() {
         <button
           type="submit"
           disabled={isSubmitting}
-          className="w-fit rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+          className="sk-btn sk-btn-primary w-fit"
         >
           {isSubmitting ? "Creating..." : "Create Dataset"}
         </button>

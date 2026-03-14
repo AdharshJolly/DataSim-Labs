@@ -29,21 +29,18 @@ export default function LoginPage() {
   return (
     <section className="mx-auto max-w-md space-y-5">
       <div className="space-y-2">
-        <h1 className="text-3xl font-semibold">Login</h1>
+        <h1 className="font-[var(--font-title)] text-3xl font-bold">Login</h1>
         <p className="text-muted-foreground">
           Sign in to access your datasets.
         </p>
       </div>
 
-      <form
-        onSubmit={onSubmit}
-        className="grid gap-4 rounded-xl border bg-white/70 p-5"
-      >
+      <form onSubmit={onSubmit} className="sk-panel grid gap-4">
         <label className="space-y-1 text-sm font-medium">
           Email
           <input
             type="email"
-            className="w-full rounded-md border border-border bg-white px-3 py-2"
+            className="sk-input"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
@@ -53,7 +50,7 @@ export default function LoginPage() {
           Password
           <input
             type="password"
-            className="w-full rounded-md border border-border bg-white px-3 py-2"
+            className="sk-input"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
@@ -62,7 +59,7 @@ export default function LoginPage() {
         <button
           type="submit"
           disabled={isSubmitting}
-          className="w-fit rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+          className="sk-btn sk-btn-primary w-fit"
         >
           {isSubmitting ? "Signing in..." : "Login"}
         </button>

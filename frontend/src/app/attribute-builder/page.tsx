@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -51,6 +52,7 @@ export default function AttributeBuilderPage() {
   const [selectedVersionId, setSelectedVersionId] = useState("");
   const [status, setStatus] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [isLoadingVersions, setIsLoadingVersions] = useState(false);
 
   const canSave = useMemo(
     () => datasetId.trim().length > 0 && attributes.length > 0 && !isSaving,
@@ -86,6 +88,7 @@ export default function AttributeBuilderPage() {
       setStatus("Dataset id is required to load versions.");
       return;
     }
+    setIsLoadingVersions(true);
     try {
       const response = await getDatasetVersions(datasetId.trim());
       const versions = response.versions.map((version) => ({
@@ -110,6 +113,8 @@ export default function AttributeBuilderPage() {
       setStatus(
         error instanceof Error ? error.message : "Failed to load versions",
       );
+    } finally {
+      setIsLoadingVersions(false);
     }
   };
 
@@ -172,9 +177,11 @@ export default function AttributeBuilderPage() {
       };
       const response = await saveAttributes(payload);
       localStorage.setItem("datasim:dataset_version_id", response.version_id);
-      setStatus(
-        `Saved ${response.attribute_count} attributes to version ${response.version_number}.`,
-      );
+      setSelectedVersionId(response.version_id);
+      setStatus("Fields saved. Opening preview...");
+      window.setTimeout(() => {
+        window.location.href = `/dataset-preview?datasetVersionId=${response.version_id}`;
+      }, 700);
     } catch (error) {
       setStatus(
         error instanceof Error ? error.message : "Failed to save attributes",
@@ -184,36 +191,61 @@ export default function AttributeBuilderPage() {
     }
   };
 
+  useEffect(() => {
+    if (!datasetId.trim()) {
+      return;
+    }
+    void onLoadVersions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [datasetId]);
+
   return (
     <section className="space-y-4">
       <div className="space-y-2">
-        <h1 className="text-3xl font-semibold">Attribute Builder</h1>
+        <h1 className="font-[var(--font-title)] text-3xl font-bold">
+          Attribute Builder
+        </h1>
         <p className="text-muted-foreground">
-          Configure data types, constraints, distributions, and null rates.
+          Configure fields once, save, and continue to preview.
         </p>
       </div>
 
-      <div className="max-w-3xl rounded-lg border bg-white/70 p-4">
+      <div className="flex flex-wrap gap-2">
+        <Link href="/dashboard" className="sk-btn sk-btn-muted">
+          Back to Dashboard
+        </Link>
+        {selectedVersionId ? (
+          <Link
+            href={`/dataset-preview?datasetVersionId=${selectedVersionId}`}
+            className="sk-btn sk-btn-primary"
+          >
+            Continue to Preview
+          </Link>
+        ) : null}
+      </div>
+
+      <div className="sk-panel max-w-3xl">
         <label className="space-y-1 text-sm font-medium">
-          Dataset ID
+          Current Dataset
           <input
-            className="w-full rounded-md border border-border bg-white px-3 py-2"
+            className="sk-input"
             value={datasetId}
             onChange={(e) => setDatasetId(e.target.value)}
-            placeholder="Paste dataset id from Create Dataset"
+            placeholder="Dataset selected from previous step"
           />
         </label>
         <div className="mt-3 flex flex-wrap items-center gap-3">
           <button
             type="button"
-            className="rounded border px-3 py-2 text-sm"
+            className="sk-btn sk-btn-muted"
+            disabled={isLoadingVersions}
             onClick={() => void onLoadVersions()}
           >
-            Load Versions
+            {isLoadingVersions ? "Loading..." : "Refresh Versions"}
           </button>
           {availableVersions.length > 0 ? (
             <select
-              className="rounded border px-3 py-2 text-sm"
+              className="sk-select max-w-48"
               value={selectedVersionId}
               onChange={(e) => void onLoadSpecificVersion(e.target.value)}
             >
@@ -228,34 +260,34 @@ export default function AttributeBuilderPage() {
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border bg-white/70">
-        <table className="min-w-full text-sm">
-          <thead className="bg-muted/60 text-left">
+      <div className="sk-table-shell">
+        <table className="sk-table">
+          <thead>
             <tr>
-              <th className="px-3 py-2">Name</th>
-              <th className="px-3 py-2">Type</th>
-              <th className="px-3 py-2">Description</th>
-              <th className="px-3 py-2">Distribution</th>
-              <th className="px-3 py-2">Null %</th>
-              <th className="px-3 py-2">Constraints (JSON)</th>
-              <th className="px-3 py-2">Action</th>
+              <th>Name</th>
+              <th>Type</th>
+              <th>Description</th>
+              <th>Distribution</th>
+              <th>Null %</th>
+              <th>Constraints (JSON)</th>
+              <th>Action</th>
             </tr>
           </thead>
           <tbody>
             {attributes.map((attribute, index) => (
-              <tr key={`${attribute.name}-${index}`} className="border-t">
-                <td className="px-3 py-2">
+              <tr key={`${attribute.name}-${index}`}>
+                <td>
                   <input
-                    className="w-40 rounded border border-border px-2 py-1"
+                    className="sk-input w-40"
                     value={attribute.name}
                     onChange={(e) =>
                       updateAttribute(index, "name", e.target.value)
                     }
                   />
                 </td>
-                <td className="px-3 py-2">
+                <td>
                   <select
-                    className="rounded border border-border px-2 py-1"
+                    className="sk-select"
                     value={attribute.type}
                     onChange={(e) =>
                       updateAttribute(index, "type", e.target.value as DataType)
@@ -268,18 +300,18 @@ export default function AttributeBuilderPage() {
                     ))}
                   </select>
                 </td>
-                <td className="px-3 py-2">
+                <td>
                   <input
-                    className="w-52 rounded border border-border px-2 py-1"
+                    className="sk-input w-52"
                     value={attribute.description}
                     onChange={(e) =>
                       updateAttribute(index, "description", e.target.value)
                     }
                   />
                 </td>
-                <td className="px-3 py-2">
+                <td>
                   <select
-                    className="rounded border border-border px-2 py-1"
+                    className="sk-select"
                     value={attribute.distribution}
                     onChange={(e) =>
                       updateAttribute(
@@ -296,12 +328,12 @@ export default function AttributeBuilderPage() {
                     ))}
                   </select>
                 </td>
-                <td className="px-3 py-2">
+                <td>
                   <input
                     type="number"
                     min={0}
                     max={100}
-                    className="w-20 rounded border border-border px-2 py-1"
+                    className="sk-input w-20"
                     value={attribute.null_percentage}
                     onChange={(e) =>
                       updateAttribute(
@@ -312,17 +344,17 @@ export default function AttributeBuilderPage() {
                     }
                   />
                 </td>
-                <td className="px-3 py-2">
+                <td>
                   <textarea
-                    className="h-16 w-60 rounded border border-border px-2 py-1 font-mono text-xs"
+                    className="sk-textarea h-16 w-60 font-mono text-xs"
                     defaultValue={JSON.stringify(attribute.constraints)}
                     onBlur={(e) => updateConstraintsJson(index, e.target.value)}
                   />
                 </td>
-                <td className="px-3 py-2">
+                <td>
                   <button
                     type="button"
-                    className="rounded border px-2 py-1"
+                    className="sk-btn sk-btn-danger px-3 py-1.5"
                     onClick={() =>
                       setAttributes((prev) =>
                         prev.filter((_, i) => i !== index),
@@ -341,7 +373,7 @@ export default function AttributeBuilderPage() {
       <div className="flex flex-wrap gap-3">
         <button
           type="button"
-          className="rounded-md border px-4 py-2 text-sm font-semibold"
+          className="sk-btn sk-btn-muted"
           onClick={() =>
             setAttributes((prev) => [
               ...prev,
@@ -354,7 +386,7 @@ export default function AttributeBuilderPage() {
         <button
           type="button"
           disabled={!canSave}
-          className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+          className="sk-btn sk-btn-primary"
           onClick={onSave}
         >
           {isSaving ? "Saving..." : "Save Attributes"}

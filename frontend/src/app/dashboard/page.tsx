@@ -51,19 +51,18 @@ export default function DashboardPage() {
     <section className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="space-y-1">
-          <h1 className="text-3xl font-semibold">Dashboard</h1>
+          <h1 className="font-[var(--font-title)] text-3xl font-bold">
+            Dashboard
+          </h1>
           <p className="text-muted-foreground">Signed in as {email || "-"}</p>
         </div>
         <div className="flex gap-2">
-          <Link
-            href="/create-dataset"
-            className="rounded-md border px-3 py-2 text-sm"
-          >
+          <Link href="/create-dataset" className="sk-btn sk-btn-muted">
             New Dataset
           </Link>
           <button
             type="button"
-            className="rounded-md border px-3 py-2 text-sm"
+            className="sk-btn sk-btn-muted"
             onClick={() => {
               clearAuthToken();
               window.location.href = "/login";
@@ -78,54 +77,54 @@ export default function DashboardPage() {
         <p className="text-sm text-muted-foreground">{status}</p>
       ) : null}
 
-      <div className="overflow-hidden rounded-xl border bg-white/70">
-        <table className="min-w-full text-sm">
-          <thead className="bg-muted/60 text-left">
+      <div className="sk-table-shell">
+        <table className="sk-table">
+          <thead>
             <tr>
-              <th className="px-3 py-2">Dataset</th>
-              <th className="px-3 py-2">Created</th>
-              <th className="px-3 py-2">Latest Version</th>
-              <th className="px-3 py-2">Actions</th>
+              <th>Dataset</th>
+              <th>Created</th>
+              <th>Latest Version</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {datasets.map((dataset) => (
-              <tr key={dataset.id} className="border-t">
-                <td className="px-3 py-2">
+              <tr key={dataset.id}>
+                <td>
                   <div className="font-medium">{dataset.name}</div>
                   <div className="text-xs text-muted-foreground">
                     {dataset.description || "-"}
                   </div>
                 </td>
-                <td className="px-3 py-2">
-                  {new Date(dataset.created_at).toLocaleString()}
+                <td>{new Date(dataset.created_at).toLocaleString()}</td>
+                <td>
+                  <span className="sk-chip">
+                    {dataset.latest_version_id || "-"}
+                  </span>
                 </td>
-                <td className="px-3 py-2">
-                  {dataset.latest_version_id || "-"}
-                </td>
-                <td className="px-3 py-2">
+                <td>
                   <div className="flex flex-wrap gap-2">
                     <Link
                       href={`/attribute-builder?datasetId=${dataset.id}`}
-                      className="rounded border px-2 py-1"
+                      className="sk-btn sk-btn-muted px-3 py-1.5"
                     >
                       Edit
                     </Link>
                     <Link
                       href={`/dataset-preview?datasetVersionId=${dataset.latest_version_id ?? ""}`}
-                      className="rounded border px-2 py-1"
+                      className="sk-btn sk-btn-muted px-3 py-1.5"
                     >
                       Preview
                     </Link>
                     <Link
                       href={`/generate-dataset?datasetId=${dataset.id}&datasetVersionId=${dataset.latest_version_id ?? ""}`}
-                      className="rounded border px-2 py-1"
+                      className="sk-btn sk-btn-muted px-3 py-1.5"
                     >
                       Generate
                     </Link>
                     <button
                       type="button"
-                      className="rounded border px-2 py-1"
+                      className="sk-btn sk-btn-danger px-3 py-1.5"
                       onClick={() => void onDelete(dataset.id)}
                     >
                       Delete

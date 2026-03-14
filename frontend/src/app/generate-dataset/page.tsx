@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { generateDataset } from "@/lib/api-client";
@@ -15,6 +16,7 @@ export default function GenerateDatasetPage() {
   const [formats, setFormats] = useState<OutputFormat[]>(["csv"]);
   const [status, setStatus] = useState("");
   const [isRunning, setIsRunning] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const toggleFormat = (format: OutputFormat) => {
     setFormats((prev) => {
@@ -44,8 +46,12 @@ export default function GenerateDatasetPage() {
         row_count: rowCount,
         formats,
       });
+      localStorage.setItem("datasim:dataset_id", datasetId.trim());
       localStorage.setItem("datasim:last_generation", JSON.stringify(response));
-      setStatus(`Generation completed. ${response.files.length} files ready.`);
+      setStatus("Generation completed. Opening downloads...");
+      window.setTimeout(() => {
+        window.location.href = `/download?datasetId=${datasetId.trim()}`;
+      }, 700);
     } catch (error) {
       setStatus(
         error instanceof Error ? error.message : "Dataset generation failed",
@@ -75,71 +81,94 @@ export default function GenerateDatasetPage() {
   return (
     <section className="space-y-4">
       <div className="space-y-2">
-        <h1 className="text-3xl font-semibold">Generate Dataset</h1>
+        <h1 className="font-[var(--font-title)] text-3xl font-bold">
+          Generate Dataset
+        </h1>
         <p className="text-muted-foreground">
-          Run large generation jobs and monitor job progress.
+          Use the recommended defaults or fine-tune advanced options.
         </p>
       </div>
 
-      <div className="grid max-w-3xl gap-4 rounded-xl border bg-white/70 p-5">
-        <label className="space-y-1 text-sm font-medium">
-          Dataset ID
-          <input
-            className="w-full rounded-md border border-border bg-white px-3 py-2"
-            value={datasetId}
-            onChange={(e) => setDatasetId(e.target.value)}
-            placeholder="Paste dataset id"
-          />
-        </label>
+      <div className="flex flex-wrap gap-2">
+        <Link href="/dashboard" className="sk-btn sk-btn-muted">
+          Back to Dashboard
+        </Link>
+        <button
+          type="button"
+          className="sk-btn sk-btn-muted"
+          onClick={() => setShowAdvanced((prev) => !prev)}
+        >
+          {showAdvanced ? "Hide Advanced Options" : "Show Advanced Options"}
+        </button>
+      </div>
+
+      <div className="sk-panel grid max-w-3xl gap-4">
+        {showAdvanced ? (
+          <label className="space-y-1 text-sm font-medium">
+            Dataset ID
+            <input
+              className="sk-input"
+              value={datasetId}
+              onChange={(e) => setDatasetId(e.target.value)}
+              placeholder="Dataset selected from previous step"
+            />
+          </label>
+        ) : null}
+
+        {showAdvanced ? (
+          <label className="space-y-1 text-sm font-medium">
+            Dataset Version ID (optional)
+            <input
+              className="sk-input"
+              value={datasetVersionId}
+              onChange={(e) => setDatasetVersionId(e.target.value)}
+              placeholder="Leave empty to use latest"
+            />
+          </label>
+        ) : null}
 
         <label className="space-y-1 text-sm font-medium">
-          Dataset Version ID (optional)
-          <input
-            className="w-full rounded-md border border-border bg-white px-3 py-2"
-            value={datasetVersionId}
-            onChange={(e) => setDatasetVersionId(e.target.value)}
-            placeholder="Leave empty to use latest"
-          />
-        </label>
-
-        <label className="space-y-1 text-sm font-medium">
-          Row Count
+          Row Count (recommended: 1,000)
           <input
             type="number"
             min={1}
             max={10000000}
-            className="w-full rounded-md border border-border bg-white px-3 py-2"
+            className="sk-input"
             value={rowCount}
             onChange={(e) => setRowCount(Number(e.target.value || 1))}
           />
         </label>
 
-        <fieldset className="space-y-2">
-          <legend className="text-sm font-medium">Output Formats</legend>
-          <div className="flex flex-wrap gap-3">
-            {ALL_FORMATS.map((format) => (
-              <label
-                key={format}
-                className="flex items-center gap-2 rounded border px-3 py-2"
-              >
-                <input
-                  type="checkbox"
-                  checked={formats.includes(format)}
-                  onChange={() => toggleFormat(format)}
-                />
-                <span className="text-sm uppercase">{format}</span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
+        {showAdvanced ? (
+          <fieldset className="space-y-2">
+            <legend className="text-sm font-medium">Output Formats</legend>
+            <div className="flex flex-wrap gap-3">
+              {ALL_FORMATS.map((format) => (
+                <label key={format} className="sk-chip flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={formats.includes(format)}
+                    onChange={() => toggleFormat(format)}
+                  />
+                  <span className="text-sm uppercase">{format}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Output format: CSV (default). Enable advanced options to change
+            format.
+          </p>
+        )}
 
         <button
           type="button"
           onClick={onGenerate}
           disabled={isRunning}
-          className="w-fit rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+          className="sk-btn sk-btn-primary w-fit"
         >
-          {isRunning ? "Generating..." : "Start Generation"}
+          {isRunning ? "Generating..." : "Generate Dataset"}
         </button>
 
         {status ? (

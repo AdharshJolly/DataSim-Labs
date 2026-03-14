@@ -3,30 +3,207 @@
 @tailwind utilities;
 
 :root {
-  --background: 210 25% 98%;
-  --foreground: 220 30% 12%;
-  --primary: 201 97% 39%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 192 40% 93%;
-  --secondary-foreground: 220 30% 12%;
-  --muted: 210 25% 94%;
-  --muted-foreground: 220 14% 42%;
-  --border: 210 22% 86%;
-  --input: 210 22% 86%;
-  --ring: 201 97% 39%;
+  --background: 39 24% 93%;
+  --foreground: 28 30% 17%;
+  --primary: 25 64% 40%;
+  --primary-foreground: 36 90% 96%;
+  --secondary: 40 18% 86%;
+  --secondary-foreground: 28 30% 17%;
+  --muted: 39 15% 88%;
+  --muted-foreground: 28 14% 36%;
+  --border: 34 18% 73%;
+  --input: 34 18% 73%;
+  --ring: 25 64% 40%;
 }
 
 body {
   @apply bg-background text-foreground antialiased;
+  min-height: 100vh;
   background-image:
     radial-gradient(
-      circle at 20% 0%,
-      rgba(14, 165, 233, 0.14),
-      transparent 35%
+      circle at 12% 10%,
+      rgba(120, 72, 36, 0.15),
+      transparent 26%
     ),
     radial-gradient(
-      circle at 90% 10%,
-      rgba(20, 184, 166, 0.12),
-      transparent 30%
+      circle at 86% 4%,
+      rgba(180, 132, 84, 0.22),
+      transparent 28%
+    ),
+    linear-gradient(
+      170deg,
+      rgba(245, 234, 218, 0.96),
+      rgba(228, 214, 194, 0.95)
     );
+}
+
+@layer components {
+  .sk-shell {
+    @apply rounded-[2rem] border border-[hsl(var(--border))] p-5 md:p-8;
+    background: linear-gradient(
+      180deg,
+      rgba(248, 241, 229, 0.96),
+      rgba(233, 220, 200, 0.94)
+    );
+    box-shadow:
+      0 26px 56px rgba(85, 53, 28, 0.19),
+      inset 0 1px 0 rgba(255, 255, 255, 0.62),
+      inset 0 -3px 10px rgba(158, 117, 77, 0.18);
+  }
+
+  .sk-panel {
+    @apply rounded-2xl border border-[hsl(var(--border))] p-4 md:p-5;
+    background: linear-gradient(
+      180deg,
+      rgba(250, 244, 234, 0.96),
+      rgba(232, 220, 201, 0.9)
+    );
+    box-shadow:
+      10px 10px 22px rgba(141, 108, 77, 0.25),
+      -10px -10px 24px rgba(255, 250, 240, 0.66),
+      inset 1px 1px 0 rgba(255, 255, 255, 0.72);
+  }
+
+  .sk-table-shell {
+    @apply overflow-x-auto rounded-2xl border border-[hsl(var(--border))];
+    background: linear-gradient(
+      180deg,
+      rgba(246, 238, 225, 0.94),
+      rgba(226, 212, 190, 0.9)
+    );
+    box-shadow:
+      inset 0 1px 2px rgba(255, 255, 255, 0.6),
+      0 16px 28px rgba(104, 76, 50, 0.2);
+  }
+
+  .sk-table {
+    @apply min-w-full text-sm;
+  }
+
+  .sk-table thead {
+    background: linear-gradient(
+      180deg,
+      rgba(228, 210, 185, 0.86),
+      rgba(213, 193, 165, 0.9)
+    );
+  }
+
+  .sk-table th {
+    @apply px-3 py-2 text-left font-semibold;
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.42);
+  }
+
+  .sk-table td {
+    @apply px-3 py-2;
+  }
+
+  .sk-table tr {
+    border-top: 1px solid rgba(141, 108, 77, 0.23);
+  }
+
+  .sk-input,
+  .sk-select,
+  .sk-textarea {
+    @apply w-full rounded-xl border border-[hsl(var(--border))] px-3 py-2 text-sm text-foreground outline-none transition;
+    background: linear-gradient(
+      180deg,
+      rgba(245, 236, 222, 0.96),
+      rgba(226, 211, 189, 0.9)
+    );
+    box-shadow:
+      inset 2px 2px 5px rgba(156, 118, 81, 0.24),
+      inset -2px -2px 4px rgba(255, 250, 242, 0.74);
+  }
+
+  .sk-input:focus,
+  .sk-select:focus,
+  .sk-textarea:focus {
+    @apply ring-2 ring-[hsl(var(--ring))/0.35];
+    border-color: rgba(140, 84, 43, 0.68);
+  }
+
+  .sk-btn {
+    @apply inline-flex items-center justify-center rounded-xl border px-4 py-2 text-sm font-semibold transition;
+    border-color: rgba(122, 86, 54, 0.62);
+    box-shadow:
+      0 6px 0 rgba(108, 72, 40, 0.58),
+      0 12px 20px rgba(111, 74, 41, 0.25),
+      inset 0 1px 0 rgba(255, 245, 230, 0.55);
+  }
+
+  .sk-btn:hover {
+    transform: translateY(-1px);
+    box-shadow:
+      0 7px 0 rgba(108, 72, 40, 0.58),
+      0 14px 22px rgba(111, 74, 41, 0.27),
+      inset 0 1px 0 rgba(255, 245, 230, 0.55);
+  }
+
+  .sk-btn:active {
+    transform: translateY(2px);
+    box-shadow:
+      0 3px 0 rgba(108, 72, 40, 0.58),
+      0 5px 9px rgba(111, 74, 41, 0.2),
+      inset 0 2px 3px rgba(86, 57, 30, 0.28);
+  }
+
+  .sk-btn:disabled {
+    @apply cursor-not-allowed opacity-60;
+    transform: none;
+    box-shadow:
+      0 4px 0 rgba(108, 72, 40, 0.35),
+      0 7px 12px rgba(111, 74, 41, 0.16);
+  }
+
+  .sk-btn-primary {
+    @apply text-primary-foreground;
+    background: linear-gradient(180deg, #be7d44, #8f5728);
+  }
+
+  .sk-btn-muted {
+    @apply text-foreground;
+    background: linear-gradient(180deg, #f0dfc3, #d8be96);
+  }
+
+  .sk-btn-danger {
+    color: #fef7ef;
+    background: linear-gradient(180deg, #bf5f4b, #924134);
+  }
+
+  .sk-chip {
+    @apply rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide;
+    border-color: rgba(122, 86, 54, 0.52);
+    background: linear-gradient(
+      180deg,
+      rgba(246, 231, 204, 0.95),
+      rgba(218, 194, 161, 0.9)
+    );
+    box-shadow: inset 0 1px 0 rgba(255, 250, 242, 0.72);
+  }
+
+  .sk-link-card {
+    @apply rounded-xl border border-[hsl(var(--border))] px-4 py-3 text-sm font-medium;
+    background: linear-gradient(
+      180deg,
+      rgba(247, 238, 224, 0.96),
+      rgba(227, 212, 191, 0.9)
+    );
+    box-shadow:
+      0 8px 18px rgba(110, 80, 54, 0.18),
+      inset 0 1px 0 rgba(255, 250, 240, 0.66);
+  }
+
+  .sk-link-card:hover {
+    transform: translateY(-1px);
+    box-shadow:
+      0 10px 20px rgba(110, 80, 54, 0.22),
+      inset 0 1px 0 rgba(255, 250, 240, 0.66);
+  }
+}
+
+@media (max-width: 768px) {
+  .sk-shell {
+    border-radius: 1.4rem;
+    padding: 1rem;
+  }
 }
