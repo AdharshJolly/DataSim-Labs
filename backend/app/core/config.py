@@ -1,9 +1,20 @@
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+REPO_ROOT = BACKEND_DIR.parent
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", extra="ignore"
+        env_file=(
+            str(BACKEND_DIR / ".env"),
+            str(REPO_ROOT / ".env"),
+        ),
+        env_file_encoding="utf-8",
+        extra="ignore",
     )
 
     app_name: str = "DataSim Lab API"

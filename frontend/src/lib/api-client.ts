@@ -125,7 +125,6 @@ export interface GenerateRequest {
   dataset_version_id?: string;
   row_count: number;
   formats: Array<"csv" | "json" | "excel">;
-  async_mode?: boolean;
 }
 
 export interface GeneratedFileInfo {
@@ -139,17 +138,7 @@ export interface GenerateResponse {
   dataset_id: string;
   status: string;
   row_count: number;
-  job_id?: string | null;
-  message?: string | null;
   files: GeneratedFileInfo[];
-}
-
-export interface GenerationStatusResponse {
-  dataset_id: string;
-  status: string;
-  row_count?: number | null;
-  files: GeneratedFileInfo[];
-  message?: string | null;
 }
 
 export interface DownloadListResponse {
@@ -242,14 +231,6 @@ export function generateDataset(
     method: "POST",
     body: JSON.stringify(payload),
   });
-}
-
-export function getGenerationStatus(
-  jobId: string,
-): Promise<GenerationStatusResponse> {
-  return apiRequest<GenerationStatusResponse>(
-    `/api/v1/dataset/generate/${jobId}`,
-  );
 }
 
 export function listDatasetFiles(

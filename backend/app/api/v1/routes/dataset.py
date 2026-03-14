@@ -5,9 +5,6 @@ from typing import Any
 from fastapi import APIRouter
 from fastapi import Depends, HTTPException, Query
 from fastapi.responses import FileResponse
-from redis import Redis
-from rq import Queue
-from rq.job import Job
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_current_user
@@ -23,7 +20,6 @@ from app.schemas.dataset import (
     DatasetVersionSummaryResponse,
     DatasetVersionsResponse,
     DownloadListResponse,
-    GenerationStatusResponse,
     DatasetCreateRequest,
     DatasetCreateResponse,
     GenerateRequest,
@@ -32,14 +28,8 @@ from app.schemas.dataset import (
     PreviewResponse,
 )
 from app.services.dataset_service import DatasetService
-from app.workers.generation_tasks import generate_dataset_job
 
 router = APIRouter(prefix="/dataset", tags=["dataset"])
-
-
-def _get_generation_queue() -> Queue:
-    redis_conn = Redis.from_url(settings.redis_url)
-    return Queue("dataset_generation", connection=redis_conn)
 
 
 @router.post("/create")
@@ -114,43 +104,6 @@ def generate_dataset(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> GenerateResponse:
-    if payload.async_mode:
-        try:
-            DatasetService.get_dataset(
-                db=db,
-                user_id=current_user.id,
-                dataset_id=payload.dataset_id,
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-        queue = _get_generation_queue()
-        job = queue.enqueue(
-            generate_dataset_job,
-            user_id=str(current_user.id),
-            dataset_id=str(payload.dataset_id),
-            dataset_version_id=(
-                str(payload.dataset_version_id) if payload.dataset_version_id else None
-            ),
-            row_count=payload.row_count,
-            formats=payload.formats,
-            job_timeout="2h",
-            result_ttl=86400,
-            failure_ttl=86400,
-        )
-        job.meta["user_id"] = str(current_user.id)
-        job.meta["dataset_id"] = str(payload.dataset_id)
-        job.save_meta()
-
-        return {
-            "dataset_id": payload.dataset_id,
-            "status": "queued",
-            "row_count": payload.row_count,
-            "job_id": job.get_id(),
-            "message": "Dataset generation queued",
-            "files": [],
-        }
-
     output_root = Path(settings.artifacts_dir)
     try:
         files = DatasetService.generate_dataset_files(
@@ -172,58 +125,7 @@ def generate_dataset(
         "dataset_id": payload.dataset_id,
         "status": "completed",
         "row_count": payload.row_count,
-        "job_id": None,
-        "message": "Dataset generation completed",
         "files": files,
-    }
-
-
-@router.get("/generate/{job_id}", response_model=GenerationStatusResponse)
-def get_generation_status(
-    job_id: str,
-    current_user: User = Depends(get_current_user),
-) -> GenerationStatusResponse:
-    queue = _get_generation_queue()
-    try:
-        job = Job.fetch(job_id, connection=queue.connection)
-    except Exception as exc:
-        raise HTTPException(status_code=404, detail="Generation job not found") from exc
-
-    owner_id = str(job.meta.get("user_id", ""))
-    if owner_id != str(current_user.id):
-        raise HTTPException(status_code=404, detail="Generation job not found")
-
-    dataset_id = str(job.meta.get("dataset_id", ""))
-    status = job.get_status()
-
-    if status in {"queued", "started", "deferred"}:
-        return {
-            "dataset_id": uuid.UUID(dataset_id),
-            "status": status,
-            "row_count": None,
-            "files": [],
-            "message": "Generation is in progress",
-        }
-
-    if status == "finished":
-        result = job.result or {}
-        return {
-            "dataset_id": uuid.UUID(str(result.get("dataset_id", dataset_id))),
-            "status": "completed",
-            "row_count": int(result.get("row_count", 0) or 0),
-            "files": result.get("files", []),
-            "message": "Generation completed",
-        }
-
-    failure_message = (
-        str(job.exc_info).splitlines()[-1] if job.exc_info else "Generation failed"
-    )
-    return {
-        "dataset_id": uuid.UUID(dataset_id),
-        "status": "failed",
-        "row_count": None,
-        "files": [],
-        "message": failure_message,
     }
 
 

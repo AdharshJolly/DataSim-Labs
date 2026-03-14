@@ -15,8 +15,10 @@ branch_labels = None
 depends_on = None
 
 
-dataset_status = sa.Enum("draft", "active", "archived", name="dataset_status")
-attribute_data_type = sa.Enum(
+dataset_status = postgresql.ENUM(
+    "draft", "active", "archived", name="dataset_status", create_type=False
+)
+attribute_data_type = postgresql.ENUM(
     "integer",
     "float",
     "categorical",
@@ -27,13 +29,15 @@ attribute_data_type = sa.Enum(
     "name",
     "address",
     name="attribute_data_type",
+    create_type=False,
 )
-attribute_distribution_type = sa.Enum(
+attribute_distribution_type = postgresql.ENUM(
     "uniform",
     "normal",
     "skewed",
     "weighted_categorical",
     name="attribute_distribution_type",
+    create_type=False,
 )
 
 

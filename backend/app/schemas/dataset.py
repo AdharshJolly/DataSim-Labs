@@ -58,7 +58,6 @@ class GenerateRequest(BaseModel):
     dataset_version_id: UUID | None = None
     row_count: int = Field(..., ge=1, le=10000000)
     formats: list[str] = Field(default_factory=lambda: ["csv"])
-    async_mode: bool = False
 
 
 class GeneratedFileInfo(BaseModel):
@@ -72,17 +71,7 @@ class GenerateResponse(BaseModel):
     dataset_id: UUID
     status: str
     row_count: int
-    job_id: str | None = None
-    message: str | None = None
     files: list[GeneratedFileInfo]
-
-
-class GenerationStatusResponse(BaseModel):
-    dataset_id: UUID
-    status: str
-    row_count: int | None = None
-    files: list[GeneratedFileInfo] = Field(default_factory=list)
-    message: str | None = None
 
 
 class DownloadListResponse(BaseModel):

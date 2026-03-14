@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { generateDataset, getGenerationStatus } from "@/lib/api-client";
+import { generateDataset } from "@/lib/api-client";
 
 type OutputFormat = "csv" | "json" | "excel";
 
@@ -17,39 +17,6 @@ export default function GenerateDatasetPage() {
   const [status, setStatus] = useState("");
   const [isRunning, setIsRunning] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
-
-  const wait = (ms: number) =>
-    new Promise<void>((resolve) => {
-      window.setTimeout(resolve, ms);
-    });
-
-  const pollGenerationStatus = async (
-    jobId: string,
-    currentDatasetId: string,
-  ) => {
-    for (let attempt = 0; attempt < 180; attempt += 1) {
-      const result = await getGenerationStatus(jobId);
-      if (result.status === "completed") {
-        localStorage.setItem("datasim:last_generation", JSON.stringify(result));
-        setStatus("Generation completed. Opening downloads...");
-        window.setTimeout(() => {
-          window.location.href = `/download?datasetId=${currentDatasetId}`;
-        }, 700);
-        return;
-      }
-
-      if (result.status === "failed") {
-        throw new Error(result.message || "Dataset generation failed");
-      }
-
-      setStatus(result.message || "Generation in progress...");
-      await wait(2000);
-    }
-
-    throw new Error(
-      "Generation is taking longer than expected. Please retry shortly.",
-    );
-  };
 
   const toggleFormat = (format: OutputFormat) => {
     setFormats((prev) => {
@@ -78,26 +45,14 @@ export default function GenerateDatasetPage() {
         dataset_version_id: datasetVersionId.trim() || undefined,
         row_count: rowCount,
         formats,
-        async_mode: true,
       });
       const currentDatasetId = datasetId.trim();
       localStorage.setItem("datasim:dataset_id", currentDatasetId);
-
-      if (response.status === "completed") {
-        localStorage.setItem(
-          "datasim:last_generation",
-          JSON.stringify(response),
-        );
-        setStatus("Generation completed. Opening downloads...");
-        window.setTimeout(() => {
-          window.location.href = `/download?datasetId=${currentDatasetId}`;
-        }, 700);
-      } else if (response.job_id) {
-        setStatus("Generation queued. Preparing files...");
-        await pollGenerationStatus(response.job_id, currentDatasetId);
-      } else {
-        throw new Error("Generation could not be started");
-      }
+      localStorage.setItem("datasim:last_generation", JSON.stringify(response));
+      setStatus("Generation completed. Opening downloads...");
+      window.setTimeout(() => {
+        window.location.href = `/download?datasetId=${currentDatasetId}`;
+      }, 700);
     } catch (error) {
       setStatus(
         error instanceof Error ? error.message : "Dataset generation failed",

@@ -7,7 +7,7 @@ Synthetic Dataset Generation Platform scaffold.
 - Frontend: Next.js + TypeScript + TailwindCSS + ShadCN UI + TanStack Table
 - Backend: FastAPI + Pydantic
 - Data engine: pandas + numpy + faker
-- Storage: PostgreSQL + Redis
+- Storage: PostgreSQL
 - Deployment: local development first (Docker can be added later)
 
 ## Run (initial scaffold)
@@ -19,15 +19,11 @@ Synthetic Dataset Generation Platform scaffold.
    - `pip install -r requirements.txt`
    - `alembic upgrade head`
    - `uvicorn app.main:app --reload --host 0.0.0.0 --port 8000`
-3. Start async generation worker in a third terminal:
-   - `cd backend`
-   - `venv\\Scripts\\activate`
-   - `python -m app.workers.worker`
-4. Start frontend in a second terminal:
+3. Start frontend in a second terminal:
    - `cd frontend`
    - `npm install`
    - `npm run dev`
-5. Open:
+4. Open:
    - Frontend: `http://localhost:3000`
    - Backend docs: `http://localhost:8000/docs`
 
@@ -52,16 +48,13 @@ Dataset ownership and versioning:
    - `POST /api/v1/dataset/preview`
 4. Generate dataset files:
    - `POST /api/v1/dataset/generate`
-   - Supports synchronous and asynchronous mode (`async_mode: true`)
-5. Get generation status:
-   - `GET /api/v1/dataset/generate/{job_id}`
-6. List/download files:
+5. List/download files:
    - `GET /api/v1/dataset/download/{dataset_id}`
-7. List user datasets:
+6. List user datasets:
    - `GET /api/v1/dataset/list`
-8. Dataset detail:
+7. Dataset detail:
    - `GET /api/v1/dataset/{dataset_id}`
-9. Dataset versions:
+8. Dataset versions:
    - `GET /api/v1/dataset/{dataset_id}/versions`
 
 ## Example Requests
@@ -133,7 +126,6 @@ Generation request:
 {
   "dataset_id": "<dataset_id>",
   "row_count": 100000,
-  "formats": ["csv", "json", "excel"],
-  "async_mode": true
+  "formats": ["csv", "json", "excel"]
 }
 ```
