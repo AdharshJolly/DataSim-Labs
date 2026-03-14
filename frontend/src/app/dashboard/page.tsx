@@ -108,13 +108,7 @@ export default function DashboardPage() {
                       href={`/attribute-builder?datasetId=${dataset.id}`}
                       className="sk-btn sk-btn-muted px-3 py-1.5"
                     >
-                      Edit
-                    </Link>
-                    <Link
-                      href={`/dataset-preview?datasetVersionId=${dataset.latest_version_id ?? ""}`}
-                      className="sk-btn sk-btn-muted px-3 py-1.5"
-                    >
-                      Preview
+                      Open
                     </Link>
                     <Link
                       href={`/generate-dataset?datasetId=${dataset.id}&datasetVersionId=${dataset.latest_version_id ?? ""}`}

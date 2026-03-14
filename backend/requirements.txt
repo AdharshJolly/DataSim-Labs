@@ -5,6 +5,7 @@ pydantic-settings==2.10.1
 sqlalchemy==2.0.43
 psycopg[binary]==3.2.9
 redis==6.2.0
+rq==1.16.2
 pandas==2.3.2
 numpy==2.3.2
 faker==37.6.0
