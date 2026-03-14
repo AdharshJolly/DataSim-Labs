@@ -55,6 +55,7 @@ class PreviewResponse(BaseModel):
 
 class GenerateRequest(BaseModel):
     dataset_id: UUID
+    dataset_version_id: UUID | None = None
     row_count: int = Field(..., ge=1, le=10000000)
     formats: list[str] = Field(default_factory=lambda: ["csv"])
 
@@ -90,3 +91,36 @@ class DatasetAttributesResponse(BaseModel):
     version_id: UUID
     version_number: int
     attribute_count: int
+
+
+class DatasetSummaryResponse(BaseModel):
+    id: UUID
+    name: str
+    description: str | None
+    latest_version_id: UUID | None
+    created_at: str
+
+
+class DatasetVersionSummaryResponse(BaseModel):
+    id: UUID
+    version_number: int
+    config_json: dict[str, Any]
+    created_at: str
+
+
+class DatasetDetailResponse(BaseModel):
+    id: UUID
+    name: str
+    description: str | None
+    latest_version_id: UUID | None
+    created_at: str
+    updated_at: str
+
+
+class DatasetListResponse(BaseModel):
+    datasets: list[DatasetSummaryResponse]
+
+
+class DatasetVersionsResponse(BaseModel):
+    dataset_id: UUID
+    versions: list[DatasetVersionSummaryResponse]

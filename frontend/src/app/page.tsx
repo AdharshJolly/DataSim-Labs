@@ -1,6 +1,8 @@
 import Link from "next/link";
 
 const routes = [
+  "/login",
+  "/register",
   "/dashboard",
   "/create-dataset",
   "/attribute-builder",

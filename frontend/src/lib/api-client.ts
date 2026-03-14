@@ -1,14 +1,39 @@
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
+export const TOKEN_STORAGE_KEY = "datasim_token";
+
+function getAuthToken(): string | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  return localStorage.getItem(TOKEN_STORAGE_KEY);
+}
+
+export function setAuthToken(token: string): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  localStorage.setItem(TOKEN_STORAGE_KEY, token);
+}
+
+export function clearAuthToken(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  localStorage.removeItem(TOKEN_STORAGE_KEY);
+}
+
 export async function apiRequest<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
+  const token = getAuthToken();
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(init?.headers || {}),
     },
     cache: "no-store",
@@ -52,6 +77,24 @@ export interface CreateDatasetRequest {
   description?: string;
 }
 
+export interface AuthRequest {
+  email: string;
+  password: string;
+}
+
+export interface AuthResponse {
+  access_token: string;
+  token_type: string;
+  user_id: string;
+  email: string;
+}
+
+export interface CurrentUserResponse {
+  id: string;
+  email: string;
+  created_at: string;
+}
+
 export interface CreateDatasetResponse {
   message: string;
   dataset_id: string;
@@ -79,6 +122,7 @@ export interface PreviewResponse {
 
 export interface GenerateRequest {
   dataset_id: string;
+  dataset_version_id?: string;
   row_count: number;
   formats: Array<"csv" | "json" | "excel">;
 }
@@ -100,6 +144,57 @@ export interface GenerateResponse {
 export interface DownloadListResponse {
   dataset_id: string;
   files: GeneratedFileInfo[];
+}
+
+export interface DatasetSummary {
+  id: string;
+  name: string;
+  description?: string | null;
+  latest_version_id?: string | null;
+  created_at: string;
+}
+
+export interface DatasetVersionSummary {
+  id: string;
+  version_number: number;
+  config_json: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface DatasetListResponse {
+  datasets: DatasetSummary[];
+}
+
+export interface DatasetDetailResponse {
+  id: string;
+  name: string;
+  description?: string | null;
+  latest_version_id?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DatasetVersionsResponse {
+  dataset_id: string;
+  versions: DatasetVersionSummary[];
+}
+
+export function register(payload: AuthRequest): Promise<AuthResponse> {
+  return apiRequest<AuthResponse>("/api/v1/auth/register", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function login(payload: AuthRequest): Promise<AuthResponse> {
+  return apiRequest<AuthResponse>("/api/v1/auth/login", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function me(): Promise<CurrentUserResponse> {
+  return apiRequest<CurrentUserResponse>("/api/v1/auth/me");
 }
 
 export function createDataset(
@@ -149,4 +244,51 @@ export function listDatasetFiles(
 export function buildDownloadUrl(datasetId: string, format: string): string {
   const search = new URLSearchParams({ format });
   return `${API_BASE_URL}/api/v1/dataset/download/${datasetId}?${search.toString()}`;
+}
+
+export async function downloadDatasetFile(
+  datasetId: string,
+  format: string,
+): Promise<{ blob: Blob; fileName: string }> {
+  const token = getAuthToken();
+  const search = new URLSearchParams({ format });
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/dataset/download/${datasetId}?${search.toString()}`,
+    {
+      method: "GET",
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(`Download failed (${response.status})`);
+  }
+
+  const contentDisposition = response.headers.get("Content-Disposition") || "";
+  const match = contentDisposition.match(/filename="?([^";]+)"?/i);
+  const fallback = `dataset_${datasetId}.${format === "excel" ? "xlsx" : format}`;
+  return {
+    blob: await response.blob(),
+    fileName: match?.[1] || fallback,
+  };
+}
+
+export function listDatasets(): Promise<DatasetListResponse> {
+  return apiRequest<DatasetListResponse>("/api/v1/dataset/list");
+}
+
+export function getDataset(datasetId: string): Promise<DatasetDetailResponse> {
+  return apiRequest<DatasetDetailResponse>(`/api/v1/dataset/${datasetId}`);
+}
+
+export function getDatasetVersions(datasetId: string): Promise<DatasetVersionsResponse> {
+  return apiRequest<DatasetVersionsResponse>(`/api/v1/dataset/${datasetId}/versions`);
+}
+
+export function deleteDataset(datasetId: string): Promise<{ message: string }> {
+  return apiRequest<{ message: string }>(`/api/v1/dataset/${datasetId}`, {
+    method: "DELETE",
+  });
 }

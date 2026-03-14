@@ -7,11 +7,18 @@ from fastapi import Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
+from app.auth.dependencies import get_current_user
+from app.auth.models import User
 from app.core.config import settings
 from app.db.session import get_db
 from app.schemas.dataset import (
     DatasetAttributesRequest,
     DatasetAttributesResponse,
+    DatasetDetailResponse,
+    DatasetListResponse,
+    DatasetSummaryResponse,
+    DatasetVersionSummaryResponse,
+    DatasetVersionsResponse,
     DownloadListResponse,
     DatasetCreateRequest,
     DatasetCreateResponse,
@@ -29,9 +36,13 @@ router = APIRouter(prefix="/dataset", tags=["dataset"])
 def create_dataset(
     payload: DatasetCreateRequest,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> DatasetCreateResponse:
     dataset = DatasetService.create_dataset(
-        db=db, name=payload.name, description=payload.description
+        db=db,
+        user_id=current_user.id,
+        name=payload.name,
+        description=payload.description,
     )
     return {
         "message": "Dataset created",
@@ -44,10 +55,12 @@ def create_dataset(
 def save_attributes(
     payload: DatasetAttributesRequest,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> DatasetAttributesResponse:
     try:
         version = DatasetService.create_dataset_version(
             db=db,
+            user_id=current_user.id,
             dataset_id=payload.dataset_id,
             attributes=payload.attributes,
         )
@@ -67,10 +80,12 @@ def save_attributes(
 def preview_dataset(
     payload: PreviewRequest,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> PreviewResponse:
     try:
         preview_data = DatasetService.generate_preview(
             db=db,
+            user_id=current_user.id,
             dataset_version_id=payload.dataset_version_id,
         )
     except ValueError as exc:
@@ -87,16 +102,21 @@ def preview_dataset(
 def generate_dataset(
     payload: GenerateRequest,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> GenerateResponse:
     output_root = Path(settings.artifacts_dir)
     try:
         files = DatasetService.generate_dataset_files(
             db=db,
+            user_id=current_user.id,
             dataset_id=payload.dataset_id,
+            dataset_version_id=payload.dataset_version_id,
             row_count=payload.row_count,
             formats=payload.formats,
             output_root=output_root,
             chunk_size=settings.generation_chunk_size,
+            seed=None,
+            retention_hours=settings.artifact_retention_hours,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -113,8 +133,15 @@ def generate_dataset(
 def download_dataset(
     dataset_id: uuid.UUID,
     format: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> Any:
     output_root = Path(settings.artifacts_dir)
+    try:
+        DatasetService.get_dataset(db=db, user_id=current_user.id, dataset_id=dataset_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
     if format:
         file_path = DatasetService.resolve_generated_file(
             dataset_id=dataset_id,
@@ -132,3 +159,90 @@ def download_dataset(
         "dataset_id": dataset_id,
         "files": files,
     }
+
+
+@router.get("/list", response_model=DatasetListResponse)
+def list_datasets(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DatasetListResponse:
+    datasets = DatasetService.list_datasets(db=db, user_id=current_user.id)
+    return {
+        "datasets": [
+            DatasetSummaryResponse(
+                id=dataset.id,
+                name=dataset.name,
+                description=dataset.description,
+                latest_version_id=dataset.latest_version_id,
+                created_at=dataset.created_at.isoformat(),
+            )
+            for dataset in datasets
+        ]
+    }
+
+
+@router.get("/{dataset_id}", response_model=DatasetDetailResponse)
+def get_dataset(
+    dataset_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DatasetDetailResponse:
+    try:
+        dataset = DatasetService.get_dataset(
+            db=db,
+            user_id=current_user.id,
+            dataset_id=dataset_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return DatasetDetailResponse(
+        id=dataset.id,
+        name=dataset.name,
+        description=dataset.description,
+        latest_version_id=dataset.latest_version_id,
+        created_at=dataset.created_at.isoformat(),
+        updated_at=dataset.updated_at.isoformat(),
+    )
+
+
+@router.get("/{dataset_id}/versions", response_model=DatasetVersionsResponse)
+def get_dataset_versions(
+    dataset_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DatasetVersionsResponse:
+    try:
+        versions = DatasetService.get_dataset_versions(
+            db=db,
+            user_id=current_user.id,
+            dataset_id=dataset_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return {
+        "dataset_id": dataset_id,
+        "versions": [
+            DatasetVersionSummaryResponse(
+                id=version.id,
+                version_number=version.version_number,
+                config_json=version.config_json,
+                created_at=version.created_at.isoformat(),
+            )
+            for version in versions
+        ],
+    }
+
+
+@router.delete("/{dataset_id}")
+def delete_dataset(
+    dataset_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict[str, str]:
+    try:
+        DatasetService.delete_dataset(db=db, user_id=current_user.id, dataset_id=dataset_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"message": "Dataset deleted"}

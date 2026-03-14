@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -12,8 +13,13 @@ from app.schemas.dataset import AttributeConfig
 
 class DatasetService:
     @staticmethod
-    def create_dataset(db: Session, name: str, description: str | None) -> Dataset:
-        dataset = Dataset(name=name, description=description)
+    def create_dataset(
+        db: Session,
+        user_id: uuid.UUID,
+        name: str,
+        description: str | None,
+    ) -> Dataset:
+        dataset = Dataset(user_id=user_id, name=name, description=description)
         db.add(dataset)
         db.commit()
         db.refresh(dataset)
@@ -22,10 +28,13 @@ class DatasetService:
     @staticmethod
     def create_dataset_version(
         db: Session,
+        user_id: uuid.UUID,
         dataset_id: uuid.UUID,
         attributes: list[AttributeConfig],
     ) -> DatasetVersion:
-        dataset = db.get(Dataset, dataset_id)
+        dataset = db.scalar(
+            select(Dataset).where(Dataset.id == dataset_id, Dataset.user_id == user_id)
+        )
         if dataset is None:
             raise ValueError("Dataset not found")
 
@@ -71,11 +80,16 @@ class DatasetService:
     @staticmethod
     def generate_preview(
         db: Session,
+        user_id: uuid.UUID,
         dataset_version_id: uuid.UUID,
         seed: int | None = None,
     ) -> list[dict[str, Any]]:
         """Generate a 10-row preview from persisted attribute configuration."""
-        version = db.get(DatasetVersion, dataset_version_id)
+        version = db.scalar(
+            select(DatasetVersion)
+            .join(Dataset, Dataset.id == DatasetVersion.dataset_id)
+            .where(DatasetVersion.id == dataset_version_id, Dataset.user_id == user_id)
+        )
         if version is None:
             raise ValueError("Dataset version not found")
 
@@ -86,23 +100,43 @@ class DatasetService:
     @staticmethod
     def generate_dataset_files(
         db: Session,
+        user_id: uuid.UUID,
         dataset_id: uuid.UUID,
         row_count: int,
         formats: list[str],
         output_root: Path,
         chunk_size: int,
         seed: int | None = None,
+        dataset_version_id: uuid.UUID | None = None,
+        retention_hours: int = 24,
     ) -> list[dict[str, Any]]:
         """Generate and export full datasets for a dataset's latest version."""
-        dataset = db.get(Dataset, dataset_id)
+        dataset = db.scalar(
+            select(Dataset).where(Dataset.id == dataset_id, Dataset.user_id == user_id)
+        )
         if dataset is None:
             raise ValueError("Dataset not found")
 
-        if dataset.latest_version_id is None:
+        target_version_id = dataset_version_id or dataset.latest_version_id
+        if target_version_id is None:
             raise ValueError("Dataset has no attribute configuration")
 
-        attributes = DatasetService._load_version_attributes(
-            db, dataset.latest_version_id
+        owned_version = db.scalar(
+            select(DatasetVersion).where(
+                DatasetVersion.id == target_version_id,
+                DatasetVersion.dataset_id == dataset.id,
+            )
+        )
+        if owned_version is None:
+            raise ValueError("Dataset version not found")
+
+        attributes = DatasetService._load_version_attributes(db, target_version_id)
+        if not attributes:
+            raise ValueError("Dataset version has no attributes")
+
+        DatasetService.cleanup_old_artifacts(
+            output_root=output_root,
+            max_age_hours=retention_hours,
         )
         generator = DatasetGenerator(seed=seed)
         return generator.export_dataset_files(
@@ -116,7 +150,8 @@ class DatasetService:
 
     @staticmethod
     def list_generated_files(
-        dataset_id: uuid.UUID, output_root: Path
+        dataset_id: uuid.UUID,
+        output_root: Path,
     ) -> list[dict[str, Any]]:
         """List generated files available for a dataset on disk."""
         dataset_dir = output_root / str(dataset_id)
@@ -175,6 +210,61 @@ class DatasetService:
             reverse=True,
         )
         return candidates[0] if candidates else None
+
+    @staticmethod
+    def list_datasets(db: Session, user_id: uuid.UUID) -> list[Dataset]:
+        """List all datasets owned by a user."""
+        return db.scalars(
+            select(Dataset).where(Dataset.user_id == user_id).order_by(Dataset.created_at.desc())
+        ).all()
+
+    @staticmethod
+    def get_dataset(db: Session, user_id: uuid.UUID, dataset_id: uuid.UUID) -> Dataset:
+        """Get one dataset if owned by the user."""
+        dataset = db.scalar(
+            select(Dataset).where(Dataset.id == dataset_id, Dataset.user_id == user_id)
+        )
+        if dataset is None:
+            raise ValueError("Dataset not found")
+        return dataset
+
+    @staticmethod
+    def get_dataset_versions(
+        db: Session,
+        user_id: uuid.UUID,
+        dataset_id: uuid.UUID,
+    ) -> list[DatasetVersion]:
+        """Get all versions for one dataset if owned by user."""
+        dataset = DatasetService.get_dataset(db=db, user_id=user_id, dataset_id=dataset_id)
+        return db.scalars(
+            select(DatasetVersion)
+            .where(DatasetVersion.dataset_id == dataset.id)
+            .order_by(DatasetVersion.version_number.desc())
+        ).all()
+
+    @staticmethod
+    def delete_dataset(db: Session, user_id: uuid.UUID, dataset_id: uuid.UUID) -> None:
+        """Delete dataset and all versions/attributes if owned by user."""
+        dataset = DatasetService.get_dataset(db=db, user_id=user_id, dataset_id=dataset_id)
+        db.delete(dataset)
+        db.commit()
+
+    @staticmethod
+    def cleanup_old_artifacts(output_root: Path, max_age_hours: int) -> None:
+        """Delete generated files older than retention window."""
+        if not output_root.exists():
+            return
+
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
+        for dataset_dir in output_root.glob("*"):
+            if not dataset_dir.is_dir():
+                continue
+            for file_path in dataset_dir.glob("*"):
+                if not file_path.is_file():
+                    continue
+                modified_at = datetime.fromtimestamp(file_path.stat().st_mtime, tz=timezone.utc)
+                if modified_at < cutoff:
+                    file_path.unlink(missing_ok=True)
 
     @staticmethod
     def _load_version_attributes(

@@ -10,6 +10,7 @@ const ALL_FORMATS: OutputFormat[] = ["csv", "json", "excel"];
 
 export default function GenerateDatasetPage() {
   const [datasetId, setDatasetId] = useState("");
+  const [datasetVersionId, setDatasetVersionId] = useState("");
   const [rowCount, setRowCount] = useState(1000);
   const [formats, setFormats] = useState<OutputFormat[]>(["csv"]);
   const [status, setStatus] = useState("");
@@ -39,6 +40,7 @@ export default function GenerateDatasetPage() {
     try {
       const response = await generateDataset({
         dataset_id: datasetId.trim(),
+        dataset_version_id: datasetVersionId.trim() || undefined,
         row_count: rowCount,
         formats,
       });
@@ -54,8 +56,18 @@ export default function GenerateDatasetPage() {
   };
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const datasetFromQuery = params.get("datasetId");
+    const versionFromQuery = params.get("datasetVersionId");
+    if (datasetFromQuery) {
+      setDatasetId(datasetFromQuery);
+    }
+    if (versionFromQuery) {
+      setDatasetVersionId(versionFromQuery);
+    }
+
     const stored = localStorage.getItem("datasim:dataset_id");
-    if (stored) {
+    if (stored && !datasetFromQuery) {
       setDatasetId(stored);
     }
   }, []);
@@ -77,6 +89,16 @@ export default function GenerateDatasetPage() {
             value={datasetId}
             onChange={(e) => setDatasetId(e.target.value)}
             placeholder="Paste dataset id"
+          />
+        </label>
+
+        <label className="space-y-1 text-sm font-medium">
+          Dataset Version ID (optional)
+          <input
+            className="w-full rounded-md border border-border bg-white px-3 py-2"
+            value={datasetVersionId}
+            onChange={(e) => setDatasetVersionId(e.target.value)}
+            placeholder="Leave empty to use latest"
           />
         </label>
 

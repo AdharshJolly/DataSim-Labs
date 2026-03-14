@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import {
   GeneratedFileInfo,
-  buildDownloadUrl,
+  downloadDatasetFile,
   listDatasetFiles,
 } from "@/lib/api-client";
 
@@ -36,6 +36,22 @@ export default function DownloadPage() {
       );
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const onDownload = async (format: string) => {
+    try {
+      const { blob, fileName } = await downloadDatasetFile(datasetId.trim(), format);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = fileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Download failed");
     }
   };
 
@@ -98,12 +114,13 @@ export default function DownloadPage() {
                     {file.size_bytes.toLocaleString()} bytes
                   </td>
                   <td className="px-3 py-2">
-                    <a
+                    <button
+                      type="button"
                       className="rounded border px-3 py-1"
-                      href={buildDownloadUrl(datasetId.trim(), file.format)}
+                      onClick={() => void onDownload(file.format)}
                     >
                       Download
-                    </a>
+                    </button>
                   </td>
                 </tr>
               ))}

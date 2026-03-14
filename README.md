@@ -12,7 +12,7 @@ Synthetic Dataset Generation Platform scaffold.
 
 ## Run (initial scaffold)
 
-1. Copy `.env.example` to `.env` and keep the Supabase `DATABASE_URL`.
+1. Copy `.env.example` to `.env` and set your own `DATABASE_URL` and `JWT_SECRET_KEY`.
 2. Start backend:
    - `cd backend`
    - `venv\\Scripts\\activate`
@@ -29,6 +29,17 @@ Synthetic Dataset Generation Platform scaffold.
 
 ## API Flow
 
+Authentication:
+
+1. Register user:
+   - `POST /api/v1/auth/register`
+2. Login:
+   - `POST /api/v1/auth/login`
+3. Current user:
+   - `GET /api/v1/auth/me`
+
+Dataset ownership and versioning:
+
 1. Create dataset:
    - `POST /api/v1/dataset/create`
 2. Save attributes:
@@ -39,6 +50,12 @@ Synthetic Dataset Generation Platform scaffold.
    - `POST /api/v1/dataset/generate`
 5. List/download files:
    - `GET /api/v1/dataset/download/{dataset_id}`
+6. List user datasets:
+   - `GET /api/v1/dataset/list`
+7. Dataset detail:
+   - `GET /api/v1/dataset/{dataset_id}`
+8. Dataset versions:
+   - `GET /api/v1/dataset/{dataset_id}/versions`
 
 ## Example Requests
 
@@ -48,6 +65,24 @@ Create dataset:
 {
   "name": "customer_synthetic",
   "description": "Synthetic customer profile dataset"
+}
+```
+
+Register request:
+
+```json
+{
+   "email": "researcher@example.com",
+   "password": "strong-password-123"
+}
+```
+
+Login request:
+
+```json
+{
+   "email": "researcher@example.com",
+   "password": "strong-password-123"
 }
 ```
 

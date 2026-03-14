@@ -48,9 +48,15 @@ class DistributionType(str, Enum):
 class Dataset(Base):
     __tablename__ = "datasets"
 
-    __table_args__ = (Index("ix_datasets_latest_version_id", "latest_version_id"),)
+    __table_args__ = (
+        Index("ix_datasets_latest_version_id", "latest_version_id"),
+        Index("ix_datasets_user_id", "user_id"),
+    )
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -75,6 +81,7 @@ class Dataset(Base):
     versions: Mapped[list["DatasetVersion"]] = relationship(
         "DatasetVersion", back_populates="dataset", cascade="all, delete-orphan"
     )
+    user: Mapped["User"] = relationship("User", back_populates="datasets")
 
 
 class DatasetVersion(Base):

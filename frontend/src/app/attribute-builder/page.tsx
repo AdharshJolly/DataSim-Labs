@@ -6,6 +6,7 @@ import {
   AttributeConfig,
   DataType,
   DistributionType,
+  getDatasetVersions,
   saveAttributes,
 } from "@/lib/api-client";
 
@@ -44,6 +45,10 @@ export default function AttributeBuilderPage() {
   const [attributes, setAttributes] = useState<AttributeConfig[]>([
     createDefaultAttribute(0),
   ]);
+  const [availableVersions, setAvailableVersions] = useState<
+    Array<{ id: string; version_number: number }>
+  >([]);
+  const [selectedVersionId, setSelectedVersionId] = useState("");
   const [status, setStatus] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
@@ -63,11 +68,68 @@ export default function AttributeBuilderPage() {
   };
 
   useEffect(() => {
+    const fromQuery = new URLSearchParams(window.location.search).get("datasetId");
+    if (fromQuery) {
+      setDatasetId(fromQuery);
+      return;
+    }
     const stored = localStorage.getItem("datasim:dataset_id");
     if (stored) {
       setDatasetId(stored);
     }
   }, []);
+
+  const onLoadVersions = async () => {
+    if (!datasetId.trim()) {
+      setStatus("Dataset id is required to load versions.");
+      return;
+    }
+    try {
+      const response = await getDatasetVersions(datasetId.trim());
+      const versions = response.versions.map((version) => ({
+        id: version.id,
+        version_number: version.version_number,
+      }));
+      setAvailableVersions(versions);
+      if (versions.length > 0) {
+        const latest = response.versions[0];
+        const configuredAttributes =
+          (latest.config_json.attributes as AttributeConfig[] | undefined) ?? [];
+        if (configuredAttributes.length > 0) {
+          setAttributes(configuredAttributes);
+          setSelectedVersionId(latest.id);
+          setStatus(`Loaded version ${latest.version_number} for editing.`);
+        }
+      } else {
+        setStatus("No versions available yet. Create attributes to start v1.");
+      }
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Failed to load versions");
+    }
+  };
+
+  const onLoadSpecificVersion = async (versionId: string) => {
+    if (!datasetId.trim() || !versionId) {
+      return;
+    }
+    try {
+      const response = await getDatasetVersions(datasetId.trim());
+      const selected = response.versions.find((version) => version.id === versionId);
+      if (!selected) {
+        setStatus("Selected version not found.");
+        return;
+      }
+      const configuredAttributes =
+        (selected.config_json.attributes as AttributeConfig[] | undefined) ?? [];
+      if (configuredAttributes.length > 0) {
+        setAttributes(configuredAttributes);
+      }
+      setSelectedVersionId(versionId);
+      setStatus(`Loaded version ${selected.version_number} for editing.`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Failed to load selected version");
+    }
+  };
 
   const updateConstraintsJson = (index: number, raw: string) => {
     try {
@@ -129,6 +191,29 @@ export default function AttributeBuilderPage() {
             placeholder="Paste dataset id from Create Dataset"
           />
         </label>
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            className="rounded border px-3 py-2 text-sm"
+            onClick={() => void onLoadVersions()}
+          >
+            Load Versions
+          </button>
+          {availableVersions.length > 0 ? (
+            <select
+              className="rounded border px-3 py-2 text-sm"
+              value={selectedVersionId}
+              onChange={(e) => void onLoadSpecificVersion(e.target.value)}
+            >
+              <option value="">Select version</option>
+              {availableVersions.map((version) => (
+                <option key={version.id} value={version.id}>
+                  v{version.version_number}
+                </option>
+              ))}
+            </select>
+          ) : null}
+        </div>
       </div>
 
       <div className="overflow-x-auto rounded-xl border bg-white/70">
