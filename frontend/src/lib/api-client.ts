@@ -1,22 +1,33 @@
-const LOCAL_BACKEND_URL = "http://localhost:8000";
-
-const SERVER_API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ||
-  process.env.BACKEND_INTERNAL_URL ||
-  LOCAL_BACKEND_URL;
-
-const BROWSER_API_BASE_URL =
-  process.env.NODE_ENV === "production" ? "" : SERVER_API_BASE_URL;
-
 export const API_BASE_URL =
-  typeof window === "undefined" ? SERVER_API_BASE_URL : BROWSER_API_BASE_URL;
+  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+
+const AUTH_TOKEN_KEY = "datasim_access_token";
+
+function getAuthToken(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(AUTH_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
 
 export function setAuthToken(token: string): void {
-  void token;
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(AUTH_TOKEN_KEY, token);
+  } catch {
+    // Ignore storage access errors.
+  }
 }
 
 export function clearAuthToken(): void {
-  // Cookie-based auth does not persist tokens in web storage.
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(AUTH_TOKEN_KEY);
+  } catch {
+    // Ignore storage access errors.
+  }
 }
 
 async function parseApiError(response: Response): Promise<string> {
@@ -42,11 +53,12 @@ export async function apiRequest<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
+  const token = getAuthToken();
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
-    credentials: "include",
     headers: {
       "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(init?.headers || {}),
     },
     cache: "no-store",
@@ -277,12 +289,15 @@ export async function downloadDatasetFile(
   datasetId: string,
   format: string,
 ): Promise<{ blob: Blob; fileName: string }> {
+  const token = getAuthToken();
   const search = new URLSearchParams({ format });
   const response = await fetch(
     `${API_BASE_URL}/api/v1/dataset/download/${datasetId}?${search.toString()}`,
     {
       method: "GET",
-      credentials: "include",
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
     },
   );
 

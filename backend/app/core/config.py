@@ -38,9 +38,6 @@ class Settings(BaseSettings):
     jwt_secret_key: str = Field(validation_alias="JWT_SECRET_KEY")
     jwt_algorithm: str = "HS256"
     jwt_expiration_minutes: int = 60
-    auth_cookie_name: str = "datasim_access_token"
-    auth_cookie_secure: bool = False
-    auth_cookie_samesite: Literal["lax", "strict", "none"] = "lax"
 
     @model_validator(mode="after")
     def validate_security_settings(self) -> "Settings":

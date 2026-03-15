@@ -2,29 +2,27 @@
 
 from __future__ import annotations
 
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pymongo.database import Database
 
 from app.auth.models import User
 from app.auth.security import InvalidTokenError, decode_access_token
-from app.core.config import settings
 from app.db.session import get_db
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
 def get_current_user(
-    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     db: Database = Depends(get_db),
 ) -> User:
     """Return currently authenticated user from bearer token."""
-    token: str | None = None
-    if credentials is not None and credentials.scheme.lower() == "bearer":
-        token = credentials.credentials
-    elif request is not None:
-        token = request.cookies.get(settings.auth_cookie_name)
+    token: str | None = (
+        credentials.credentials
+        if credentials is not None and credentials.scheme.lower() == "bearer"
+        else None
+    )
 
     if not token:
         raise HTTPException(

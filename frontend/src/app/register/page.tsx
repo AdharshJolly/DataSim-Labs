@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useState } from "react";
 
-import { register } from "@/lib/api-client";
+import { register, setAuthToken } from "@/lib/api-client";
 
 export default function RegisterPage() {
   const [email, setEmail] = useState("");
@@ -16,7 +16,8 @@ export default function RegisterPage() {
     setStatus("");
     setIsSubmitting(true);
     try {
-      await register({ email, password });
+      const auth = await register({ email, password });
+      setAuthToken(auth.access_token);
       window.location.href = "/dashboard";
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Registration failed");
