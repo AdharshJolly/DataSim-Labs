@@ -1,0 +1,118 @@
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { Milestone, Menu, X } from "lucide-react";
+import { useState, useEffect } from "react";
+
+export function Navbar() {
+  const [isOpen, setIsOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+  const pathname = usePathname();
+
+  useEffect(() => {
+    const handleScroll = () => setScrolled(window.scrollY > 20);
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  const navLinks = [
+    { name: "Studio", href: "/studio" },
+    { name: "Dashboard", href: "/dashboard" },
+  ];
+
+  const isActive = (path: string) => pathname === path;
+
+  return (
+    <nav
+      className={`fixed top-0 z-50 w-full transition-all duration-300 ${
+        scrolled
+          ? "border-b border-white/10 bg-background/80 backdrop-blur-md py-3"
+          : "bg-transparent py-5"
+      }`}
+    >
+      <div className="mx-auto flex max-w-7xl items-center justify-between px-4 md:px-8">
+        <Link href="/" className="flex items-center gap-2 group">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/20 text-primary transition-transform group-hover:scale-110">
+            <Milestone className="h-5 w-5" />
+          </div>
+          <span className="font-display text-xl font-bold tracking-tight text-foreground">
+            DataSim<span className="text-primary">Lab</span>
+          </span>
+        </Link>
+
+        {/* Desktop Nav */}
+        <div className="hidden items-center gap-8 md:flex">
+          <div className="flex items-center gap-6">
+            {navLinks.map((link) => (
+              <Link
+                key={link.name}
+                href={link.href}
+                className={`text-sm font-medium transition-colors hover:text-primary ${
+                  isActive(link.href) ? "text-primary" : "text-muted-foreground"
+                }`}
+              >
+                {link.name}
+              </Link>
+            ))}
+          </div>
+          <div className="h-4 w-px bg-border" />
+          <div className="flex items-center gap-4">
+            <Link
+              href="/login"
+              className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              Sign In
+            </Link>
+            <Link href="/register" className="btn-primary h-9 px-5 text-xs">
+              Get Started
+            </Link>
+          </div>
+        </div>
+
+        {/* Mobile Toggle */}
+        <button
+          className="flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-white/5 md:hidden"
+          onClick={() => setIsOpen(!isOpen)}
+        >
+          {isOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+        </button>
+      </div>
+
+      {/* Mobile Menu */}
+      {isOpen && (
+        <div className="absolute left-0 top-full w-full border-b border-border bg-background/95 p-4 backdrop-blur-xl md:hidden">
+          <div className="flex flex-col gap-4">
+            {navLinks.map((link) => (
+              <Link
+                key={link.name}
+                href={link.href}
+                className={`px-4 py-2 text-sm font-medium transition-colors ${
+                  isActive(link.href) ? "text-primary bg-primary/10 rounded-lg" : "text-muted-foreground"
+                }`}
+                onClick={() => setIsOpen(false)}
+              >
+                {link.name}
+              </Link>
+            ))}
+            <hr className="border-border" />
+            <Link
+              href="/login"
+              className="px-4 py-2 text-sm font-medium text-muted-foreground"
+              onClick={() => setIsOpen(false)}
+            >
+              Sign In
+            </Link>
+            <Link
+              href="/register"
+              className="btn-primary w-full"
+              onClick={() => setIsOpen(false)}
+            >
+              Get Started
+            </Link>
+          </div>
+        </div>
+      )}
+    </nav>
+  );
+}

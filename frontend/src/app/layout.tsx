@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+import { Navbar } from "@/components/layout/navbar";
+import { Footer } from "@/components/layout/footer";
 
 const sansFont = Inter({
   subsets: ["latin"],
@@ -13,21 +15,24 @@ const monoFont = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "DataSim Lab",
-  description: "Synthetic dataset generation platform",
+  title: "DataSim Lab | Professional Synthetic Data Generation",
+  description: "Design, preview, and generate high-quality synthetic datasets for research and development.",
 };
 
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" className="dark scroll-smooth">
       <body
         className={`${sansFont.variable} ${monoFont.variable} font-sans antialiased`}
       >
-        <main className="mx-auto min-h-screen max-w-7xl p-4 md:p-8">
+        <div className="fixed inset-0 bg-grid-white opacity-25 pointer-events-none -z-10" />
+        <Navbar />
+        <main className="mx-auto min-h-screen max-w-7xl px-4 pb-20 pt-28 md:px-8">
           {children}
         </main>
+        <Footer />
       </body>
     </html>
   );
