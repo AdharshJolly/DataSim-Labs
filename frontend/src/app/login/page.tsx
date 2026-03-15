@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { FormEvent, useState } from "react";
-
 import { login, setAuthToken } from "@/lib/api-client";
+import { ArrowLeft, LogIn, LoaderCircle } from "lucide-react";
+
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -27,82 +28,91 @@ export default function LoginPage() {
   };
 
   return (
-    <section className="mx-auto max-w-sm space-y-6 pt-4">
-      <div>
-        <Link
-          href="/"
-          className="mb-6 flex items-center gap-2 text-sm text-[hsl(var(--muted-foreground))] transition hover:text-[hsl(var(--foreground))]"
-        >
-          ← DataSim Lab
-        </Link>
-        <h1 className="font-[var(--font-title)] text-3xl font-black tracking-tight">
-          Welcome back
-        </h1>
-        <p className="mt-1 text-[hsl(var(--muted-foreground))]">
-          Sign in to access your datasets.
-        </p>
-      </div>
-
-      <form onSubmit={onSubmit} className="studio-card grid gap-5">
-        <div className="studio-field">
-          <label htmlFor="email" className="studio-label">
-            Email address
-          </label>
-          <input
-            id="email"
-            type="email"
-            className="sk-input"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            autoComplete="email"
-            required
-          />
-        </div>
-        <div className="studio-field">
-          <label htmlFor="password" className="studio-label">
-            Password
-          </label>
-          <input
-            id="password"
-            type="password"
-            className="sk-input"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete="current-password"
-            required
-          />
+    <div className="flex min-h-screen items-center justify-center p-4">
+      <div className="w-full max-w-md space-y-8">
+        <div className="text-center">
+          <h1 className="font-display text-glow text-4xl font-bold text-primary">
+            DataSim Lab
+          </h1>
+          <p className="mt-2 text-muted-foreground">Welcome back, agent.</p>
         </div>
 
-        {status && (
-          <div className="sk-alert-error">
-            <span>{status}</span>
+        <div className="relative rounded-xl border border-border bg-background/50 p-8 backdrop-blur-sm">
+          <div className="absolute -inset-px rounded-xl bg-gradient-to-r from-primary/20 to-secondary/20 blur-lg" />
+          <div className="relative z-10">
+            <form onSubmit={onSubmit} className="space-y-6">
+              <div className="space-y-2">
+                <label
+                  htmlFor="email"
+                  className="text-sm font-medium text-muted-foreground"
+                >
+                  Email address
+                </label>
+                <input
+                  id="email"
+                  type="email"
+                  className="w-full rounded-md border border-border bg-background/70 px-3 py-2 text-foreground placeholder-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  autoComplete="email"
+                  required
+                  placeholder="agent@datasim.lab"
+                />
+              </div>
+              <div className="space-y-2">
+                <label
+                  htmlFor="password"
+                  className="text-sm font-medium text-muted-foreground"
+                >
+                  Password
+                </label>
+                <input
+                  id="password"
+                  type="password"
+                  className="w-full rounded-md border border-border bg-background/70 px-3 py-2 text-foreground placeholder-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="current-password"
+                  required
+                  placeholder="••••••••"
+                />
+              </div>
+
+              {status && (
+                <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+                  {status}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="btn-cyber w-full !h-11"
+              >
+                {isSubmitting ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <LoaderCircle className="h-4 w-4 animate-spin" /> Authenticating…
+                  </span>
+                ) : (
+                  <span className="flex items-center justify-center gap-2">
+                    <LogIn className="h-4 w-4" /> Sign In
+                  </span>
+                )}
+              </button>
+            </form>
+
+            <p className="mt-6 text-center text-sm text-muted-foreground">
+              Don&apos;t have an account?{" "}
+              <Link
+                className="font-semibold text-primary underline-offset-4 transition-colors hover:text-primary/80 hover:underline"
+                href="/register"
+              >
+                Create one free
+              </Link>
+            </p>
           </div>
-        )}
-
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          className="sk-btn sk-btn-primary w-full py-3"
-        >
-          {isSubmitting ? (
-            <span className="flex items-center justify-center gap-2">
-              <span className="sk-spinner h-4 w-4" /> Signing in…
-            </span>
-          ) : (
-            "Sign In"
-          )}
-        </button>
-      </form>
-
-      <p className="text-center text-sm text-[hsl(var(--muted-foreground))]">
-        Don&apos;t have an account?{" "}
-        <Link
-          className="font-semibold text-[hsl(var(--primary))] underline-offset-2 hover:underline"
-          href="/register"
-        >
-          Create one free
-        </Link>
-      </p>
-    </section>
+        </div>
+      </div>
+    </div>
   );
 }

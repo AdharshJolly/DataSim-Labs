@@ -2,6 +2,15 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import {
+  AlertTriangle,
+  Check,
+  CheckCircle2,
+  Download,
+  LoaderCircle,
+  Plus,
+  X,
+} from "lucide-react";
 
 import { AttrCard } from "@/components/studio/attr-card";
 import { FORMAT_OPTIONS, STEP_LABELS } from "@/components/studio/constants";
@@ -297,16 +306,8 @@ export default function StudioPage() {
   return (
     <div className="flex min-h-[calc(100vh-10rem)] flex-col gap-0 md:flex-row md:gap-8">
       {/* ── Sidebar ── */}
-      <aside className="hidden w-52 flex-shrink-0 md:block">
-        {/* Back link */}
-        <Link
-          href="/dashboard"
-          className="mb-6 flex items-center gap-2 text-sm text-[hsl(var(--muted-foreground))] transition hover:text-[hsl(var(--foreground))]"
-        >
-          ← Dashboard
-        </Link>
-
-        <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">
+      <aside className="hidden w-56 flex-shrink-0 md:block">
+        <p className="mb-3 text-sm font-semibold uppercase tracking-widest text-muted-foreground">
           Steps
         </p>
         <nav className="space-y-1">
@@ -323,41 +324,45 @@ export default function StudioPage() {
                 onClick={() => {
                   if (done) setStep(s);
                 }}
-                className={`studio-sidebar-item ${
+                className={`group flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors ${
                   active
-                    ? "studio-sidebar-active"
+                    ? "bg-primary/10 text-primary"
                     : done
-                      ? "studio-sidebar-done"
-                      : "studio-sidebar-inactive"
+                    ? "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+                    : "cursor-not-allowed text-muted-foreground/50"
                 }`}
               >
                 <span
-                  className={`studio-step-num ${
+                  className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold ${
                     active
-                      ? "studio-step-num-active"
+                      ? "bg-primary text-primary-foreground"
                       : done
-                        ? "studio-step-num-done"
-                        : "studio-step-num-inactive"
+                      ? "bg-green-500/20 text-green-400 group-hover:bg-green-500/30"
+                      : "bg-border text-muted-foreground"
                   }`}
                 >
-                  {done ? "✓" : num}
+                  {done ? <Check className="h-4 w-4" /> : num}
                 </span>
-                {label}
+                <span>{label}</span>
               </button>
             );
           })}
         </nav>
 
         {/* Dataset info */}
-        {dsName && (
-          <div className="mt-6 rounded-xl border border-[hsl(var(--border))] bg-[rgba(240,228,210,0.4)] p-3">
-            <p className="text-[10px] font-bold uppercase tracking-widest text-[hsl(var(--muted-foreground))]">
+        {(dsName || datasetId) && (
+          <div className="mt-8">
+            <p className="mb-2 text-sm font-semibold uppercase tracking-widest text-muted-foreground">
               Dataset
             </p>
-            <p className="mt-0.5 truncate text-sm font-semibold">{dsName}</p>
-            <p className="text-xs text-[hsl(var(--muted-foreground))]">
-              {attrs.length} {attrs.length === 1 ? "attribute" : "attributes"}
-            </p>
+            <div className="rounded-lg border border-border bg-white/5 p-3">
+              <p className="truncate font-semibold text-foreground">
+                {dsName || `ID: ${datasetId.substring(0, 8)}...`}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {attrs.length} {attrs.length === 1 ? "field" : "fields"}
+              </p>
+            </div>
           </div>
         )}
       </aside>
@@ -365,80 +370,68 @@ export default function StudioPage() {
       {/* ── Main Content ── */}
       <div className="min-w-0 flex-1">
         {/* Mobile step bar */}
-        <div className="mobile-step-bar mb-5">
-          {STEP_LABELS.map(([num], i) => {
-            const s = (i + 1) as Step;
-            const done = step > s;
-            const active = step === s;
-            return (
-              <div key={s} className="flex items-center gap-1">
-                <span
-                  className={`mobile-step-dot text-xs ${
-                    active
-                      ? "bg-[hsl(var(--primary))] text-[hsl(var(--primary-foreground))]"
-                      : done
-                        ? "bg-emerald-600 text-white"
-                        : "bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))]"
+        <div className="mb-6 md:hidden">
+          <p className="mb-2 text-sm font-semibold uppercase tracking-widest text-muted-foreground">
+            Step {step} of {STEP_LABELS.length}
+          </p>
+          <div className="flex h-1.5 w-full items-center gap-1.5 rounded-full bg-border">
+            {STEP_LABELS.map((_, i) => {
+              const s = (i + 1) as Step;
+              return (
+                <div
+                  key={s}
+                  className={`h-full flex-1 rounded-full ${
+                    step >= s ? "bg-primary" : ""
                   }`}
-                >
-                  {done ? "✓" : num}
-                </span>
-                {i < STEP_LABELS.length - 1 && (
-                  <div className="mobile-step-connector" />
-                )}
-              </div>
-            );
-          })}
+                />
+              );
+            })}
+          </div>
         </div>
-
-        {/* Mobile back link */}
-        <Link
-          href="/dashboard"
-          className="mb-4 flex items-center gap-1 text-sm text-[hsl(var(--muted-foreground))] transition hover:text-[hsl(var(--foreground))] md:hidden"
-        >
-          ← Dashboard
-        </Link>
 
         {/* Error banner */}
         {error && (
-          <div className="sk-alert-error mb-5">
-            <span className="flex-1">{error}</span>
+          <div className="mb-6 flex items-start justify-between gap-4 rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 flex-shrink-0" />
+              <span>{error}</span>
+            </div>
             <button
               type="button"
               onClick={() => setError("")}
-              className="flex-shrink-0 text-red-400 hover:text-red-700"
+              className="rounded-full p-1 transition-colors hover:bg-destructive/20"
               aria-label="Dismiss error"
             >
-              ✕
+              <X className="h-4 w-4" />
             </button>
           </div>
         )}
 
         {/* ════════════════ STEP 1 ════════════════ */}
         {step === 1 && (
-          <div className="studio-card">
+          <div>
             <header className="mb-8">
-              <h1 className="font-[var(--font-title)] text-3xl font-black tracking-tight">
+              <h1 className="font-display text-4xl font-bold">
                 Start a New Dataset
               </h1>
-              <p className="mt-2 text-[hsl(var(--muted-foreground))]">
+              <p className="mt-2 text-muted-foreground">
                 Give your synthetic dataset a name and describe what it
                 represents. You&apos;ll define the fields next.
               </p>
             </header>
 
-            <div className="grid max-w-lg gap-5">
-              <div className="studio-field">
-                <label htmlFor="ds-name" className="studio-label">
-                  Dataset Name{" "}
-                  <span className="text-red-500" aria-hidden>
-                    *
-                  </span>
+            <div className="max-w-lg space-y-6">
+              <div className="space-y-2">
+                <label
+                  htmlFor="ds-name"
+                  className="text-sm font-medium text-muted-foreground"
+                >
+                  Dataset Name <span className="text-red-500">*</span>
                 </label>
                 <input
                   id="ds-name"
-                  className="sk-input"
-                  placeholder="e.g. Patient Survey 2025"
+                  className="w-full rounded-md border border-border bg-background/70 px-3 py-2 text-foreground placeholder-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  placeholder="e.g. Project Chimera"
                   value={dsName}
                   onChange={(e) => setDsName(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && void handleCreate()}
@@ -446,16 +439,16 @@ export default function StudioPage() {
                 />
               </div>
 
-              <div className="studio-field">
-                <label htmlFor="ds-desc" className="studio-label">
-                  Description{" "}
-                  <span className="text-xs font-normal text-[hsl(var(--muted-foreground))]">
-                    (optional)
-                  </span>
+              <div className="space-y-2">
+                <label
+                  htmlFor="ds-desc"
+                  className="text-sm font-medium text-muted-foreground"
+                >
+                  Description (optional)
                 </label>
                 <textarea
                   id="ds-desc"
-                  className="sk-textarea h-24 resize-none"
+                  className="h-24 w-full resize-none rounded-md border border-border bg-background/70 px-3 py-2 text-foreground placeholder-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
                   placeholder="What is this dataset for? Who will use it? What does it represent?"
                   value={dsDesc}
                   onChange={(e) => setDsDesc(e.target.value)}
@@ -468,17 +461,20 @@ export default function StudioPage() {
                 type="button"
                 disabled={busy || !dsName.trim()}
                 onClick={() => void handleCreate()}
-                className="sk-btn sk-btn-primary px-8 py-3 text-base"
+                className="btn-primary"
               >
                 {busy ? (
-                  <span className="flex items-center gap-2">
-                    <span className="sk-spinner h-4 w-4" /> Creating…
+                  <span className="flex items-center justify-center gap-2">
+                    <LoaderCircle className="h-4 w-4 animate-spin" /> Creating…
                   </span>
                 ) : (
                   "Create & Define Fields →"
                 )}
               </button>
-              <Link href="/dashboard" className="sk-btn sk-btn-muted">
+              <Link
+                href="/dashboard"
+                className="inline-flex h-11 items-center justify-center rounded-lg border border-border px-4 text-sm font-medium text-muted-foreground transition-colors hover:border-border hover:bg-white/5"
+              >
                 Cancel
               </Link>
             </div>
@@ -487,13 +483,13 @@ export default function StudioPage() {
 
         {/* ════════════════ STEP 2 ════════════════ */}
         {step === 2 && (
-          <div className="studio-card">
-            <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <header className="mb-8 flex flex-wrap items-start justify-between gap-4">
               <div>
-                <h1 className="font-[var(--font-title)] text-3xl font-black tracking-tight">
+                <h1 className="font-display text-4xl font-bold">
                   Define Your Fields
                 </h1>
-                <p className="mt-2 text-[hsl(var(--muted-foreground))]">
+                <p className="mt-2 text-muted-foreground">
                   Each field becomes a column. Describe what it represents to
                   guide generation — the more detail, the better.
                 </p>
@@ -502,20 +498,20 @@ export default function StudioPage() {
                 type="button"
                 disabled={busy || attrs.length === 0}
                 onClick={() => void handleSaveAndPreview()}
-                className="sk-btn sk-btn-primary whitespace-nowrap"
+                className="btn-primary whitespace-nowrap"
               >
                 {busy ? (
-                  <span className="flex items-center gap-2">
-                    <span className="sk-spinner h-4 w-4" /> Saving…
+                  <span className="flex items-center justify-center gap-2">
+                    <LoaderCircle className="h-4 w-4 animate-spin" /> Saving…
                   </span>
                 ) : (
-                  "Preview 10 Rows →"
+                  "Save & Preview →"
                 )}
               </button>
             </header>
 
             {/* Attribute list */}
-            <div className="space-y-3">
+            <div className="space-y-4">
               {attrs.map((attr, i) => (
                 <AttrCard
                   key={attr._id}
@@ -532,25 +528,25 @@ export default function StudioPage() {
             <button
               type="button"
               onClick={addAttr}
-              className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-[hsl(var(--border))] py-4 text-sm font-semibold text-[hsl(var(--muted-foreground))] transition-all hover:border-[hsl(var(--primary))] hover:bg-[hsl(var(--primary)/0.04)] hover:text-[hsl(var(--primary))]"
+              className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border py-4 text-sm font-semibold text-muted-foreground transition-all hover:border-primary/80 hover:bg-primary/10 hover:text-primary"
             >
-              <span className="text-xl leading-none">+</span>
+              <Plus className="h-4 w-4" />
               Add Field
             </button>
 
-            <div className="mt-6 flex items-center gap-3">
+            <div className="mt-8 flex items-center gap-3">
               <button
                 type="button"
                 disabled={busy || attrs.length === 0}
                 onClick={() => void handleSaveAndPreview()}
-                className="sk-btn sk-btn-primary"
+                className="btn-primary"
               >
-                {busy ? "Saving…" : "Preview 10 Rows →"}
+                {busy ? "Saving…" : "Save & Preview →"}
               </button>
               <button
                 type="button"
                 onClick={() => setStep(1)}
-                className="sk-btn sk-btn-muted"
+                className="inline-flex h-11 items-center justify-center rounded-lg border border-border px-4 text-sm font-medium text-muted-foreground transition-colors hover:border-border hover:bg-white/5"
               >
                 ← Back
               </button>
@@ -560,13 +556,13 @@ export default function StudioPage() {
 
         {/* ════════════════ STEP 3 ════════════════ */}
         {step === 3 && (
-          <div className="studio-card">
-            <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <header className="mb-8 flex flex-wrap items-start justify-between gap-4">
               <div>
-                <h1 className="font-[var(--font-title)] text-3xl font-black tracking-tight">
+                <h1 className="font-display text-4xl font-bold">
                   Preview & Refine
                 </h1>
-                <p className="mt-2 text-[hsl(var(--muted-foreground))]">
+                <p className="mt-2 text-muted-foreground">
                   Review 10 sample rows. Tweak the field settings below and
                   regenerate until the data looks right.
                 </p>
@@ -575,7 +571,7 @@ export default function StudioPage() {
                 <button
                   type="button"
                   onClick={() => setStep(2)}
-                  className="sk-btn sk-btn-muted"
+                  className="inline-flex h-11 items-center justify-center rounded-lg border border-border px-4 text-sm font-medium text-muted-foreground transition-colors hover:border-border hover:bg-white/5"
                 >
                   ← Edit Fields
                 </button>
@@ -583,11 +579,12 @@ export default function StudioPage() {
                   type="button"
                   disabled={isRefreshing}
                   onClick={() => void handleRegenerate()}
-                  className="sk-btn sk-btn-muted"
+                  className="inline-flex h-11 items-center justify-center rounded-lg border border-border px-4 text-sm font-medium text-muted-foreground transition-colors hover:border-border hover:bg-white/5"
                 >
                   {isRefreshing ? (
                     <span className="flex items-center gap-2">
-                      <span className="sk-spinner h-4 w-4" /> Regenerating…
+                      <LoaderCircle className="h-4 w-4 animate-spin" />{" "}
+                      Regenerating…
                     </span>
                   ) : (
                     "↺ Regenerate"
@@ -596,7 +593,7 @@ export default function StudioPage() {
                 <button
                   type="button"
                   onClick={() => setStep(4)}
-                  className="sk-btn sk-btn-primary"
+                  className="btn-primary"
                 >
                   Looks Good →
                 </button>
@@ -605,29 +602,40 @@ export default function StudioPage() {
 
             {/* Preview table */}
             {isRefreshing ? (
-              <div className="flex h-40 flex-col items-center justify-center gap-3 rounded-2xl border border-[hsl(var(--border))] bg-[rgba(240,228,210,0.3)]">
-                <span className="sk-spinner h-6 w-6 text-[hsl(var(--primary))]" />
-                <span className="text-sm text-[hsl(var(--muted-foreground))]">
+              <div className="flex h-60 flex-col items-center justify-center gap-3 rounded-lg border border-border bg-background/70">
+                <LoaderCircle className="h-8 w-8 animate-spin text-primary" />
+                <span className="text-sm text-muted-foreground">
                   Generating sample…
                 </span>
               </div>
             ) : previewRows.length > 0 ? (
-              <div className="sk-table-shell">
-                <table className="sk-table">
-                  <thead>
+              <div className="overflow-x-auto rounded-lg border border-border">
+                <table className="min-w-full text-sm">
+                  <thead className="border-b border-border/50 bg-white/5">
                     <tr>
                       {previewCols.map((col) => (
-                        <th key={col}>{col}</th>
+                        <th
+                          key={col}
+                          className="px-4 py-3 text-left font-medium text-muted-foreground"
+                        >
+                          {col}
+                        </th>
                       ))}
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody className="divide-y divide-border/50">
                     {previewRows.map((row, ri) => (
-                      <tr key={ri}>
+                      <tr
+                        key={ri}
+                        className="transition-colors hover:bg-white/5"
+                      >
                         {previewCols.map((col) => (
-                          <td key={col}>
+                          <td
+                            key={col}
+                            className="whitespace-nowrap px-4 py-3 text-foreground"
+                          >
                             {row[col] == null ? (
-                              <span className="italic text-[hsl(var(--muted-foreground))]">
+                              <span className="italic text-muted-foreground/60">
                                 null
                               </span>
                             ) : (
@@ -641,28 +649,28 @@ export default function StudioPage() {
                 </table>
               </div>
             ) : (
-              <div className="flex h-40 items-center justify-center rounded-2xl border border-dashed border-[hsl(var(--border))] text-sm text-[hsl(var(--muted-foreground))]">
+              <div className="flex h-60 items-center justify-center rounded-lg border-2 border-dashed border-border/50 text-sm text-muted-foreground">
                 No preview data yet — click Regenerate.
               </div>
             )}
 
             {/* Quick‑adjust cards */}
-            <div className="mt-8">
-              <div className="mb-3 flex items-center justify-between">
-                <h2 className="text-sm font-bold uppercase tracking-wide text-[hsl(var(--muted-foreground))]">
+            <div className="mt-12">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="font-display text-2xl font-bold">
                   Quick Adjustments
                 </h2>
                 <button
                   type="button"
                   disabled={isRefreshing}
                   onClick={() => void handleRegenerate()}
-                  className="sk-btn sk-btn-muted px-3 py-1.5 text-xs"
+                  className="btn-secondary !h-9 !px-3 !text-xs"
                 >
                   {isRefreshing ? "…" : "↺ Apply & Regenerate"}
                 </button>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {attrs.map((attr, i) => (
                   <QuickAdjustCard
                     key={attr._id}
@@ -678,105 +686,102 @@ export default function StudioPage() {
 
         {/* ════════════════ STEP 4 ════════════════ */}
         {step === 4 && (
-          <div className="studio-card">
+          <div>
             {generatedFiles.length === 0 ? (
               <>
                 <header className="mb-8">
-                  <h1 className="font-[var(--font-title)] text-3xl font-black tracking-tight">
+                  <h1 className="font-display text-4xl font-bold">
                     Generate Your Dataset
                   </h1>
-                  <p className="mt-2 text-[hsl(var(--muted-foreground))]">
+                  <p className="mt-2 text-muted-foreground">
                     Choose how many rows you need and which formats to export.
-                    We&apos;ll generate and prepare your download.
                   </p>
                 </header>
 
-                <div className="grid max-w-xl gap-7">
+                <div className="max-w-xl space-y-8">
                   {/* Row count */}
-                  <div className="studio-field">
-                    <span className="studio-label">Number of Rows</span>
-                    <div className="mt-1 flex items-center gap-4">
+                  <div className="space-y-2">
+                    <label
+                      htmlFor="row-count"
+                      className="text-sm font-medium text-muted-foreground"
+                    >
+                      Number of Rows
+                    </label>
+                    <div className="flex items-center gap-4">
                       <input
+                        id="row-count"
                         type="range"
                         min={100}
                         max={100000}
                         step={100}
                         value={rowCount}
                         onChange={(e) => setRowCount(Number(e.target.value))}
-                        className="flex-1 accent-[hsl(var(--primary))]"
+                        className="h-2 flex-1 cursor-pointer appearance-none rounded-lg bg-border accent-primary"
                       />
                       <input
                         type="number"
                         min={1}
                         max={10000000}
-                        className="sk-input w-28 text-center font-semibold"
+                        className="w-32 rounded-md border border-border bg-background/70 px-3 py-2 text-center font-semibold text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
                         value={rowCount}
                         onChange={(e) =>
                           setRowCount(Math.max(1, Number(e.target.value) || 1))
                         }
                       />
                     </div>
-                    <p className="text-xs text-[hsl(var(--muted-foreground))]">
-                      {rowCount.toLocaleString()} rows will be generated
-                    </p>
                   </div>
 
                   {/* Format selection */}
-                  <div className="studio-field">
-                    <span className="studio-label">Output Format</span>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-muted-foreground">
+                      Output Format
+                    </label>
                     <div className="mt-1 flex flex-wrap gap-3">
-                      {FORMAT_OPTIONS.map(({ value, label, ext }) => (
+                      {FORMAT_OPTIONS.map(({ value, label, icon: Icon }) => (
                         <button
                           key={value}
                           type="button"
                           onClick={() => toggleFormat(value)}
-                          className={`format-btn ${
+                          className={`flex h-24 w-24 flex-col items-center justify-center gap-1.5 rounded-lg border-2 text-sm font-semibold transition-all duration-150 ${
                             formats.includes(value)
-                              ? "format-btn-active"
-                              : "format-btn-inactive"
+                              ? "border-primary bg-primary/10 text-primary shadow-lg shadow-primary/10"
+                              : "border-border bg-white/5 text-muted-foreground hover:border-primary/50 hover:bg-primary/5"
                           }`}
                         >
-                          <span className="text-xl leading-none">
-                            {value === "csv"
-                              ? "⊞"
-                              : value === "json"
-                                ? "{ }"
-                                : "⊟"}
-                          </span>
-                          <span className="font-bold">{label}</span>
-                          <span className="text-xs opacity-60">{ext}</span>
+                          <Icon className="h-6 w-6" />
+                          <span>{label}</span>
                         </button>
                       ))}
                     </div>
                   </div>
 
-                  <div className="studio-field">
-                    <label htmlFor="generation-seed" className="studio-label">
-                      Reproducibility Seed{" "}
-                      <span className="text-xs font-normal text-[hsl(var(--muted-foreground))]">
-                        (optional)
-                      </span>
+                  <div className="space-y-2">
+                    <label
+                      htmlFor="generation-seed"
+                      className="text-sm font-medium text-muted-foreground"
+                    >
+                      Reproducibility Seed (optional)
                     </label>
                     <input
                       id="generation-seed"
                       type="number"
                       min={0}
-                      className="sk-input w-48"
+                      className="w-48 rounded-md border border-border bg-background/70 px-3 py-2 text-foreground placeholder-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
                       value={seed}
                       placeholder="e.g. 42"
                       onChange={(e) => setSeed(e.target.value)}
                     />
-                    <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                    <p className="pt-1 text-xs text-muted-foreground/70">
                       Use the same seed to regenerate identical datasets.
                     </p>
                   </div>
 
                   {/* Actions */}
-                  <div className="flex flex-wrap items-center gap-3 pt-2">
+                  <div className="flex flex-wrap items-center gap-3 pt-4">
                     <button
                       type="button"
                       onClick={() => setStep(3)}
-                      className="sk-btn sk-btn-muted"
+                      className="inline-flex h-11 items-center justify-center rounded-lg border border-border px-4 text-sm font-medium text-muted-foreground transition-colors hover:border-border hover:bg-white/5"
                     >
                       ← Back to Preview
                     </button>
@@ -784,11 +789,12 @@ export default function StudioPage() {
                       type="button"
                       disabled={busy || formats.length === 0}
                       onClick={() => void handleGenerate()}
-                      className="sk-btn sk-btn-primary px-8 py-3 text-base"
+                      className="btn-primary"
                     >
                       {busy ? (
-                        <span className="flex items-center gap-2">
-                          <span className="sk-spinner h-4 w-4" /> Generating…
+                        <span className="flex items-center justify-center gap-2">
+                          <LoaderCircle className="h-4 w-4 animate-spin" />{" "}
+                          Generating…
                         </span>
                       ) : (
                         `Generate ${rowCount.toLocaleString()} Rows`
@@ -799,16 +805,16 @@ export default function StudioPage() {
               </>
             ) : (
               /* Success state */
-              <div className="space-y-6">
+              <div className="space-y-8">
                 <div className="flex items-center gap-4">
-                  <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center rounded-full bg-emerald-100 text-2xl text-emerald-700">
-                    ✓
+                  <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-full bg-green-500/10 text-3xl text-green-400">
+                    <CheckCircle2 className="h-10 w-10" />
                   </div>
                   <div>
-                    <h2 className="font-[var(--font-title)] text-2xl font-bold">
+                    <h2 className="font-display text-3xl font-bold">
                       Dataset Ready!
                     </h2>
-                    <p className="text-[hsl(var(--muted-foreground))]">
+                    <p className="text-muted-foreground">
                       {rowCount.toLocaleString()} rows · {attrs.length} columns
                       · {generatedFiles.length}{" "}
                       {generatedFiles.length === 1 ? "file" : "files"}
@@ -816,24 +822,25 @@ export default function StudioPage() {
                   </div>
                 </div>
 
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   {generatedFiles.map((file) => (
                     <div
                       key={file.format}
-                      className="sk-panel flex items-center justify-between gap-3 p-4"
+                      className="flex items-center justify-between gap-3 rounded-lg border border-border bg-white/5 p-4"
                     >
                       <div>
                         <p className="font-bold uppercase">{file.format}</p>
-                        <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                        <p className="text-xs text-muted-foreground">
                           {formatBytes(file.size_bytes)}
                         </p>
                       </div>
                       <button
                         type="button"
                         onClick={() => void handleDownload(file.format)}
-                        className="sk-btn sk-btn-primary px-4 py-1.5 text-xs"
+                        className="btn-secondary !h-9 !px-3 !text-xs"
                       >
-                        ↓ Download
+                        <Download className="mr-1.5 h-3 w-3" />
+                        Download
                       </button>
                     </div>
                   ))}
@@ -847,11 +854,11 @@ export default function StudioPage() {
                       setRowCount(1000);
                       setFormats(["csv"]);
                     }}
-                    className="sk-btn sk-btn-muted"
+                    className="inline-flex h-11 items-center justify-center rounded-lg border border-border px-4 text-sm font-medium text-muted-foreground transition-colors hover:border-border hover:bg-white/5"
                   >
                     Generate Again
                   </button>
-                  <Link href="/dashboard" className="sk-btn sk-btn-primary">
+                  <Link href="/dashboard" className="btn-primary">
                     Back to Dashboard
                   </Link>
                 </div>

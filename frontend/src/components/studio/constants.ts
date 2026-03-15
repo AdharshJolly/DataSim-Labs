@@ -1,4 +1,18 @@
 import type { DataType, DistributionType } from "@/lib/api-client";
+import {
+  Hash,
+  Binary,
+  ListFilter,
+  ToggleLeft,
+  Calendar,
+  Type,
+  Mail,
+  User,
+  MapPin,
+  FileText,
+  Database,
+  FileSpreadsheet,
+} from "lucide-react";
 import type { OutputFormat } from "./types";
 
 export const STEP_LABELS: [string, string][] = [
@@ -8,18 +22,35 @@ export const STEP_LABELS: [string, string][] = [
   ["4", "Generate"],
 ];
 
-export const TYPE_OPTIONS: { value: DataType; label: string; icon: string }[] =
-  [
-    { value: "integer", label: "Integer", icon: "#" },
-    { value: "float", label: "Decimal", icon: "~" },
-    { value: "categorical", label: "Category", icon: "≡" },
-    { value: "boolean", label: "True/False", icon: "◎" },
-    { value: "date", label: "Date", icon: "▦" },
-    { value: "text", label: "Text", icon: "T" },
-    { value: "email", label: "Email", icon: "@" },
-    { value: "name", label: "Full Name", icon: "✦" },
-    { value: "address", label: "Address", icon: "⌂" },
-  ];
+export const TYPE_OPTIONS = [
+  {
+    category: "Basic",
+    options: [
+      { value: "integer" as DataType, label: "Integer", icon: Hash, description: "Whole numbers only" },
+      { value: "float" as DataType, label: "Decimal", icon: Binary, description: "Numbers with decimal points" },
+      { value: "boolean" as DataType, label: "True/False", icon: ToggleLeft, description: "Yes/No, 1/0, True/False" },
+      { value: "categorical" as DataType, label: "Category", icon: ListFilter, description: "Pick from a list of values" },
+    ]
+  },
+  {
+    category: "Identity",
+    options: [
+      { value: "name" as DataType, label: "Full Name", icon: User, description: "Realistic first and last names" },
+      { value: "email" as DataType, label: "Email", icon: Mail, description: "Randomized valid email addresses" },
+      { value: "address" as DataType, label: "Address", icon: MapPin, description: "Street, city, and zip codes" },
+    ]
+  },
+  {
+    category: "Temporal & Content",
+    options: [
+      { value: "date" as DataType, label: "Date", icon: Calendar, description: "Calendar dates and timestamps" },
+      { value: "text" as DataType, label: "Text", icon: Type, description: "Random words or sentences" },
+    ]
+  },
+];
+
+// Flattened version for easy lookup
+export const ALL_TYPE_OPTIONS = TYPE_OPTIONS.flatMap(group => group.options);
 
 export const DIST_OPTIONS: { value: DistributionType; label: string }[] = [
   { value: "uniform", label: "Uniform" },
@@ -28,14 +59,10 @@ export const DIST_OPTIONS: { value: DistributionType; label: string }[] = [
   { value: "weighted_categorical", label: "Weighted" },
 ];
 
-export const FORMAT_OPTIONS: {
-  value: OutputFormat;
-  label: string;
-  ext: string;
-}[] = [
-  { value: "csv", label: "CSV", ext: ".csv" },
-  { value: "json", label: "JSON", ext: ".json" },
-  { value: "excel", label: "Excel", ext: ".xlsx" },
+export const FORMAT_OPTIONS = [
+  { value: "csv" as OutputFormat, label: "CSV", ext: ".csv", icon: FileText },
+  { value: "json" as OutputFormat, label: "JSON", ext: ".json", icon: Database },
+  { value: "excel" as OutputFormat, label: "Excel", ext: ".xlsx", icon: FileSpreadsheet },
 ];
 
 export const NUMERIC_TYPES: DataType[] = ["integer", "float"];

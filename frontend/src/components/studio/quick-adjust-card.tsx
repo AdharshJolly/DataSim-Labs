@@ -13,23 +13,27 @@ export function QuickAdjustCard({ attr, index, onUpdate }: QuickAdjustProps) {
   const showCats = attr.type === "categorical";
 
   return (
-    <div className="sk-panel space-y-3 p-3">
+    <div className="space-y-3 rounded-lg border border-border bg-background/30 p-3">
       <div className="flex items-center justify-between gap-2">
-        <span className="truncate text-sm font-semibold">{attr.name}</span>
-        <span className="sk-chip flex-shrink-0">{typeLabel(attr.type)}</span>
+        <span className="truncate text-sm font-semibold text-foreground">
+          {attr.name}
+        </span>
+        <span className="flex-shrink-0 rounded-full bg-secondary/10 px-2 py-0.5 text-xs font-medium text-secondary">
+          {typeLabel(attr.type)}
+        </span>
       </div>
 
-      <label className="flex cursor-pointer items-center gap-2 text-xs text-[hsl(var(--muted-foreground))]">
+      <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
         <input
           type="checkbox"
           checked={attr.allow_nulls}
           onChange={(e) => onUpdate(index, "allow_nulls", e.target.checked)}
-          className="accent-[hsl(var(--primary))]"
+          className="h-4 w-4 cursor-pointer rounded-sm border-border bg-background/70 accent-primary"
         />
-        Nulls{" "}
+        Allow Nulls
         {attr.allow_nulls && (
-          <span className="font-semibold text-[hsl(var(--foreground))]">
-            {attr.null_percentage}%
+          <span className="font-semibold text-foreground">
+            ({attr.null_percentage}%)
           </span>
         )}
       </label>
@@ -43,7 +47,7 @@ export function QuickAdjustCard({ attr, index, onUpdate }: QuickAdjustProps) {
           onChange={(e) =>
             onUpdate(index, "null_percentage", Number(e.target.value))
           }
-          className="w-full accent-[hsl(var(--primary))]"
+          className="h-2 w-full cursor-pointer appearance-none rounded-lg bg-border accent-primary"
         />
       )}
 
@@ -51,14 +55,14 @@ export function QuickAdjustCard({ attr, index, onUpdate }: QuickAdjustProps) {
         <div className="flex gap-2">
           <input
             type="number"
-            className="sk-input py-1 text-xs"
+            className="w-full rounded-md border border-border bg-background/70 px-3 py-1.5 text-xs text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
             placeholder="Min"
             value={attr.min}
             onChange={(e) => onUpdate(index, "min", e.target.value)}
           />
           <input
             type="number"
-            className="sk-input py-1 text-xs"
+            className="w-full rounded-md border border-border bg-background/70 px-3 py-1.5 text-xs text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
             placeholder="Max"
             value={attr.max}
             onChange={(e) => onUpdate(index, "max", e.target.value)}
@@ -68,7 +72,7 @@ export function QuickAdjustCard({ attr, index, onUpdate }: QuickAdjustProps) {
 
       {showCats && (
         <input
-          className="sk-input py-1 text-xs"
+          className="w-full rounded-md border border-border bg-background/70 px-3 py-1.5 text-xs text-foreground placeholder-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
           placeholder="cat1, cat2, cat3"
           value={attr.categories}
           onChange={(e) => onUpdate(index, "categories", e.target.value)}
