@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Literal
+import warnings
 
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -21,6 +22,7 @@ class Settings(BaseSettings):
 
     app_name: str = "DataSim Lab API"
     api_prefix: str = "/api/v1"
+    app_env: Literal["development", "staging", "production"] = "development"
 
     database_url: str
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
@@ -38,13 +40,19 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_security_settings(self) -> "Settings":
-        if self.jwt_secret_key.strip() in {
+        placeholder_secret = self.jwt_secret_key.strip() in {
             "",
             "change-me-in-env",
             "replace-with-strong-random-secret",
-        }:
+        }
+        if placeholder_secret and self.app_env in {"staging", "production"}:
             raise ValueError(
                 "JWT_SECRET_KEY must be set to a strong non-placeholder value"
+            )
+        if placeholder_secret and self.app_env == "development":
+            warnings.warn(
+                "Using placeholder JWT_SECRET_KEY in development. Set a strong secret before deployment.",
+                stacklevel=1,
             )
         if not self.cors_origins:
             raise ValueError("CORS origins cannot be empty")

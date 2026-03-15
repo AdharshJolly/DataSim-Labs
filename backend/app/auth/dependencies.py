@@ -15,8 +15,8 @@ bearer_scheme = HTTPBearer(auto_error=False)
 
 
 def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
-    request: Request | None = None,
     db: Session = Depends(get_db),
 ) -> User:
     """Return currently authenticated user from bearer token."""
