@@ -1,0 +1,11 @@
+providers = ["python"]
+
+[phases.setup]
+nixPkgs = ["python3", "python3Packages.pip", "gcc"]
+
+[phases.install]
+cmds = [
+	"python3 -m venv /opt/venv",
+	"/opt/venv/bin/pip install --upgrade pip",
+	"/opt/venv/bin/pip install -r backend/requirements.txt"
+]
