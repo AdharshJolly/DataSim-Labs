@@ -1,5 +1,7 @@
 from pathlib import Path
+from typing import Literal
 
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,15 +22,33 @@ class Settings(BaseSettings):
     app_name: str = "DataSim Lab API"
     api_prefix: str = "/api/v1"
 
-    database_url: str = "postgresql://postgres:password@localhost/postgres"
+    database_url: str
+    cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
 
     redis_url: str = "redis://localhost:6379/0"
     artifacts_dir: str = "artifacts"
     generation_chunk_size: int = 100000
     artifact_retention_hours: int = 24
-    jwt_secret_key: str = "change-me-in-env"
+    jwt_secret_key: str
     jwt_algorithm: str = "HS256"
     jwt_expiration_minutes: int = 60
+    auth_cookie_name: str = "datasim_access_token"
+    auth_cookie_secure: bool = False
+    auth_cookie_samesite: Literal["lax", "strict", "none"] = "lax"
+
+    @model_validator(mode="after")
+    def validate_security_settings(self) -> "Settings":
+        if self.jwt_secret_key.strip() in {
+            "",
+            "change-me-in-env",
+            "replace-with-strong-random-secret",
+        }:
+            raise ValueError(
+                "JWT_SECRET_KEY must be set to a strong non-placeholder value"
+            )
+        if not self.cors_origins:
+            raise ValueError("CORS origins cannot be empty")
+        return self
 
     @property
     def sqlalchemy_database_url(self) -> str:

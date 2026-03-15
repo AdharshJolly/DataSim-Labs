@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -15,14 +15,29 @@ from app.auth.schemas import (
     RegisterRequest,
 )
 from app.auth.security import create_access_token, hash_password, verify_password
+from app.core.config import settings
 from app.db.session import get_db
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+def _set_auth_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        key=settings.auth_cookie_name,
+        value=token,
+        httponly=True,
+        secure=settings.auth_cookie_secure,
+        samesite=settings.auth_cookie_samesite,
+        max_age=settings.jwt_expiration_minutes * 60,
+        path="/",
+    )
+
+
 @router.post("/register", response_model=AuthResponse)
 def register_user(
-    payload: RegisterRequest, db: Session = Depends(get_db)
+    payload: RegisterRequest,
+    response: Response,
+    db: Session = Depends(get_db),
 ) -> AuthResponse:
     """Register a new user account and return JWT token."""
     normalized_email = payload.email.strip().lower()
@@ -38,11 +53,16 @@ def register_user(
     db.refresh(user)
 
     token = create_access_token({"user_id": str(user.id), "email": user.email})
+    _set_auth_cookie(response, token)
     return AuthResponse(access_token=token, user_id=user.id, email=user.email)
 
 
 @router.post("/login", response_model=AuthResponse)
-def login_user(payload: LoginRequest, db: Session = Depends(get_db)) -> AuthResponse:
+def login_user(
+    payload: LoginRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> AuthResponse:
     """Authenticate an existing user and return JWT token."""
     normalized_email = payload.email.strip().lower()
     user = db.scalar(select(User).where(User.email == normalized_email))
@@ -52,7 +72,15 @@ def login_user(payload: LoginRequest, db: Session = Depends(get_db)) -> AuthResp
         )
 
     token = create_access_token({"user_id": str(user.id), "email": user.email})
+    _set_auth_cookie(response, token)
     return AuthResponse(access_token=token, user_id=user.id, email=user.email)
+
+
+@router.post("/logout")
+def logout_user(response: Response) -> dict[str, str]:
+    """Clear auth cookie for logout."""
+    response.delete_cookie(key=settings.auth_cookie_name, path="/")
+    return {"message": "Logged out"}
 
 
 @router.get("/me", response_model=CurrentUserResponse)

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useState } from "react";
 
-import { login, setAuthToken } from "@/lib/api-client";
+import { login } from "@/lib/api-client";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -16,8 +16,7 @@ export default function LoginPage() {
     setStatus("");
     setIsSubmitting(true);
     try {
-      const response = await login({ email, password });
-      setAuthToken(response.access_token);
+      await login({ email, password });
       window.location.href = "/dashboard";
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Login failed");

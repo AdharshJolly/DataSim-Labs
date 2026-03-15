@@ -16,6 +16,7 @@ from app.schemas.dataset import (
     DatasetAttributesResponse,
     DatasetDetailResponse,
     DatasetListResponse,
+    DatasetStatusUpdateRequest,
     DatasetSummaryResponse,
     DatasetVersionSummaryResponse,
     DatasetVersionsResponse,
@@ -63,6 +64,7 @@ def save_attributes(
             user_id=current_user.id,
             dataset_id=payload.dataset_id,
             attributes=payload.attributes,
+            seed=payload.seed,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -87,6 +89,7 @@ def preview_dataset(
             db=db,
             user_id=current_user.id,
             dataset_version_id=payload.dataset_version_id,
+            seed=payload.seed,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -115,7 +118,7 @@ def generate_dataset(
             formats=payload.formats,
             output_root=output_root,
             chunk_size=settings.generation_chunk_size,
-            seed=None,
+            seed=payload.seed,
             retention_hours=settings.artifact_retention_hours,
         )
     except ValueError as exc:
@@ -176,6 +179,7 @@ def list_datasets(
                 name=dataset.name,
                 description=dataset.description,
                 latest_version_id=dataset.latest_version_id,
+                status=dataset.status,
                 created_at=dataset.created_at.isoformat(),
             )
             for dataset in datasets
@@ -203,6 +207,7 @@ def get_dataset(
         name=dataset.name,
         description=dataset.description,
         latest_version_id=dataset.latest_version_id,
+        status=dataset.status,
         created_at=dataset.created_at.isoformat(),
         updated_at=dataset.updated_at.isoformat(),
     )
@@ -229,6 +234,7 @@ def get_dataset_versions(
             DatasetVersionSummaryResponse(
                 id=version.id,
                 version_number=version.version_number,
+                seed=version.seed,
                 config_json=version.config_json,
                 created_at=version.created_at.isoformat(),
             )
@@ -250,3 +256,31 @@ def delete_dataset(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"message": "Dataset deleted"}
+
+
+@router.patch("/{dataset_id}/status", response_model=DatasetDetailResponse)
+def update_dataset_status(
+    dataset_id: uuid.UUID,
+    payload: DatasetStatusUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DatasetDetailResponse:
+    try:
+        dataset = DatasetService.update_dataset_status(
+            db=db,
+            user_id=current_user.id,
+            dataset_id=dataset_id,
+            status=payload.status,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return DatasetDetailResponse(
+        id=dataset.id,
+        name=dataset.name,
+        description=dataset.description,
+        latest_version_id=dataset.latest_version_id,
+        status=dataset.status,
+        created_at=dataset.created_at.isoformat(),
+        updated_at=dataset.updated_at.isoformat(),
+    )

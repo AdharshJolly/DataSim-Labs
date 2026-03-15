@@ -1,27 +1,35 @@
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
-export const TOKEN_STORAGE_KEY = "datasim_token";
-
 function getAuthToken(): string | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-  return localStorage.getItem(TOKEN_STORAGE_KEY);
+  return null;
 }
 
 export function setAuthToken(token: string): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-  localStorage.setItem(TOKEN_STORAGE_KEY, token);
+  void token;
 }
 
 export function clearAuthToken(): void {
-  if (typeof window === "undefined") {
-    return;
+  // Cookie-based auth does not persist tokens in web storage.
+}
+
+async function parseApiError(response: Response): Promise<string> {
+  try {
+    const payload = (await response.json()) as {
+      detail?: string | { message?: string };
+      message?: string;
+      error?: string;
+    };
+    if (typeof payload.detail === "string") return payload.detail;
+    if (typeof payload.detail === "object" && payload.detail?.message) {
+      return payload.detail.message;
+    }
+    if (typeof payload.message === "string") return payload.message;
+    if (typeof payload.error === "string") return payload.error;
+  } catch {
+    // Ignore parse failure and fallback to status text below.
   }
-  localStorage.removeItem(TOKEN_STORAGE_KEY);
+  return response.statusText || `HTTP ${response.status}`;
 }
 
 export async function apiRequest<T>(
@@ -31,6 +39,7 @@ export async function apiRequest<T>(
   const token = getAuthToken();
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -40,7 +49,8 @@ export async function apiRequest<T>(
   });
 
   if (!response.ok) {
-    throw new Error(`API request failed (${response.status})`);
+    const detail = await parseApiError(response);
+    throw new Error(`${detail} (${response.status})`);
   }
 
   return (await response.json()) as T;
@@ -104,6 +114,7 @@ export interface CreateDatasetResponse {
 export interface SaveAttributesRequest {
   dataset_id: string;
   attributes: AttributeConfig[];
+  seed?: number;
 }
 
 export interface SaveAttributesResponse {
@@ -125,14 +136,16 @@ export interface GenerateRequest {
   dataset_version_id?: string;
   row_count: number;
   formats: Array<"csv" | "json" | "excel">;
+  seed?: number;
 }
 
 export interface GeneratedFileInfo {
   format: string;
   file_name: string;
-  file_path: string;
   size_bytes: number;
 }
+
+export type DatasetStatus = "draft" | "active" | "archived";
 
 export interface GenerateResponse {
   dataset_id: string;
@@ -151,12 +164,14 @@ export interface DatasetSummary {
   name: string;
   description?: string | null;
   latest_version_id?: string | null;
+  status: DatasetStatus;
   created_at: string;
 }
 
 export interface DatasetVersionSummary {
   id: string;
   version_number: number;
+  seed?: number | null;
   config_json: Record<string, unknown>;
   created_at: string;
 }
@@ -170,6 +185,7 @@ export interface DatasetDetailResponse {
   name: string;
   description?: string | null;
   latest_version_id?: string | null;
+  status: DatasetStatus;
   created_at: string;
   updated_at: string;
 }
@@ -197,6 +213,12 @@ export function me(): Promise<CurrentUserResponse> {
   return apiRequest<CurrentUserResponse>("/api/v1/auth/me");
 }
 
+export function logout(): Promise<{ message: string }> {
+  return apiRequest<{ message: string }>("/api/v1/auth/logout", {
+    method: "POST",
+  });
+}
+
 export function createDataset(
   payload: CreateDatasetRequest,
 ): Promise<CreateDatasetResponse> {
@@ -217,10 +239,11 @@ export function saveAttributes(
 
 export function previewDataset(
   datasetVersionId: string,
+  seed?: number,
 ): Promise<PreviewResponse> {
   return apiRequest<PreviewResponse>("/api/v1/dataset/preview", {
     method: "POST",
-    body: JSON.stringify({ dataset_version_id: datasetVersionId }),
+    body: JSON.stringify({ dataset_version_id: datasetVersionId, seed }),
   });
 }
 
@@ -256,6 +279,7 @@ export async function downloadDatasetFile(
     `${API_BASE_URL}/api/v1/dataset/download/${datasetId}?${search.toString()}`,
     {
       method: "GET",
+      credentials: "include",
       headers: {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
@@ -263,7 +287,8 @@ export async function downloadDatasetFile(
   );
 
   if (!response.ok) {
-    throw new Error(`Download failed (${response.status})`);
+    const detail = await parseApiError(response);
+    throw new Error(`${detail} (${response.status})`);
   }
 
   const contentDisposition = response.headers.get("Content-Disposition") || "";

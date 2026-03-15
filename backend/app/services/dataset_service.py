@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.engine.dataset_generator import AttributeSpec, DatasetGenerator
-from app.models.dataset import Attribute, Dataset, DatasetVersion
+from app.models.dataset import Attribute, Dataset, DatasetStatus, DatasetVersion
 from app.schemas.dataset import AttributeConfig
 
 
@@ -31,6 +31,7 @@ class DatasetService:
         user_id: uuid.UUID,
         dataset_id: uuid.UUID,
         attributes: list[AttributeConfig],
+        seed: int | None = None,
     ) -> DatasetVersion:
         dataset = db.scalar(
             select(Dataset).where(Dataset.id == dataset_id, Dataset.user_id == user_id)
@@ -48,12 +49,14 @@ class DatasetService:
             "attributes": [
                 attribute.model_dump(mode="json") for attribute in attributes
             ],
+            "seed": seed,
         }
 
         version = DatasetVersion(
             dataset_id=dataset_id,
             version_number=int(next_version_number or 1),
             config_json=config_json,
+            seed=seed,
         )
         db.add(version)
         db.flush()
@@ -73,6 +76,7 @@ class DatasetService:
             )
 
         dataset.latest_version_id = version.id
+        dataset.status = DatasetStatus.active
         db.commit()
         db.refresh(version)
         return version
@@ -94,7 +98,8 @@ class DatasetService:
             raise ValueError("Dataset version not found")
 
         attributes = DatasetService._load_version_attributes(db, dataset_version_id)
-        generator = DatasetGenerator(seed=seed)
+        generator_seed = seed if seed is not None else version.seed
+        generator = DatasetGenerator(seed=generator_seed)
         return generator.generate_preview(attributes=attributes)
 
     @staticmethod
@@ -138,7 +143,8 @@ class DatasetService:
             output_root=output_root,
             max_age_hours=retention_hours,
         )
-        generator = DatasetGenerator(seed=seed)
+        generator_seed = seed if seed is not None else owned_version.seed
+        generator = DatasetGenerator(seed=generator_seed)
         return generator.export_dataset_files(
             dataset_id=dataset_id,
             attributes=attributes,
@@ -177,7 +183,6 @@ class DatasetService:
                 {
                     "format": export_format,
                     "file_name": path.name,
-                    "file_path": str(path),
                     "size_bytes": path.stat().st_size,
                 }
             )
@@ -254,6 +259,24 @@ class DatasetService:
         )
         db.delete(dataset)
         db.commit()
+
+    @staticmethod
+    def update_dataset_status(
+        db: Session,
+        user_id: uuid.UUID,
+        dataset_id: uuid.UUID,
+        status: DatasetStatus,
+    ) -> Dataset:
+        """Update dataset status if owned by user."""
+        dataset = DatasetService.get_dataset(
+            db=db,
+            user_id=user_id,
+            dataset_id=dataset_id,
+        )
+        dataset.status = status
+        db.commit()
+        db.refresh(dataset)
+        return dataset
 
     @staticmethod
     def cleanup_old_artifacts(output_root: Path, max_age_hours: int) -> None:

@@ -8,6 +8,7 @@ import {
   clearAuthToken,
   deleteDataset,
   listDatasets,
+  logout,
   me,
 } from "@/lib/api-client";
 
@@ -73,7 +74,12 @@ export default function DashboardPage() {
           <button
             type="button"
             className="sk-btn sk-btn-muted"
-            onClick={() => {
+            onClick={async () => {
+              try {
+                await logout();
+              } catch {
+                // Ignore logout API failures and still clear local auth state.
+              }
               clearAuthToken();
               window.location.href = "/login";
             }}
@@ -134,8 +140,12 @@ export default function DashboardPage() {
                     </p>
                   )}
                 </div>
-                {dataset.latest_version_id ? (
+                {dataset.status === "active" ? (
                   <span className="sk-chip-success flex-shrink-0">Ready</span>
+                ) : dataset.status === "archived" ? (
+                  <span className="sk-chip-neutral flex-shrink-0">
+                    Archived
+                  </span>
                 ) : (
                   <span className="sk-chip-neutral flex-shrink-0">Draft</span>
                 )}

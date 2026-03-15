@@ -3,10 +3,18 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
+import { AttrCard } from "@/components/studio/attr-card";
+import { FORMAT_OPTIONS, STEP_LABELS } from "@/components/studio/constants";
+import {
+  formatBytes,
+  newAttr,
+  toApiAttr,
+  uid,
+} from "@/components/studio/helpers";
+import { QuickAdjustCard } from "@/components/studio/quick-adjust-card";
+import type { AttrRow, OutputFormat, Step } from "@/components/studio/types";
 import {
   type AttributeConfig,
-  type DataType,
-  type DistributionType,
   type GeneratedFileInfo,
   createDataset,
   downloadDatasetFile,
@@ -15,122 +23,6 @@ import {
   previewDataset,
   saveAttributes,
 } from "@/lib/api-client";
-
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-type Step = 1 | 2 | 3 | 4;
-type OutputFormat = "csv" | "json" | "excel";
-
-interface AttrRow {
-  _id: string;
-  name: string;
-  description: string;
-  type: DataType;
-  distribution: DistributionType;
-  allow_nulls: boolean;
-  null_percentage: number;
-  // type-specific constraint fields
-  min: string;
-  max: string;
-  categories: string;
-  start_date: string;
-  end_date: string;
-}
-
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-const STEP_LABELS: [string, string][] = [
-  ["1", "Setup"],
-  ["2", "Define Fields"],
-  ["3", "Preview & Refine"],
-  ["4", "Generate"],
-];
-
-const TYPE_OPTIONS: { value: DataType; label: string; icon: string }[] = [
-  { value: "integer", label: "Integer", icon: "#" },
-  { value: "float", label: "Decimal", icon: "~" },
-  { value: "categorical", label: "Category", icon: "≡" },
-  { value: "boolean", label: "True/False", icon: "◎" },
-  { value: "date", label: "Date", icon: "▦" },
-  { value: "text", label: "Text", icon: "T" },
-  { value: "email", label: "Email", icon: "@" },
-  { value: "name", label: "Full Name", icon: "✦" },
-  { value: "address", label: "Address", icon: "⌂" },
-];
-
-const DIST_OPTIONS: { value: DistributionType; label: string }[] = [
-  { value: "uniform", label: "Uniform" },
-  { value: "normal", label: "Normal" },
-  { value: "skewed", label: "Skewed" },
-  { value: "weighted_categorical", label: "Weighted" },
-];
-
-const FORMAT_OPTIONS: { value: OutputFormat; label: string; ext: string }[] = [
-  { value: "csv", label: "CSV", ext: ".csv" },
-  { value: "json", label: "JSON", ext: ".json" },
-  { value: "excel", label: "Excel", ext: ".xlsx" },
-];
-
-const NUMERIC_TYPES: DataType[] = ["integer", "float"];
-const DIST_TYPES: DataType[] = ["integer", "float", "categorical"];
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-let _uid = 0;
-function uid() {
-  return `attr-${Date.now()}-${++_uid}`;
-}
-
-function newAttr(index: number): AttrRow {
-  return {
-    _id: uid(),
-    name: `field_${index + 1}`,
-    description: "",
-    type: "integer",
-    distribution: "uniform",
-    allow_nulls: false,
-    null_percentage: 10,
-    min: "0",
-    max: "100",
-    categories: "",
-    start_date: "",
-    end_date: "",
-  };
-}
-
-function toApiAttr(attr: AttrRow): AttributeConfig {
-  const constraints: Record<string, unknown> = {};
-  if (NUMERIC_TYPES.includes(attr.type)) {
-    if (attr.min !== "") constraints.min = Number(attr.min);
-    if (attr.max !== "") constraints.max = Number(attr.max);
-  } else if (attr.type === "categorical" && attr.categories.trim()) {
-    constraints.categories = attr.categories
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
-  } else if (attr.type === "date") {
-    if (attr.start_date) constraints.start_date = attr.start_date;
-    if (attr.end_date) constraints.end_date = attr.end_date;
-  }
-  return {
-    name: attr.name.trim() || `field_${Math.random().toString(36).slice(2, 6)}`,
-    description: attr.description,
-    type: attr.type,
-    distribution: attr.distribution,
-    null_percentage: attr.allow_nulls ? attr.null_percentage : 0,
-    constraints,
-  };
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function typeLabel(t: DataType): string {
-  return TYPE_OPTIONS.find((o) => o.value === t)?.label ?? t;
-}
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
@@ -156,6 +48,7 @@ export default function StudioPage() {
   // Step 4
   const [rowCount, setRowCount] = useState(1000);
   const [formats, setFormats] = useState<OutputFormat[]>(["csv"]);
+  const [seed, setSeed] = useState("");
   const [generatedFiles, setGeneratedFiles] = useState<GeneratedFileInfo[]>([]);
 
   // Load existing dataset from query string
@@ -206,6 +99,9 @@ export default function StudioPage() {
             })),
           );
           setVersionId(latest.id);
+          if (typeof latest.seed === "number") {
+            setSeed(String(latest.seed));
+          }
         }
         setStep(2);
       })
@@ -255,6 +151,7 @@ export default function StudioPage() {
       const res = await saveAttributes({
         dataset_id: datasetId,
         attributes: attrs.map(toApiAttr),
+        seed: seed.trim() ? Number(seed) : undefined,
       });
       setVersionId(res.version_id);
       localStorage.setItem("datasim:dataset_version_id", res.version_id);
@@ -277,7 +174,10 @@ export default function StudioPage() {
     setIsRefreshing(true);
     setError("");
     try {
-      const res = await previewDataset(id);
+      const res = await previewDataset(
+        id,
+        seed.trim() ? Number(seed) : undefined,
+      );
       setPreviewRows(res.data);
       setPreviewCols(res.data.length > 0 ? Object.keys(res.data[0]) : []);
     } catch (e) {
@@ -295,6 +195,7 @@ export default function StudioPage() {
       const res = await saveAttributes({
         dataset_id: datasetId,
         attributes: attrs.map(toApiAttr),
+        seed: seed.trim() ? Number(seed) : undefined,
       });
       setVersionId(res.version_id);
       localStorage.setItem("datasim:dataset_version_id", res.version_id);
@@ -323,6 +224,7 @@ export default function StudioPage() {
         dataset_version_id: versionId || undefined,
         row_count: rowCount,
         formats,
+        seed: seed.trim() ? Number(seed) : undefined,
       });
       setGeneratedFiles(res.files);
     } catch (e) {
@@ -825,6 +727,27 @@ export default function StudioPage() {
                     </div>
                   </div>
 
+                  <div className="studio-field">
+                    <label htmlFor="generation-seed" className="studio-label">
+                      Reproducibility Seed{" "}
+                      <span className="text-xs font-normal text-[hsl(var(--muted-foreground))]">
+                        (optional)
+                      </span>
+                    </label>
+                    <input
+                      id="generation-seed"
+                      type="number"
+                      min={0}
+                      className="sk-input w-48"
+                      value={seed}
+                      placeholder="e.g. 42"
+                      onChange={(e) => setSeed(e.target.value)}
+                    />
+                    <p className="text-xs text-[hsl(var(--muted-foreground))]">
+                      Use the same seed to regenerate identical datasets.
+                    </p>
+                  </div>
+
                   {/* Actions */}
                   <div className="flex flex-wrap items-center gap-3 pt-2">
                     <button
@@ -914,283 +837,6 @@ export default function StudioPage() {
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-// ─── Attribute Card (Step 2) ──────────────────────────────────────────────────
-
-interface AttrCardProps {
-  attr: AttrRow;
-  index: number;
-  total: number;
-  onUpdate: <K extends keyof AttrRow>(
-    i: number,
-    key: K,
-    val: AttrRow[K],
-  ) => void;
-  onRemove: (i: number) => void;
-}
-
-function AttrCard({ attr, index, total, onUpdate, onRemove }: AttrCardProps) {
-  const showDist = DIST_TYPES.includes(attr.type);
-  const showMinMax = NUMERIC_TYPES.includes(attr.type);
-  const showCats = attr.type === "categorical";
-  const showDates = attr.type === "date";
-
-  return (
-    <div className="attr-card">
-      {/* Header row */}
-      <div className="attr-card-header">
-        <span className="attr-index-badge">{index + 1}</span>
-        <input
-          className="attr-name-input"
-          value={attr.name}
-          placeholder="field_name"
-          onChange={(e) => onUpdate(index, "name", e.target.value)}
-          spellCheck={false}
-        />
-        <select
-          className="attr-type-pill ml-auto"
-          value={attr.type}
-          onChange={(e) => onUpdate(index, "type", e.target.value as DataType)}
-        >
-          {TYPE_OPTIONS.map(({ value, label, icon }) => (
-            <option key={value} value={value}>
-              {icon} {label}
-            </option>
-          ))}
-        </select>
-        {total > 1 && (
-          <button
-            type="button"
-            onClick={() => onRemove(index)}
-            className="attr-remove-btn"
-            aria-label={`Remove ${attr.name}`}
-          >
-            ✕
-          </button>
-        )}
-      </div>
-
-      {/* Body */}
-      <div className="attr-card-body">
-        {/* Description */}
-        <input
-          className="sk-input text-sm"
-          placeholder="Describe this field — e.g. 'Patient age in years, range 18–90'"
-          value={attr.description}
-          onChange={(e) => onUpdate(index, "description", e.target.value)}
-        />
-
-        {/* Distribution + Null row */}
-        <div className="attr-settings-row">
-          {showDist && (
-            <div className="attr-field-half">
-              <label className="studio-label-xs">Distribution</label>
-              <select
-                className="sk-select text-sm"
-                value={attr.distribution}
-                onChange={(e) =>
-                  onUpdate(
-                    index,
-                    "distribution",
-                    e.target.value as DistributionType,
-                  )
-                }
-              >
-                {DIST_OPTIONS.map(({ value, label }) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          <div className="attr-field-half">
-            <label className="studio-label-xs flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={attr.allow_nulls}
-                onChange={(e) =>
-                  onUpdate(index, "allow_nulls", e.target.checked)
-                }
-                className="accent-[hsl(var(--primary))]"
-              />
-              Allow Null Values
-            </label>
-            {attr.allow_nulls && (
-              <div className="mt-2 flex items-center gap-3">
-                <input
-                  type="range"
-                  min={1}
-                  max={50}
-                  value={attr.null_percentage}
-                  onChange={(e) =>
-                    onUpdate(index, "null_percentage", Number(e.target.value))
-                  }
-                  className="flex-1 accent-[hsl(var(--primary))]"
-                />
-                <span className="w-10 text-right text-sm font-semibold">
-                  {attr.null_percentage}%
-                </span>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Min / Max */}
-        {showMinMax && (
-          <div className="attr-settings-row">
-            <div className="attr-field-half">
-              <label className="studio-label-xs">Min value</label>
-              <input
-                type="number"
-                className="sk-input text-sm"
-                placeholder="0"
-                value={attr.min}
-                onChange={(e) => onUpdate(index, "min", e.target.value)}
-              />
-            </div>
-            <div className="attr-field-half">
-              <label className="studio-label-xs">Max value</label>
-              <input
-                type="number"
-                className="sk-input text-sm"
-                placeholder="100"
-                value={attr.max}
-                onChange={(e) => onUpdate(index, "max", e.target.value)}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* Categories */}
-        {showCats && (
-          <div className="studio-field">
-            <label className="studio-label-xs">
-              Categories{" "}
-              <span className="normal-case font-normal text-[hsl(var(--muted-foreground))]">
-                — comma separated
-              </span>
-            </label>
-            <input
-              className="sk-input text-sm"
-              placeholder="Male, Female, Non-binary, Prefer not to say"
-              value={attr.categories}
-              onChange={(e) => onUpdate(index, "categories", e.target.value)}
-            />
-          </div>
-        )}
-
-        {/* Date range */}
-        {showDates && (
-          <div className="attr-settings-row">
-            <div className="attr-field-half">
-              <label className="studio-label-xs">Start date</label>
-              <input
-                type="date"
-                className="sk-input text-sm"
-                value={attr.start_date}
-                onChange={(e) => onUpdate(index, "start_date", e.target.value)}
-              />
-            </div>
-            <div className="attr-field-half">
-              <label className="studio-label-xs">End date</label>
-              <input
-                type="date"
-                className="sk-input text-sm"
-                value={attr.end_date}
-                onChange={(e) => onUpdate(index, "end_date", e.target.value)}
-              />
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─── Quick‑Adjust Card (Step 3) ───────────────────────────────────────────────
-
-interface QuickAdjustProps {
-  attr: AttrRow;
-  index: number;
-  onUpdate: <K extends keyof AttrRow>(
-    i: number,
-    key: K,
-    val: AttrRow[K],
-  ) => void;
-}
-
-function QuickAdjustCard({ attr, index, onUpdate }: QuickAdjustProps) {
-  const showMinMax = NUMERIC_TYPES.includes(attr.type);
-  const showCats = attr.type === "categorical";
-
-  return (
-    <div className="sk-panel space-y-3 p-3">
-      <div className="flex items-center justify-between gap-2">
-        <span className="truncate font-semibold text-sm">{attr.name}</span>
-        <span className="sk-chip flex-shrink-0">{typeLabel(attr.type)}</span>
-      </div>
-
-      {/* Null toggle */}
-      <label className="flex cursor-pointer items-center gap-2 text-xs text-[hsl(var(--muted-foreground))]">
-        <input
-          type="checkbox"
-          checked={attr.allow_nulls}
-          onChange={(e) => onUpdate(index, "allow_nulls", e.target.checked)}
-          className="accent-[hsl(var(--primary))]"
-        />
-        Nulls{" "}
-        {attr.allow_nulls && (
-          <span className="font-semibold text-[hsl(var(--foreground))]">
-            {attr.null_percentage}%
-          </span>
-        )}
-      </label>
-
-      {attr.allow_nulls && (
-        <input
-          type="range"
-          min={1}
-          max={50}
-          value={attr.null_percentage}
-          onChange={(e) =>
-            onUpdate(index, "null_percentage", Number(e.target.value))
-          }
-          className="w-full accent-[hsl(var(--primary))]"
-        />
-      )}
-
-      {showMinMax && (
-        <div className="flex gap-2">
-          <input
-            type="number"
-            className="sk-input py-1 text-xs"
-            placeholder="Min"
-            value={attr.min}
-            onChange={(e) => onUpdate(index, "min", e.target.value)}
-          />
-          <input
-            type="number"
-            className="sk-input py-1 text-xs"
-            placeholder="Max"
-            value={attr.max}
-            onChange={(e) => onUpdate(index, "max", e.target.value)}
-          />
-        </div>
-      )}
-
-      {showCats && (
-        <input
-          className="sk-input py-1 text-xs"
-          placeholder="cat1, cat2, cat3"
-          value={attr.categories}
-          onChange={(e) => onUpdate(index, "categories", e.target.value)}
-        />
-      )}
     </div>
   );
 }
