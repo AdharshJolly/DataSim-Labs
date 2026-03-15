@@ -123,23 +123,17 @@
 }
 
 body {
-  background-color: #050510;
-  background-image:
-    radial-gradient(
-      circle at 15% 50%,
-      hsl(180 100% 50% / 0.1),
-      transparent 25%
-    ),
-    radial-gradient(
-      circle at 85% 30%,
-      hsl(259 87% 69% / 0.1),
-      transparent 25%
-    ),
-    radial-gradient(
-      circle at 70% 90%,
-      hsl(300 100% 50% / 0.1),
-      transparent 25%
-    );
+  background-color: #0b0b13;
+  /* (Removed aggressive radial gradients) */
+}
+
+@layer components {
+  /* Step 3: Better Form Inputs */
+  input:not([type="checkbox"]):not([type="range"]), 
+  textarea, 
+  select {
+    @apply rounded-lg border border-border bg-white/[0.03] px-3 py-2 text-sm text-foreground transition-all placeholder:text-muted-foreground/40 focus:border-primary/50 focus:bg-white/[0.06] focus:outline-none focus:ring-1 focus:ring-primary/40;
+  }
 }
 
 @keyframes flicker {

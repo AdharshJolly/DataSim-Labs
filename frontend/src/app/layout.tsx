@@ -1,17 +1,15 @@
 import type { Metadata } from "next";
-import { Orbitron, Exo_2 } from "next/font/google";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
-const titleFont = Orbitron({
+const sansFont = Inter({
   subsets: ["latin"],
-  weight: ["400", "700", "900"],
-  variable: "--font-title",
+  variable: "--font-sans",
 });
 
-const bodyFont = Exo_2({
+const monoFont = JetBrains_Mono({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  variable: "--font-body",
+  variable: "--font-mono",
 });
 
 export const metadata: Metadata = {
@@ -25,7 +23,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body
-        className={`${titleFont.variable} ${bodyFont.variable} font-sans`}
+        className={`${sansFont.variable} ${monoFont.variable} font-sans antialiased`}
       >
         <main className="mx-auto min-h-screen max-w-7xl p-4 md:p-8">
           {children}

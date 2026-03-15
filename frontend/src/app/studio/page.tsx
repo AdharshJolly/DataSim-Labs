@@ -430,7 +430,7 @@ export default function StudioPage() {
                 </label>
                 <input
                   id="ds-name"
-                  className="w-full rounded-md border border-border bg-background/70 px-3 py-2 text-foreground placeholder-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  className="w-full"
                   placeholder="e.g. Project Chimera"
                   value={dsName}
                   onChange={(e) => setDsName(e.target.value)}
@@ -448,7 +448,7 @@ export default function StudioPage() {
                 </label>
                 <textarea
                   id="ds-desc"
-                  className="h-24 w-full resize-none rounded-md border border-border bg-background/70 px-3 py-2 text-foreground placeholder-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  className="h-24 w-full resize-none"
                   placeholder="What is this dataset for? Who will use it? What does it represent?"
                   value={dsDesc}
                   onChange={(e) => setDsDesc(e.target.value)}
@@ -722,7 +722,7 @@ export default function StudioPage() {
                         type="number"
                         min={1}
                         max={10000000}
-                        className="w-32 rounded-md border border-border bg-background/70 px-3 py-2 text-center font-semibold text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
+                        className="w-32 text-center font-semibold"
                         value={rowCount}
                         onChange={(e) =>
                           setRowCount(Math.max(1, Number(e.target.value) || 1))
@@ -766,7 +766,7 @@ export default function StudioPage() {
                       id="generation-seed"
                       type="number"
                       min={0}
-                      className="w-48 rounded-md border border-border bg-background/70 px-3 py-2 text-foreground placeholder-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
+                      className="w-48"
                       value={seed}
                       placeholder="e.g. 42"
                       onChange={(e) => setSeed(e.target.value)}
