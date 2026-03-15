@@ -25,7 +25,11 @@ class Settings(BaseSettings):
     api_prefix: str = "/api/v1"
     app_env: Literal["development", "staging", "production"] = "development"
 
-    database_url: str = Field(validation_alias="DATABASE_URL")
+    mongodb_uri: str = Field(validation_alias="MONGODB_URI")
+    mongodb_database: str = Field(
+        default="datasim_lab",
+        validation_alias="MONGODB_DATABASE",
+    )
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
 
     artifacts_dir: str = "artifacts"
@@ -58,16 +62,13 @@ class Settings(BaseSettings):
             raise ValueError("CORS origins cannot be empty")
         return self
 
-    @property
-    def sqlalchemy_database_url(self) -> str:
-        if (
-            self.database_url.startswith("postgresql://")
-            and "+psycopg" not in self.database_url
-        ):
-            return self.database_url.replace(
-                "postgresql://", "postgresql+psycopg://", 1
-            )
-        return self.database_url
+    @model_validator(mode="after")
+    def validate_database_settings(self) -> "Settings":
+        if not self.mongodb_uri.startswith("mongodb"):
+            raise ValueError("MONGODB_URI must start with mongodb:// or mongodb+srv://")
+        if not self.mongodb_database.strip():
+            raise ValueError("MONGODB_DATABASE cannot be empty")
+        return self
 
 
 settings = Settings()

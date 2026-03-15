@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy.orm import Session
+from pymongo.database import Database
 
 from app.auth.models import User
 from app.auth.security import InvalidTokenError, decode_access_token
@@ -17,7 +17,7 @@ bearer_scheme = HTTPBearer(auto_error=False)
 def get_current_user(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
-    db: Session = Depends(get_db),
+    db: Database = Depends(get_db),
 ) -> User:
     """Return currently authenticated user from bearer token."""
     token: str | None = None
@@ -47,10 +47,10 @@ def get_current_user(
             detail="Token missing user identifier",
         )
 
-    user = db.get(User, user_id)
-    if user is None:
+    user_doc = db["users"].find_one({"_id": user_id})
+    if user_doc is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found",
         )
-    return user
+    return User.from_document(user_doc)

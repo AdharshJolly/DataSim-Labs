@@ -1,5 +1,4 @@
-from sqlalchemy.orm import DeclarativeBase
+class Base:
+    """Compatibility placeholder for legacy imports after MongoDB migration."""
 
-
-class Base(DeclarativeBase):
     pass

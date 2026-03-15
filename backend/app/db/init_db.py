@@ -1,7 +1,20 @@
-from app.db.base import Base
-from app.db.session import engine
-from app.models import dataset  # noqa: F401
+from pymongo import ASCENDING, DESCENDING
+
+from app.db.session import database
 
 
 def init_db() -> None:
-    Base.metadata.create_all(bind=engine)
+    database["users"].create_index([("email", ASCENDING)], unique=True)
+    database["datasets"].create_index(
+        [("user_id", ASCENDING), ("created_at", DESCENDING)]
+    )
+    database["dataset_versions"].create_index(
+        [("dataset_id", ASCENDING), ("version_number", DESCENDING)]
+    )
+    database["dataset_versions"].create_index(
+        [("dataset_id", ASCENDING), ("version_number", ASCENDING)],
+        unique=True,
+    )
+    database["attributes"].create_index(
+        [("dataset_version_id", ASCENDING), ("order_index", ASCENDING)]
+    )

@@ -3,8 +3,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from pymongo import DESCENDING
+from pymongo.database import Database
 
 from app.engine.dataset_generator import AttributeSpec, DatasetGenerator
 from app.models.dataset import Attribute, Dataset, DatasetStatus, DatasetVersion
@@ -14,35 +14,36 @@ from app.schemas.dataset import AttributeConfig
 class DatasetService:
     @staticmethod
     def create_dataset(
-        db: Session,
+        db: Database,
         user_id: uuid.UUID,
         name: str,
         description: str | None,
     ) -> Dataset:
-        dataset = Dataset(user_id=user_id, name=name, description=description)
-        db.add(dataset)
-        db.commit()
-        db.refresh(dataset)
+        dataset = Dataset.new(user_id=user_id, name=name, description=description)
+        db["datasets"].insert_one(dataset.to_document())
         return dataset
 
     @staticmethod
     def create_dataset_version(
-        db: Session,
+        db: Database,
         user_id: uuid.UUID,
         dataset_id: uuid.UUID,
         attributes: list[AttributeConfig],
         seed: int | None = None,
     ) -> DatasetVersion:
-        dataset = db.scalar(
-            select(Dataset).where(Dataset.id == dataset_id, Dataset.user_id == user_id)
+        dataset_doc = db["datasets"].find_one(
+            {"_id": str(dataset_id), "user_id": str(user_id)}
         )
-        if dataset is None:
+        if dataset_doc is None:
             raise ValueError("Dataset not found")
+        dataset = Dataset.from_document(dataset_doc)
 
-        next_version_number = db.scalar(
-            select(func.coalesce(func.max(DatasetVersion.version_number), 0) + 1).where(
-                DatasetVersion.dataset_id == dataset_id
-            )
+        latest_version = db["dataset_versions"].find_one(
+            {"dataset_id": str(dataset_id)},
+            sort=[("version_number", DESCENDING)],
+        )
+        next_version_number = (
+            int(latest_version["version_number"]) + 1 if latest_version else 1
         )
 
         config_json = {
@@ -52,18 +53,18 @@ class DatasetService:
             "seed": seed,
         }
 
-        version = DatasetVersion(
+        version = DatasetVersion.new(
             dataset_id=dataset_id,
-            version_number=int(next_version_number or 1),
+            version_number=next_version_number,
             config_json=config_json,
             seed=seed,
         )
-        db.add(version)
-        db.flush()
+        db["dataset_versions"].insert_one(version.to_document())
 
+        attribute_documents: list[dict[str, Any]] = []
         for index, attribute in enumerate(attributes):
-            db.add(
-                Attribute(
+            attribute_documents.append(
+                Attribute.new(
                     dataset_version_id=version.id,
                     name=attribute.name,
                     data_type=attribute.type,
@@ -72,29 +73,42 @@ class DatasetService:
                     distribution=attribute.distribution,
                     null_percentage=attribute.null_percentage,
                     order_index=index,
-                )
+                ).to_document()
             )
 
-        dataset.latest_version_id = version.id
-        dataset.status = DatasetStatus.active
-        db.commit()
-        db.refresh(version)
+        if attribute_documents:
+            db["attributes"].insert_many(attribute_documents)
+
+        now = datetime.now(timezone.utc)
+        db["datasets"].update_one(
+            {"_id": str(dataset.id)},
+            {
+                "$set": {
+                    "latest_version_id": str(version.id),
+                    "status": DatasetStatus.active.value,
+                    "updated_at": now,
+                }
+            },
+        )
         return version
 
     @staticmethod
     def generate_preview(
-        db: Session,
+        db: Database,
         user_id: uuid.UUID,
         dataset_version_id: uuid.UUID,
         seed: int | None = None,
     ) -> list[dict[str, Any]]:
         """Generate a 10-row preview from persisted attribute configuration."""
-        version = db.scalar(
-            select(DatasetVersion)
-            .join(Dataset, Dataset.id == DatasetVersion.dataset_id)
-            .where(DatasetVersion.id == dataset_version_id, Dataset.user_id == user_id)
+        version_doc = db["dataset_versions"].find_one({"_id": str(dataset_version_id)})
+        if version_doc is None:
+            raise ValueError("Dataset version not found")
+        version = DatasetVersion.from_document(version_doc)
+
+        dataset_doc = db["datasets"].find_one(
+            {"_id": str(version.dataset_id), "user_id": str(user_id)}
         )
-        if version is None:
+        if dataset_doc is None:
             raise ValueError("Dataset version not found")
 
         attributes = DatasetService._load_version_attributes(db, dataset_version_id)
@@ -104,7 +118,7 @@ class DatasetService:
 
     @staticmethod
     def generate_dataset_files(
-        db: Session,
+        db: Database,
         user_id: uuid.UUID,
         dataset_id: uuid.UUID,
         row_count: int,
@@ -116,24 +130,23 @@ class DatasetService:
         retention_hours: int = 24,
     ) -> list[dict[str, Any]]:
         """Generate and export full datasets for a dataset's latest version."""
-        dataset = db.scalar(
-            select(Dataset).where(Dataset.id == dataset_id, Dataset.user_id == user_id)
+        dataset_doc = db["datasets"].find_one(
+            {"_id": str(dataset_id), "user_id": str(user_id)}
         )
-        if dataset is None:
+        if dataset_doc is None:
             raise ValueError("Dataset not found")
+        dataset = Dataset.from_document(dataset_doc)
 
         target_version_id = dataset_version_id or dataset.latest_version_id
         if target_version_id is None:
             raise ValueError("Dataset has no attribute configuration")
 
-        owned_version = db.scalar(
-            select(DatasetVersion).where(
-                DatasetVersion.id == target_version_id,
-                DatasetVersion.dataset_id == dataset.id,
-            )
+        version_doc = db["dataset_versions"].find_one(
+            {"_id": str(target_version_id), "dataset_id": str(dataset.id)}
         )
-        if owned_version is None:
+        if version_doc is None:
             raise ValueError("Dataset version not found")
+        owned_version = DatasetVersion.from_document(version_doc)
 
         attributes = DatasetService._load_version_attributes(db, target_version_id)
         if not attributes:
@@ -217,27 +230,26 @@ class DatasetService:
         return candidates[0] if candidates else None
 
     @staticmethod
-    def list_datasets(db: Session, user_id: uuid.UUID) -> list[Dataset]:
+    def list_datasets(db: Database, user_id: uuid.UUID) -> list[Dataset]:
         """List all datasets owned by a user."""
-        return db.scalars(
-            select(Dataset)
-            .where(Dataset.user_id == user_id)
-            .order_by(Dataset.created_at.desc())
-        ).all()
+        rows = (
+            db["datasets"]
+            .find({"user_id": str(user_id)})
+            .sort("created_at", DESCENDING)
+        )
+        return [Dataset.from_document(row) for row in rows]
 
     @staticmethod
-    def get_dataset(db: Session, user_id: uuid.UUID, dataset_id: uuid.UUID) -> Dataset:
+    def get_dataset(db: Database, user_id: uuid.UUID, dataset_id: uuid.UUID) -> Dataset:
         """Get one dataset if owned by the user."""
-        dataset = db.scalar(
-            select(Dataset).where(Dataset.id == dataset_id, Dataset.user_id == user_id)
-        )
-        if dataset is None:
+        row = db["datasets"].find_one({"_id": str(dataset_id), "user_id": str(user_id)})
+        if row is None:
             raise ValueError("Dataset not found")
-        return dataset
+        return Dataset.from_document(row)
 
     @staticmethod
     def get_dataset_versions(
-        db: Session,
+        db: Database,
         user_id: uuid.UUID,
         dataset_id: uuid.UUID,
     ) -> list[DatasetVersion]:
@@ -245,24 +257,29 @@ class DatasetService:
         dataset = DatasetService.get_dataset(
             db=db, user_id=user_id, dataset_id=dataset_id
         )
-        return db.scalars(
-            select(DatasetVersion)
-            .where(DatasetVersion.dataset_id == dataset.id)
-            .order_by(DatasetVersion.version_number.desc())
-        ).all()
+        rows = (
+            db["dataset_versions"]
+            .find({"dataset_id": str(dataset.id)})
+            .sort("version_number", DESCENDING)
+        )
+        return [DatasetVersion.from_document(row) for row in rows]
 
     @staticmethod
-    def delete_dataset(db: Session, user_id: uuid.UUID, dataset_id: uuid.UUID) -> None:
+    def delete_dataset(db: Database, user_id: uuid.UUID, dataset_id: uuid.UUID) -> None:
         """Delete dataset and all versions/attributes if owned by user."""
         dataset = DatasetService.get_dataset(
             db=db, user_id=user_id, dataset_id=dataset_id
         )
-        db.delete(dataset)
-        db.commit()
+        versions = db["dataset_versions"].find({"dataset_id": str(dataset.id)})
+        version_ids = [row["_id"] for row in versions]
+        if version_ids:
+            db["attributes"].delete_many({"dataset_version_id": {"$in": version_ids}})
+        db["dataset_versions"].delete_many({"dataset_id": str(dataset.id)})
+        db["datasets"].delete_one({"_id": str(dataset.id)})
 
     @staticmethod
     def update_dataset_status(
-        db: Session,
+        db: Database,
         user_id: uuid.UUID,
         dataset_id: uuid.UUID,
         status: DatasetStatus,
@@ -273,9 +290,13 @@ class DatasetService:
             user_id=user_id,
             dataset_id=dataset_id,
         )
+        now = datetime.now(timezone.utc)
+        db["datasets"].update_one(
+            {"_id": str(dataset.id)},
+            {"$set": {"status": status.value, "updated_at": now}},
+        )
         dataset.status = status
-        db.commit()
-        db.refresh(dataset)
+        dataset.updated_at = now
         return dataset
 
     @staticmethod
@@ -299,14 +320,15 @@ class DatasetService:
 
     @staticmethod
     def _load_version_attributes(
-        db: Session, dataset_version_id: uuid.UUID
+        db: Database, dataset_version_id: uuid.UUID
     ) -> list[AttributeSpec]:
         """Load and normalize version attributes for generation engine use."""
-        rows = db.scalars(
-            select(Attribute)
-            .where(Attribute.dataset_version_id == dataset_version_id)
-            .order_by(Attribute.order_index.asc())
-        ).all()
+        rows = (
+            db["attributes"]
+            .find({"dataset_version_id": str(dataset_version_id)})
+            .sort("order_index", 1)
+        )
+        attributes = [Attribute.from_document(row) for row in rows]
 
         return [
             AttributeSpec(
@@ -316,5 +338,5 @@ class DatasetService:
                 distribution=row.distribution.value,
                 null_percentage=row.null_percentage,
             )
-            for row in rows
+            for row in attributes
         ]

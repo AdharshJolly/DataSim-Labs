@@ -1,23 +1,15 @@
 import uuid
+from dataclasses import dataclass
 from datetime import datetime
+from datetime import timezone
 from enum import Enum
+from typing import Any
 
-from sqlalchemy import (
-    CheckConstraint,
-    DateTime,
-    Enum as SAEnum,
-    Float,
-    ForeignKey,
-    Index,
-    Integer,
-    String,
-    Text,
-    UniqueConstraint,
-)
-from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base
+def _parse_datetime(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc)
 
 
 class DatasetStatus(str, Enum):
@@ -45,108 +37,180 @@ class DistributionType(str, Enum):
     weighted_categorical = "weighted_categorical"
 
 
-class Dataset(Base):
-    __tablename__ = "datasets"
+@dataclass(slots=True)
+class Dataset:
+    id: uuid.UUID
+    user_id: uuid.UUID
+    name: str
+    description: str | None
+    status: DatasetStatus
+    latest_version_id: uuid.UUID | None
+    created_at: datetime
+    updated_at: datetime
 
-    __table_args__ = (
-        Index("ix_datasets_latest_version_id", "latest_version_id"),
-        Index("ix_datasets_user_id", "user_id"),
-    )
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
-    )
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    status: Mapped[DatasetStatus] = mapped_column(
-        SAEnum(DatasetStatus, name="dataset_status"),
-        default=DatasetStatus.draft,
-        nullable=False,
-    )
-    latest_version_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), nullable=True
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow, nullable=False
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
-        nullable=False,
-    )
+    @classmethod
+    def new(
+        cls,
+        user_id: uuid.UUID,
+        name: str,
+        description: str | None,
+    ) -> "Dataset":
+        now = datetime.now(timezone.utc)
+        return cls(
+            id=uuid.uuid4(),
+            user_id=user_id,
+            name=name,
+            description=description,
+            status=DatasetStatus.draft,
+            latest_version_id=None,
+            created_at=now,
+            updated_at=now,
+        )
 
-    versions: Mapped[list["DatasetVersion"]] = relationship(
-        "DatasetVersion", back_populates="dataset", cascade="all, delete-orphan"
-    )
-    user: Mapped["User"] = relationship("User", back_populates="datasets")
+    @classmethod
+    def from_document(cls, document: dict[str, Any]) -> "Dataset":
+        latest_version_id = document.get("latest_version_id")
+        return cls(
+            id=uuid.UUID(str(document["_id"])),
+            user_id=uuid.UUID(str(document["user_id"])),
+            name=str(document["name"]),
+            description=document.get("description"),
+            status=DatasetStatus(
+                str(document.get("status", DatasetStatus.draft.value))
+            ),
+            latest_version_id=(
+                uuid.UUID(str(latest_version_id)) if latest_version_id else None
+            ),
+            created_at=_parse_datetime(document.get("created_at")),
+            updated_at=_parse_datetime(document.get("updated_at")),
+        )
 
-
-class DatasetVersion(Base):
-    __tablename__ = "dataset_versions"
-
-    __table_args__ = (
-        UniqueConstraint(
-            "dataset_id", "version_number", name="uq_dataset_versions_dataset_version"
-        ),
-        Index("ix_dataset_versions_dataset_id", "dataset_id"),
-    )
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    dataset_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("datasets.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    version_number: Mapped[int] = mapped_column(Integer, nullable=False)
-    config_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
-    seed: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow, nullable=False
-    )
-
-    dataset: Mapped[Dataset] = relationship("Dataset", back_populates="versions")
-    attributes: Mapped[list["Attribute"]] = relationship(
-        "Attribute", back_populates="dataset_version", cascade="all, delete-orphan"
-    )
+    def to_document(self) -> dict[str, Any]:
+        return {
+            "_id": str(self.id),
+            "user_id": str(self.user_id),
+            "name": self.name,
+            "description": self.description,
+            "status": self.status.value,
+            "latest_version_id": (
+                str(self.latest_version_id) if self.latest_version_id else None
+            ),
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
 
 
-class Attribute(Base):
-    __tablename__ = "attributes"
+@dataclass(slots=True)
+class DatasetVersion:
+    id: uuid.UUID
+    dataset_id: uuid.UUID
+    version_number: int
+    config_json: dict[str, Any]
+    seed: int | None
+    created_at: datetime
 
-    __table_args__ = (
-        Index("ix_attributes_dataset_version_id", "dataset_version_id"),
-        CheckConstraint(
-            "null_percentage >= 0 AND null_percentage <= 100",
-            name="ck_attributes_null_percentage_range",
-        ),
-    )
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    dataset_version_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("dataset_versions.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    data_type: Mapped[DataType] = mapped_column(
-        SAEnum(DataType, name="attribute_data_type"), nullable=False
-    )
-    description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    constraints_json: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
-    distribution: Mapped[DistributionType] = mapped_column(
-        SAEnum(DistributionType, name="attribute_distribution_type"), nullable=False
-    )
-    null_percentage: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
-    order_index: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow, nullable=False
-    )
+    @classmethod
+    def new(
+        cls,
+        dataset_id: uuid.UUID,
+        version_number: int,
+        config_json: dict[str, Any],
+        seed: int | None,
+    ) -> "DatasetVersion":
+        return cls(
+            id=uuid.uuid4(),
+            dataset_id=dataset_id,
+            version_number=version_number,
+            config_json=config_json,
+            seed=seed,
+            created_at=datetime.now(timezone.utc),
+        )
 
-    dataset_version: Mapped[DatasetVersion] = relationship(
-        "DatasetVersion", back_populates="attributes"
-    )
+    @classmethod
+    def from_document(cls, document: dict[str, Any]) -> "DatasetVersion":
+        return cls(
+            id=uuid.UUID(str(document["_id"])),
+            dataset_id=uuid.UUID(str(document["dataset_id"])),
+            version_number=int(document["version_number"]),
+            config_json=dict(document.get("config_json", {})),
+            seed=document.get("seed"),
+            created_at=_parse_datetime(document.get("created_at")),
+        )
+
+    def to_document(self) -> dict[str, Any]:
+        return {
+            "_id": str(self.id),
+            "dataset_id": str(self.dataset_id),
+            "version_number": self.version_number,
+            "config_json": self.config_json,
+            "seed": self.seed,
+            "created_at": self.created_at,
+        }
+
+
+@dataclass(slots=True)
+class Attribute:
+    id: uuid.UUID
+    dataset_version_id: uuid.UUID
+    name: str
+    data_type: DataType
+    description: str | None
+    constraints_json: dict[str, Any]
+    distribution: DistributionType
+    null_percentage: float
+    order_index: int
+    created_at: datetime
+
+    @classmethod
+    def new(
+        cls,
+        dataset_version_id: uuid.UUID,
+        name: str,
+        data_type: DataType,
+        description: str | None,
+        constraints_json: dict[str, Any],
+        distribution: DistributionType,
+        null_percentage: float,
+        order_index: int,
+    ) -> "Attribute":
+        return cls(
+            id=uuid.uuid4(),
+            dataset_version_id=dataset_version_id,
+            name=name,
+            data_type=data_type,
+            description=description,
+            constraints_json=constraints_json,
+            distribution=distribution,
+            null_percentage=null_percentage,
+            order_index=order_index,
+            created_at=datetime.now(timezone.utc),
+        )
+
+    @classmethod
+    def from_document(cls, document: dict[str, Any]) -> "Attribute":
+        return cls(
+            id=uuid.UUID(str(document["_id"])),
+            dataset_version_id=uuid.UUID(str(document["dataset_version_id"])),
+            name=str(document["name"]),
+            data_type=DataType(str(document["data_type"])),
+            description=document.get("description"),
+            constraints_json=dict(document.get("constraints_json", {})),
+            distribution=DistributionType(str(document["distribution"])),
+            null_percentage=float(document.get("null_percentage", 0.0)),
+            order_index=int(document.get("order_index", 0)),
+            created_at=_parse_datetime(document.get("created_at")),
+        )
+
+    def to_document(self) -> dict[str, Any]:
+        return {
+            "_id": str(self.id),
+            "dataset_version_id": str(self.dataset_version_id),
+            "name": self.name,
+            "data_type": self.data_type.value,
+            "description": self.description,
+            "constraints_json": self.constraints_json,
+            "distribution": self.distribution.value,
+            "null_percentage": self.null_percentage,
+            "order_index": self.order_index,
+            "created_at": self.created_at,
+        }

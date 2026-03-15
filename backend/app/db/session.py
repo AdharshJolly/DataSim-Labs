@@ -1,18 +1,15 @@
 from collections.abc import Generator
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session, sessionmaker
+import certifi
+from pymongo import MongoClient
+from pymongo.database import Database
 
 from app.core.config import settings
 
 
-engine = create_engine(settings.sqlalchemy_database_url, pool_pre_ping=True)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+client = MongoClient(settings.mongodb_uri, tlsCAFile=certifi.where())
+database = client[settings.mongodb_database]
 
 
-def get_db() -> Generator[Session, None, None]:
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+def get_db() -> Generator[Database, None, None]:
+    yield database

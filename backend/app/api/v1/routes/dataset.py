@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import APIRouter
 from fastapi import Depends, HTTPException, Query
 from fastapi.responses import FileResponse
-from sqlalchemy.orm import Session
+from pymongo.database import Database
 
 from app.auth.dependencies import get_current_user
 from app.auth.models import User
@@ -36,7 +36,7 @@ router = APIRouter(prefix="/dataset", tags=["dataset"])
 @router.post("/create")
 def create_dataset(
     payload: DatasetCreateRequest,
-    db: Session = Depends(get_db),
+    db: Database = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> DatasetCreateResponse:
     dataset = DatasetService.create_dataset(
@@ -55,7 +55,7 @@ def create_dataset(
 @router.post("/attributes")
 def save_attributes(
     payload: DatasetAttributesRequest,
-    db: Session = Depends(get_db),
+    db: Database = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> DatasetAttributesResponse:
     try:
@@ -81,7 +81,7 @@ def save_attributes(
 @router.post("/preview")
 def preview_dataset(
     payload: PreviewRequest,
-    db: Session = Depends(get_db),
+    db: Database = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> PreviewResponse:
     try:
@@ -104,7 +104,7 @@ def preview_dataset(
 @router.post("/generate")
 def generate_dataset(
     payload: GenerateRequest,
-    db: Session = Depends(get_db),
+    db: Database = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> GenerateResponse:
     output_root = Path(settings.artifacts_dir)
@@ -136,7 +136,7 @@ def generate_dataset(
 def download_dataset(
     dataset_id: uuid.UUID,
     format: str | None = Query(default=None),
-    db: Session = Depends(get_db),
+    db: Database = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Any:
     output_root = Path(settings.artifacts_dir)
@@ -168,7 +168,7 @@ def download_dataset(
 
 @router.get("/list", response_model=DatasetListResponse)
 def list_datasets(
-    db: Session = Depends(get_db),
+    db: Database = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> DatasetListResponse:
     datasets = DatasetService.list_datasets(db=db, user_id=current_user.id)
@@ -190,7 +190,7 @@ def list_datasets(
 @router.get("/{dataset_id}", response_model=DatasetDetailResponse)
 def get_dataset(
     dataset_id: uuid.UUID,
-    db: Session = Depends(get_db),
+    db: Database = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> DatasetDetailResponse:
     try:
@@ -216,7 +216,7 @@ def get_dataset(
 @router.get("/{dataset_id}/versions", response_model=DatasetVersionsResponse)
 def get_dataset_versions(
     dataset_id: uuid.UUID,
-    db: Session = Depends(get_db),
+    db: Database = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> DatasetVersionsResponse:
     try:
@@ -246,7 +246,7 @@ def get_dataset_versions(
 @router.delete("/{dataset_id}")
 def delete_dataset(
     dataset_id: uuid.UUID,
-    db: Session = Depends(get_db),
+    db: Database = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict[str, str]:
     try:
@@ -262,7 +262,7 @@ def delete_dataset(
 def update_dataset_status(
     dataset_id: uuid.UUID,
     payload: DatasetStatusUpdateRequest,
-    db: Session = Depends(get_db),
+    db: Database = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> DatasetDetailResponse:
     try:
