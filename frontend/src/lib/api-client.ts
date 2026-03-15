@@ -1,9 +1,8 @@
-export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+const DEFAULT_API_BASE_URL =
+  process.env.NODE_ENV === "production" ? "" : "http://localhost:8000";
 
-function getAuthToken(): string | null {
-  return null;
-}
+export const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL || DEFAULT_API_BASE_URL;
 
 export function setAuthToken(token: string): void {
   void token;
@@ -36,13 +35,11 @@ export async function apiRequest<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
-  const token = getAuthToken();
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     credentials: "include",
     headers: {
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(init?.headers || {}),
     },
     cache: "no-store",
@@ -273,16 +270,12 @@ export async function downloadDatasetFile(
   datasetId: string,
   format: string,
 ): Promise<{ blob: Blob; fileName: string }> {
-  const token = getAuthToken();
   const search = new URLSearchParams({ format });
   const response = await fetch(
     `${API_BASE_URL}/api/v1/dataset/download/${datasetId}?${search.toString()}`,
     {
       method: "GET",
       credentials: "include",
-      headers: {
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
     },
   );
 
