@@ -257,7 +257,30 @@ export default function StudioPage() {
     value: AttrRow[K],
   ) => {
     setAttrs((prev) =>
-      prev.map((a, idx) => (idx === i ? { ...a, [key]: value } : a)),
+      prev.map((a, idx) => {
+        if (idx !== i) return a;
+        const next = { ...a, [key]: value };
+        if (key === "type") {
+          const nextType = value as AttrRow["type"];
+          if (
+            nextType !== "categorical" &&
+            next.distribution === "weighted_categorical"
+          ) {
+            next.distribution = "uniform";
+          }
+          if (
+            nextType === "boolean" ||
+            nextType === "text" ||
+            nextType === "email" ||
+            nextType === "name" ||
+            nextType === "address" ||
+            nextType === "date"
+          ) {
+            next.distribution = "uniform";
+          }
+        }
+        return next;
+      }),
     );
   };
 

@@ -26,6 +26,18 @@ export function newAttr(index: number): AttrRow {
 }
 
 export function toApiAttr(attr: AttrRow): AttributeConfig {
+  let distribution = attr.distribution;
+  if (attr.type === "categorical") {
+    // Categorical allows all defined distributions, including weighted.
+  } else if (NUMERIC_TYPES.includes(attr.type)) {
+    if (distribution === "weighted_categorical") {
+      distribution = "uniform";
+    }
+  } else {
+    // Non-numeric/non-categorical types only support uniform server-side.
+    distribution = "uniform";
+  }
+
   const constraints: Record<string, unknown> = {};
   if (NUMERIC_TYPES.includes(attr.type)) {
     if (attr.min !== "") constraints.min = Number(attr.min);
@@ -43,7 +55,7 @@ export function toApiAttr(attr: AttrRow): AttributeConfig {
     name: attr.name.trim() || `field_${Math.random().toString(36).slice(2, 6)}`,
     description: attr.description,
     type: attr.type,
-    distribution: attr.distribution,
+    distribution,
     null_percentage: attr.allow_nulls ? attr.null_percentage : 0,
     constraints,
   };

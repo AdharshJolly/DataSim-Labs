@@ -24,6 +24,12 @@ export function AttrCard({
   onRemove,
 }: AttrCardProps) {
   const showDist = DIST_TYPES.includes(attr.type);
+  const distributionOptions =
+    attr.type === "categorical"
+      ? DIST_OPTIONS
+      : DIST_OPTIONS.filter(
+          (option) => option.value !== "weighted_categorical",
+        );
   const showMinMax = NUMERIC_TYPES.includes(attr.type);
   const showCats = attr.type === "categorical";
   const showDates = attr.type === "date";
@@ -85,7 +91,7 @@ export function AttrCard({
                   )
                 }
               >
-                {DIST_OPTIONS.map(({ value, label }) => (
+                {distributionOptions.map(({ value, label }) => (
                   <option key={value} value={value}>
                     {label}
                   </option>
