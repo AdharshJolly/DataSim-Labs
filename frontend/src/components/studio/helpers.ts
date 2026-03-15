@@ -1,5 +1,5 @@
 import type { AttributeConfig, DataType } from "@/lib/api-client";
-import { NUMERIC_TYPES, TYPE_OPTIONS } from "./constants";
+import { NUMERIC_TYPES, ALL_TYPE_OPTIONS } from "./constants";
 import type { AttrRow } from "./types";
 
 let _uid = 0;
@@ -68,5 +68,5 @@ export function formatBytes(bytes: number): string {
 }
 
 export function typeLabel(t: DataType): string {
-  return TYPE_OPTIONS.find((o) => o.value === t)?.label ?? t;
+  return ALL_TYPE_OPTIONS.find((o) => o.value === t)?.label ?? t;
 }
