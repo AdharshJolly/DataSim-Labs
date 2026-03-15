@@ -9,7 +9,7 @@ const nextConfig = {
     const backendUrl =
       process.env.BACKEND_INTERNAL_URL ||
       process.env.NEXT_PUBLIC_API_BASE_URL ||
-      "http://localhost:8000";
+      "https://datasim-labs-production.up.railway.app";
 
     return [
       {

@@ -1,8 +1,15 @@
-const DEFAULT_API_BASE_URL =
-  process.env.NODE_ENV === "production" ? "" : "http://localhost:8000";
+const LOCAL_BACKEND_URL = "http://localhost:8000";
+
+const SERVER_API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  process.env.BACKEND_INTERNAL_URL ||
+  LOCAL_BACKEND_URL;
+
+const BROWSER_API_BASE_URL =
+  process.env.NODE_ENV === "production" ? "" : SERVER_API_BASE_URL;
 
 export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || DEFAULT_API_BASE_URL;
+  typeof window === "undefined" ? SERVER_API_BASE_URL : BROWSER_API_BASE_URL;
 
 export function setAuthToken(token: string): void {
   void token;
