@@ -16,7 +16,8 @@ out/
 # Data and build artifacts
 artifacts/
 *.csv
-*.json
+artifacts/**/*.json
+backend/artifacts/**/*.json
 *.xlsx
 
 # Editor
