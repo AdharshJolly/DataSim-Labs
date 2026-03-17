@@ -12,6 +12,7 @@ import {
   FileText,
   Database,
   FileSpreadsheet,
+  FileJson,
 } from "lucide-react";
 import type { OutputFormat } from "./types";
 
@@ -62,6 +63,7 @@ export const DIST_OPTIONS: { value: DistributionType; label: string }[] = [
 export const FORMAT_OPTIONS = [
   { value: "csv" as OutputFormat, label: "CSV", ext: ".csv", icon: FileText },
   { value: "json" as OutputFormat, label: "JSON", ext: ".json", icon: Database },
+  { value: "jsonl" as OutputFormat, label: "JSONL", ext: ".jsonl", icon: FileJson },
   { value: "excel" as OutputFormat, label: "Excel", ext: ".xlsx", icon: FileSpreadsheet },
 ];
 

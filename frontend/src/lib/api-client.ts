@@ -151,7 +151,7 @@ export interface GenerateRequest {
   dataset_id: string;
   dataset_version_id?: string;
   row_count: number;
-  formats: Array<"csv" | "json" | "excel">;
+  formats: Array<"csv" | "json" | "jsonl" | "excel">;
   seed?: number;
 }
 
@@ -308,7 +308,7 @@ export async function downloadDatasetFile(
 
   const contentDisposition = response.headers.get("Content-Disposition") || "";
   const match = contentDisposition.match(/filename="?([^";]+)"?/i);
-  const fallback = `dataset_${datasetId}.${format === "excel" ? "xlsx" : format}`;
+  const fallback = `dataset_${datasetId}.${format === "excel" ? "xlsx" : format === "jsonl" ? "jsonl" : format}`;
   return {
     blob: await response.blob(),
     fileName: match?.[1] || fallback,

@@ -19,6 +19,7 @@ import {
   newAttr,
   toApiAttr,
   uid,
+  validateCategoricalWeights,
 } from "@/components/studio/helpers";
 import { QuickAdjustCard } from "@/components/studio/quick-adjust-card";
 import type { AttrRow, OutputFormat, Step } from "@/components/studio/types";
@@ -99,6 +100,9 @@ export default function StudioPage() {
               categories: Array.isArray(a.constraints.categories)
                 ? (a.constraints.categories as string[]).join(", ")
                 : "",
+              weights: Array.isArray(a.constraints.weights)
+                ? (a.constraints.weights as number[]).join(", ")
+                : "",
               start_date:
                 typeof a.constraints.start_date === "string"
                   ? a.constraints.start_date
@@ -107,6 +111,24 @@ export default function StudioPage() {
                 typeof a.constraints.end_date === "string"
                   ? a.constraints.end_date
                   : "",
+              precision:
+                a.constraints.precision !== undefined
+                  ? String(a.constraints.precision)
+                  : "2",
+              max_length:
+                a.constraints.max_length !== undefined
+                  ? String(a.constraints.max_length)
+                  : "64",
+              true_probability:
+                a.constraints.true_probability !== undefined
+                  ? String(a.constraints.true_probability)
+                  : "0.5",
+              skew_direction:
+                a.constraints.skew_direction === "left" ? "left" : "right",
+              skew_intensity:
+                a.constraints.skew_intensity !== undefined
+                  ? String(a.constraints.skew_intensity)
+                  : "2",
             })),
           );
           setVersionId(latest.id);
@@ -158,6 +180,13 @@ export default function StudioPage() {
     }
     setBusy(true);
     setError("");
+    // Client-side weight validation
+    const weightError = attrs.map(validateCategoricalWeights).find(Boolean);
+    if (weightError) {
+      setBusy(false);
+      setError(weightError);
+      return;
+    }
     try {
       const res = await saveAttributes({
         dataset_id: datasetId,
@@ -199,22 +228,11 @@ export default function StudioPage() {
   };
 
   const handleRegenerate = async () => {
-    if (!datasetId || attrs.length === 0) return;
-    setIsRefreshing(true);
-    setError("");
-    try {
-      const res = await saveAttributes({
-        dataset_id: datasetId,
-        attributes: attrs.map(toApiAttr),
-        seed: seed.trim() ? Number(seed) : undefined,
-      });
-      setVersionId(res.version_id);
-      localStorage.setItem("datasim:dataset_version_id", res.version_id);
-      await loadPreview(res.version_id);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Regeneration failed");
-      setIsRefreshing(false);
+    if (!versionId) {
+      setError("No saved version to preview.");
+      return;
     }
+    await loadPreview(versionId);
   };
 
   // ── Step 4: Generate ─────────────────────────────────────────
@@ -229,6 +247,13 @@ export default function StudioPage() {
     }
     setBusy(true);
     setError("");
+    // Client-side weight validation
+    const weightError = attrs.map(validateCategoricalWeights).find(Boolean);
+    if (weightError) {
+      setBusy(false);
+      setError(weightError);
+      return;
+    }
     try {
       const res = await generateDataset({
         dataset_id: datasetId,

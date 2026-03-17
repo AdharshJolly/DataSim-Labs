@@ -1,7 +1,7 @@
 import type { DataType, DistributionType } from "@/lib/api-client";
 
 export type Step = 1 | 2 | 3 | 4;
-export type OutputFormat = "csv" | "json" | "excel";
+export type OutputFormat = "csv" | "json" | "jsonl" | "excel";
 
 export interface AttrRow {
   _id: string;

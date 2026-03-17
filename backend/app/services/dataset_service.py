@@ -191,6 +191,8 @@ class DatasetService:
                 export_format = "csv"
             elif suffix == ".json":
                 export_format = "json"
+            elif suffix == ".jsonl":
+                export_format = "jsonl"
             elif suffix == ".xlsx":
                 export_format = "excel"
             else:
@@ -216,6 +218,7 @@ class DatasetService:
         suffix_map = {
             "csv": ".csv",
             "json": ".json",
+            "jsonl": ".jsonl",
             "excel": ".xlsx",
         }
         suffix = suffix_map.get(export_format.lower())

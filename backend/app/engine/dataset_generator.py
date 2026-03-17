@@ -81,7 +81,7 @@ class DatasetGenerator:
     ) -> list[dict[str, Any]]:
         """Export datasets in requested formats, chunking large generations."""
         clean_formats = [
-            fmt.lower() for fmt in formats if fmt.lower() in {"csv", "json", "excel"}
+            fmt.lower() for fmt in formats if fmt.lower() in {"csv", "json", "jsonl", "excel"}
         ]
         if not clean_formats:
             clean_formats = ["csv"]
@@ -100,9 +100,12 @@ class DatasetGenerator:
             self._write_json(json_path, attributes, row_count, chunk_size)
             outputs.append(self._file_metadata(json_path, "json"))
 
+        if "jsonl" in clean_formats:
+            jsonl_path = dataset_dir / f"dataset_{dataset_id}.jsonl"
+            self._write_jsonl(jsonl_path, attributes, row_count, chunk_size)
+            outputs.append(self._file_metadata(jsonl_path, "jsonl"))
+
         if "excel" in clean_formats:
-            if row_count > 1_000_000:
-                raise ValueError("Excel export supports up to 1,000,000 rows")
             xlsx_path = dataset_dir / f"dataset_{dataset_id}.xlsx"
             self._write_excel(xlsx_path, attributes, row_count, chunk_size)
             outputs.append(self._file_metadata(xlsx_path, "excel"))
@@ -175,7 +178,30 @@ class DatasetGenerator:
         row_count: int,
         chunk_size: int,
     ) -> None:
-        """Write chunked newline-delimited JSON output."""
+        """Write a JSON array (all rows as a single top-level array)."""
+        import json as _json
+
+        with open(file_path, "w", encoding="utf-8") as fh:
+            fh.write("[\n")
+            first_row = True
+            for current_chunk_size in self._iter_chunks(row_count, chunk_size):
+                frame = self.generate_dataframe(attributes, current_chunk_size)
+                records = frame.to_dict(orient="records")
+                for record in records:
+                    if not first_row:
+                        fh.write(",\n")
+                    fh.write("  " + _json.dumps(record, default=str))
+                    first_row = False
+            fh.write("\n]\n")
+
+    def _write_jsonl(
+        self,
+        file_path: Path,
+        attributes: list[AttributeSpec],
+        row_count: int,
+        chunk_size: int,
+    ) -> None:
+        """Write newline-delimited JSON (one record per line, .jsonl)."""
         first = True
         for current_chunk_size in self._iter_chunks(row_count, chunk_size):
             frame = self.generate_dataframe(attributes, current_chunk_size)
@@ -195,22 +221,45 @@ class DatasetGenerator:
         row_count: int,
         chunk_size: int,
     ) -> None:
-        """Write XLSX output. Uses chunked writes to reduce memory pressure."""
+        """Write XLSX output, auto-splitting into multiple sheets at Excel's row limit."""
+        _EXCEL_ROW_LIMIT = 1_048_576
+        sheet_index = 1
+        sheet_name = f"dataset_{sheet_index}"
         startrow = 0
+        first_sheet = True
+
         with pd.ExcelWriter(file_path, engine="openpyxl") as writer:
             for current_chunk_size in self._iter_chunks(row_count, chunk_size):
                 frame = self.generate_dataframe(attributes, current_chunk_size)
-                include_header = startrow == 0
-                frame.to_excel(
-                    writer,
-                    sheet_name="dataset",
-                    startrow=startrow,
-                    index=False,
-                    header=include_header,
-                )
-                startrow += len(frame)
-                if include_header:
-                    startrow += 1
+                remaining = frame
+
+                while len(remaining) > 0:
+                    # Rows available in the current sheet (excluding header row)
+                    header_offset = 1 if startrow == 0 else 0
+                    space = _EXCEL_ROW_LIMIT - startrow - header_offset
+
+                    if space <= 0:
+                        # Start a new sheet
+                        sheet_index += 1
+                        sheet_name = f"dataset_{sheet_index}"
+                        startrow = 0
+                        first_sheet = False
+
+                    include_header = startrow == 0
+                    header_offset = 1 if include_header else 0
+                    space = _EXCEL_ROW_LIMIT - startrow - header_offset
+                    chunk = remaining.iloc[:space]
+                    remaining = remaining.iloc[space:]
+
+                    chunk.to_excel(
+                        writer,
+                        sheet_name=sheet_name,
+                        startrow=startrow,
+                        index=False,
+                        header=include_header,
+                    )
+                    startrow += len(chunk) + header_offset
+                    _ = first_sheet  # suppress unused warning
 
     def _file_metadata(self, file_path: Path, export_format: str) -> dict[str, Any]:
         """Return metadata for a generated output file."""
