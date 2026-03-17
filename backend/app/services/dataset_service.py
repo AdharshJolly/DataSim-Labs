@@ -31,6 +31,10 @@ class DatasetService:
         attributes: list[AttributeConfig],
         seed: int | None = None,
     ) -> DatasetVersion:
+        attr_names = [attr.name for attr in attributes]
+        if len(attr_names) != len(set(attr_names)):
+            raise ValueError("Attribute names must be unique within a version")
+
         dataset_doc = db["datasets"].find_one(
             {"_id": str(dataset_id), "user_id": str(user_id)}
         )

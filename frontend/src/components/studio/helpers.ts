@@ -20,8 +20,14 @@ export function newAttr(index: number): AttrRow {
     min: "0",
     max: "100",
     categories: "",
+    weights: "",
     start_date: "",
     end_date: "",
+    precision: "2",
+    max_length: "64",
+    true_probability: "0.5",
+    skew_direction: "right",
+    skew_intensity: "2",
   };
 }
 
@@ -42,14 +48,44 @@ export function toApiAttr(attr: AttrRow): AttributeConfig {
   if (NUMERIC_TYPES.includes(attr.type)) {
     if (attr.min !== "") constraints.min = Number(attr.min);
     if (attr.max !== "") constraints.max = Number(attr.max);
+    if (attr.type === "float" && attr.precision !== "") {
+      constraints.precision = parseInt(attr.precision, 10);
+    }
+    if (distribution === "skewed") {
+      constraints.skew_direction = attr.skew_direction;
+      if (attr.skew_intensity !== "") {
+        constraints.skew_intensity = Number(attr.skew_intensity);
+      }
+    }
   } else if (attr.type === "categorical" && attr.categories.trim()) {
     constraints.categories = attr.categories
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
+    if (
+      distribution === "weighted_categorical" &&
+      attr.weights.trim()
+    ) {
+      const parsed = attr.weights
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map(Number);
+      if (parsed.length > 0 && parsed.every((n) => !isNaN(n))) {
+        constraints.weights = parsed;
+      }
+    }
   } else if (attr.type === "date") {
     if (attr.start_date) constraints.start_date = attr.start_date;
     if (attr.end_date) constraints.end_date = attr.end_date;
+  } else if (attr.type === "text") {
+    if (attr.max_length !== "") {
+      constraints.max_length = parseInt(attr.max_length, 10);
+    }
+  } else if (attr.type === "boolean") {
+    if (attr.true_probability !== "") {
+      constraints.true_probability = Number(attr.true_probability);
+    }
   }
   return {
     name: attr.name.trim() || `field_${Math.random().toString(36).slice(2, 6)}`,

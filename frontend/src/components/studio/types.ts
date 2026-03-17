@@ -14,8 +14,14 @@ export interface AttrRow {
   min: string;
   max: string;
   categories: string;
+  weights: string;
   start_date: string;
   end_date: string;
+  precision: string;
+  max_length: string;
+  true_probability: string;
+  skew_direction: "left" | "right";
+  skew_intensity: string;
 }
 
 export type AttrUpdate = <K extends keyof AttrRow>(

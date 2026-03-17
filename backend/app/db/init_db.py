@@ -18,3 +18,8 @@ def init_db() -> None:
     database["attributes"].create_index(
         [("dataset_version_id", ASCENDING), ("order_index", ASCENDING)]
     )
+    database["attributes"].create_index(
+        [("dataset_version_id", ASCENDING), ("name", ASCENDING)],
+        unique=True,
+        name="uq_version_attr_name",
+    )

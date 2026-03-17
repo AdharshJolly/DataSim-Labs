@@ -49,7 +49,12 @@ export function AttrCard({
   const showMinMax = NUMERIC_TYPES.includes(attr.type);
   const showCats = attr.type === "categorical";
   const showDates = attr.type === "date";
-  const hasSettings = showDist || showMinMax || showCats || showDates;
+  const showPrecision = attr.type === "float";
+  const showMaxLength = attr.type === "text";
+  const showTrueProbability = attr.type === "boolean";
+  const showWeights = attr.type === "categorical" && attr.distribution === "weighted_categorical";
+  const showSkewParams = NUMERIC_TYPES.includes(attr.type) && attr.distribution === "skewed";
+  const hasSettings = showDist || showMinMax || showCats || showDates || showPrecision || showMaxLength || showTrueProbability || showSkewParams;
 
   // Handle outside click to close dropdown
   useEffect(() => {
@@ -258,6 +263,74 @@ export function AttrCard({
             </div>
           )}
 
+          {showPrecision && (
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">
+                Decimal Precision
+              </label>
+              <div className="flex items-center gap-3">
+                <input
+                  type="range"
+                  min={0}
+                  max={10}
+                  value={attr.precision}
+                  onChange={(e) => onUpdate(index, "precision", e.target.value)}
+                  className="h-2 flex-1 cursor-pointer appearance-none rounded-lg bg-border accent-primary"
+                />
+                <span className="w-8 text-right text-sm font-semibold text-foreground">
+                  {attr.precision}
+                </span>
+              </div>
+              <p className="text-[10px] text-muted-foreground/70">
+                Number of digits after the decimal point
+              </p>
+            </div>
+          )}
+
+          {showMaxLength && (
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">
+                Max Length
+              </label>
+              <input
+                type="number"
+                min={1}
+                className="w-full rounded-md border border-border bg-background/70 px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
+                placeholder="64"
+                value={attr.max_length}
+                onChange={(e) => onUpdate(index, "max_length", e.target.value)}
+              />
+              <p className="text-[10px] text-muted-foreground/70">
+                Maximum character length for generated text
+              </p>
+            </div>
+          )}
+
+          {showTrueProbability && (
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">
+                True Probability
+              </label>
+              <div className="flex items-center gap-3">
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={attr.true_probability}
+                  onChange={(e) => onUpdate(index, "true_probability", e.target.value)}
+                  className="h-2 flex-1 cursor-pointer appearance-none rounded-lg bg-border accent-primary"
+                />
+                <span className="w-12 text-right text-sm font-semibold text-foreground">
+                  {Number(attr.true_probability).toFixed(2)}
+                </span>
+              </div>
+              <p className="text-[10px] text-muted-foreground/70">
+                How often the value will be true (0 = always false, 1 = always true)
+              </p>
+            </div>
+          )}
+
           {showCats && (
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">
@@ -269,6 +342,79 @@ export function AttrCard({
                 value={attr.categories}
                 onChange={(e) => onUpdate(index, "categories", e.target.value)}
               />
+            </div>
+          )}
+
+          {showWeights && (
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">
+                Weights (comma-separated, matching categories)
+              </label>
+              <input
+                className="w-full rounded-md border border-border bg-background/70 px-3 py-2 text-sm text-foreground placeholder-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
+                placeholder="e.g. 3, 2, 1"
+                value={attr.weights}
+                onChange={(e) => onUpdate(index, "weights", e.target.value)}
+              />
+              <p className="text-[10px] text-muted-foreground/70">
+                Relative weights for each category — they don&apos;t need to sum to 1, they will be normalized automatically
+              </p>
+            </div>
+          )}
+
+          {showSkewParams && (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">
+                  Skew Direction
+                </label>
+                <div className="flex rounded-md border border-border overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => onUpdate(index, "skew_direction", "left")}
+                    className={`flex-1 px-3 py-1.5 text-xs font-medium transition-colors ${
+                      attr.skew_direction === "left"
+                        ? "bg-primary/20 text-primary"
+                        : "bg-background/70 text-muted-foreground hover:bg-white/5"
+                    }`}
+                  >
+                    ← Left (tail left)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onUpdate(index, "skew_direction", "right")}
+                    className={`flex-1 px-3 py-1.5 text-xs font-medium transition-colors ${
+                      attr.skew_direction === "right"
+                        ? "bg-primary/20 text-primary"
+                        : "bg-background/70 text-muted-foreground hover:bg-white/5"
+                    }`}
+                  >
+                    Right (tail right) →
+                  </button>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">
+                  Skew Intensity
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    min={0.1}
+                    max={10}
+                    step={0.1}
+                    value={attr.skew_intensity}
+                    onChange={(e) => onUpdate(index, "skew_intensity", e.target.value)}
+                    className="h-2 flex-1 cursor-pointer appearance-none rounded-lg bg-border accent-primary"
+                  />
+                  <span className="w-10 text-right text-sm font-semibold text-foreground">
+                    {Number(attr.skew_intensity).toFixed(1)}
+                  </span>
+                </div>
+                <p className="text-[10px] text-muted-foreground/70">
+                  Higher values produce more extreme skew
+                </p>
+              </div>
             </div>
           )}
 

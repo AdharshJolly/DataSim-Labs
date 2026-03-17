@@ -22,11 +22,16 @@ def generate_float(
     maximum = float(constraints.get("max", 1000.0))
     precision = int(constraints.get("precision", 2))
 
+    skew_direction = str(constraints.get("skew_direction", "right"))
+    skew_intensity = float(constraints.get("skew_intensity", 2.0))
+
     values = sample_numeric(
         count=row_count,
         distribution=distribution,
         minimum=minimum,
         maximum=maximum,
         rng=rng,
+        skew_direction=skew_direction,
+        skew_intensity=skew_intensity,
     )
     return pd.Series(np.round(values, precision), name=name)

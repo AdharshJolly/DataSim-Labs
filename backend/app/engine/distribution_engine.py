@@ -6,6 +6,7 @@ import math
 from typing import Any
 
 import numpy as np
+from scipy.stats import truncnorm
 
 
 def sample_numeric(
@@ -14,17 +15,36 @@ def sample_numeric(
     minimum: float,
     maximum: float,
     rng: np.random.Generator,
+    *,
+    skew_direction: str = "right",
+    skew_intensity: float = 2.0,
 ) -> np.ndarray:
-    """Sample numeric values using supported distributions and clamp to range."""
+    """Sample numeric values using supported distributions within [minimum, maximum]."""
     if minimum > maximum:
         raise ValueError("Minimum cannot be greater than maximum")
 
     if distribution == "normal":
         mean = (minimum + maximum) / 2
         std = max((maximum - minimum) / 6, 1e-9)
-        values = rng.normal(loc=mean, scale=std, size=count)
+        a_bound = (minimum - mean) / std
+        b_bound = (maximum - mean) / std
+        values = truncnorm.rvs(
+            a_bound,
+            b_bound,
+            loc=mean,
+            scale=std,
+            size=count,
+            random_state=rng,
+        )
     elif distribution == "skewed":
-        beta_samples = rng.beta(a=2.0, b=5.0, size=count)
+        intensity = max(float(skew_intensity), 0.1)
+        if skew_direction == "left":
+            a_param = intensity * 2.5
+            b_param = intensity
+        else:
+            a_param = intensity
+            b_param = intensity * 2.5
+        beta_samples = rng.beta(a=a_param, b=b_param, size=count)
         values = minimum + beta_samples * (maximum - minimum)
     else:
         values = rng.uniform(low=minimum, high=maximum, size=count)
