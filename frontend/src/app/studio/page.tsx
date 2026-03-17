@@ -334,7 +334,7 @@ export default function StudioPage() {
     <AuthGuard>
       <div className="flex min-h-[calc(100vh-10rem)] flex-col gap-0 md:flex-row md:gap-8">
         {/* ── Sidebar ── */}
-        <aside className="hidden w-56 flex-shrink-0 md:block">
+        <aside className="hidden w-56 flex-shrink-0 md:block md:sticky md:top-24 h-fit max-h-[calc(100vh-8rem)] overflow-y-auto pr-4 pb-8">
           <p className="mb-3 text-sm font-semibold uppercase tracking-widest text-muted-foreground">
             Steps
           </p>
@@ -396,7 +396,7 @@ export default function StudioPage() {
         </aside>
 
         {/* ── Main Content ── */}
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 pb-24">
           {/* Mobile step bar */}
           <div className="mb-6 md:hidden">
             <p className="mb-2 text-sm font-semibold uppercase tracking-widest text-muted-foreground">

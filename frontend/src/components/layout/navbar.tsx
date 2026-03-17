@@ -2,15 +2,20 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Milestone, Menu, X } from "lucide-react";
+import { Milestone, Menu, X, LogOut, User } from "lucide-react";
 import { useState, useEffect } from "react";
+import { logout, clearAuthToken } from "@/lib/api-client";
 
 export function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const pathname = usePathname();
 
   useEffect(() => {
+    // Check auth status
+    setIsAuthenticated(!!localStorage.getItem("datasim_access_token"));
+
     const handleScroll = () => setScrolled(window.scrollY > 20);
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
@@ -22,6 +27,18 @@ export function Navbar() {
   ];
 
   const isActive = (path: string) => pathname === path;
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch {
+      // Ignore API errors on logout
+    } finally {
+      clearAuthToken();
+      setIsAuthenticated(false);
+      window.location.href = "/";
+    }
+  };
 
   return (
     <nav
@@ -58,15 +75,27 @@ export function Navbar() {
           </div>
           <div className="h-4 w-px bg-border" />
           <div className="flex items-center gap-4">
-            <Link
-              href="/login"
-              className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-            >
-              Sign In
-            </Link>
-            <Link href="/register" className="btn-primary h-9 px-5 text-xs">
-              Get Started
-            </Link>
+            {isAuthenticated ? (
+              <button
+                onClick={handleLogout}
+                className="btn-primary flex h-9 items-center gap-2 px-5 text-xs transition-colors hover:bg-destructive hover:text-destructive-foreground hover:border-destructive"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+                Sign Out
+              </button>
+            ) : (
+              <>
+                <Link
+                  href="/login"
+                  className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  Sign In
+                </Link>
+                <Link href="/register" className="btn-primary h-9 px-5 text-xs">
+                  Get Started
+                </Link>
+              </>
+            )}
           </div>
         </div>
 
@@ -96,20 +125,35 @@ export function Navbar() {
               </Link>
             ))}
             <hr className="border-border" />
-            <Link
-              href="/login"
-              className="px-4 py-2 text-sm font-medium text-muted-foreground"
-              onClick={() => setIsOpen(false)}
-            >
-              Sign In
-            </Link>
-            <Link
-              href="/register"
-              className="btn-primary w-full"
-              onClick={() => setIsOpen(false)}
-            >
-              Get Started
-            </Link>
+            {isAuthenticated ? (
+              <button
+                onClick={() => {
+                  setIsOpen(false);
+                  handleLogout();
+                }}
+                className="btn-primary w-full flex items-center justify-center gap-2"
+              >
+                <LogOut className="h-4 w-4" />
+                Sign Out
+              </button>
+            ) : (
+              <>
+                <Link
+                  href="/login"
+                  className="px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground hover:bg-white/5 rounded-lg"
+                  onClick={() => setIsOpen(false)}
+                >
+                  Sign In
+                </Link>
+                <Link
+                  href="/register"
+                  className="btn-primary w-full text-center"
+                  onClick={() => setIsOpen(false)}
+                >
+                  Get Started
+                </Link>
+              </>
+            )}
           </div>
         </div>
       )}

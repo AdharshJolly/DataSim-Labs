@@ -13,7 +13,7 @@ export function QuickAdjustCard({ attr, index, onUpdate }: QuickAdjustProps) {
   const showCats = attr.type === "categorical";
 
   return (
-    <div className="space-y-3 rounded-lg border border-border bg-background/30 p-3">
+    <div className="space-y-3 rounded-lg border border-border bg-gradient-to-br from-white/[0.03] to-transparent backdrop-blur-[2px] p-3 transition-all hover:border-primary/30">
       <div className="flex items-center justify-between gap-2">
         <span className="truncate text-sm font-semibold text-foreground">
           {attr.name}

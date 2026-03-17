@@ -98,7 +98,7 @@ export default function DashboardPage() {
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 className="font-display text-4xl font-bold tracking-tight text-glow">
+            <h1 className="font-display text-4xl font-bold tracking-tight text-foreground">
               My Datasets
             </h1>
             {email && (
@@ -148,9 +148,8 @@ export default function DashboardPage() {
         ) : datasets.length === 0 ? (
           /* Empty state */
           <div className="flex flex-col items-center justify-center gap-6 rounded-2xl border-2 border-dashed border-border/50 py-24 text-center">
-             <div className="relative flex h-20 w-20 items-center justify-center rounded-full border border-primary/20 bg-primary/10">
+             <div className="relative flex h-20 w-20 items-center justify-center rounded-full border border-primary/20 bg-primary/10 shadow-inner shadow-primary/20">
                 <Database className="h-10 w-10 text-primary" />
-                <div className="absolute inset-0 animate-ping rounded-full border border-primary/30" />
              </div>
             <div className="max-w-sm">
               <p className="font-display text-xl font-bold">No datasets yet</p>
@@ -167,7 +166,7 @@ export default function DashboardPage() {
           /* Dataset cards */
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {datasets.map((dataset) => (
-              <div key={dataset.id} className="animate-subtle-float flex flex-col gap-4 rounded-2xl border border-border bg-white/5 p-5 backdrop-blur-sm transition-all duration-300 hover:border-primary/60 hover:shadow-2xl hover:shadow-primary/10">
+              <div key={dataset.id} className="group flex flex-col gap-4 rounded-2xl border border-border bg-gradient-to-br from-white/[0.05] to-transparent p-5 backdrop-blur-sm transition-all duration-300 hover:-translate-y-1 hover:border-primary/50 hover:shadow-xl hover:shadow-primary/5">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <h2 className="truncate font-display text-xl font-bold">

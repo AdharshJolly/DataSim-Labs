@@ -39,7 +39,7 @@ function RegisterContent() {
     <div className="flex min-h-screen items-center justify-center p-4">
       <div className="w-full max-w-md space-y-8">
         <div className="text-center">
-          <h1 className="font-display text-glow text-4xl font-bold text-primary">
+          <h1 className="font-display text-4xl font-bold tracking-tight text-foreground">
             Join DataSim Lab
           </h1>
           <p className="mt-2 text-muted-foreground">
@@ -47,8 +47,7 @@ function RegisterContent() {
           </p>
         </div>
 
-        <div className="relative rounded-xl border border-border bg-background/50 p-8 backdrop-blur-sm">
-          <div className="absolute -inset-px rounded-xl bg-gradient-to-r from-primary/20 to-secondary/20 blur-lg" />
+        <div className="rounded-xl border border-border bg-gradient-to-br from-white/[0.05] to-transparent p-8 backdrop-blur-[2px] shadow-xl shadow-primary/5">
           <div className="relative z-10">
             <form onSubmit={onSubmit} className="space-y-6">
               <div className="space-y-2">
@@ -118,7 +117,7 @@ function RegisterContent() {
             <p className="mt-6 text-center text-sm text-muted-foreground">
               Already have an account?{" "}
               <Link
-                className="font-semibold text-primary underline-offset-4 transition-colors hover:text-primary/80 hover:underline"
+                className="font-semibold text-primary/90 underline-offset-4 transition-colors hover:text-primary hover:underline hover:drop-shadow-sm"
                 href="/login"
               >
                 Sign In

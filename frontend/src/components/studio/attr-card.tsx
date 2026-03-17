@@ -33,8 +33,10 @@ export function AttrCard({
   onRemove,
 }: AttrCardProps) {
   const [isExpanded, setIsExpanded] = useState(true);
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [isTypeDropdownOpen, setIsTypeDropdownOpen] = useState(false);
+  const [isDistDropdownOpen, setIsDistDropdownOpen] = useState(false);
+  const typeDropdownRef = useRef<HTMLDivElement>(null);
+  const distDropdownRef = useRef<HTMLDivElement>(null);
 
   const selectedType = ALL_TYPE_OPTIONS.find((opt) => opt.value === attr.type);
   const SelectedIcon = selectedType?.icon || Info;
@@ -56,11 +58,14 @@ export function AttrCard({
   const showSkewParams = NUMERIC_TYPES.includes(attr.type) && attr.distribution === "skewed";
   const hasSettings = showDist || showMinMax || showCats || showDates || showPrecision || showMaxLength || showTrueProbability || showSkewParams;
 
-  // Handle outside click to close dropdown
+  // Handle outside click to close dropdowns
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsDropdownOpen(false);
+      if (typeDropdownRef.current && !typeDropdownRef.current.contains(event.target as Node)) {
+        setIsTypeDropdownOpen(false);
+      }
+      if (distDropdownRef.current && !distDropdownRef.current.contains(event.target as Node)) {
+        setIsDistDropdownOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -68,7 +73,7 @@ export function AttrCard({
   }, []);
 
   return (
-    <div className="rounded-lg border border-border bg-background/30 transition-all duration-300 focus-within:border-primary/80 hover:border-primary/30">
+    <div className="rounded-lg border border-border bg-gradient-to-br from-white/[0.03] to-transparent backdrop-blur-[2px] transition-all duration-300 focus-within:border-primary/80 hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5">
       {/* Header */}
       <div className="flex items-center gap-2 border-b border-border p-3">
         <GripVertical className="h-5 w-5 flex-shrink-0 cursor-move text-muted-foreground/50" />
@@ -84,18 +89,18 @@ export function AttrCard({
         />
         
         {/* Custom Type Selector Dropdown */}
-        <div className="relative ml-auto" ref={dropdownRef}>
+        <div className="relative ml-auto" ref={typeDropdownRef}>
           <button
             type="button"
-            onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+            onClick={() => setIsTypeDropdownOpen(!isTypeDropdownOpen)}
             className="flex items-center gap-2 rounded-md border border-border bg-background/50 px-3 py-1.5 text-xs font-medium text-foreground transition-all hover:border-primary/50 hover:bg-background focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/50"
           >
             <SelectedIcon className="h-3.5 w-3.5 text-primary" />
             <span>{selectedType?.label || "Select Type"}</span>
-            <ChevronDown className={`h-3 w-3 text-muted-foreground transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} />
+            <ChevronDown className={`h-3 w-3 text-muted-foreground transition-transform ${isTypeDropdownOpen ? 'rotate-180' : ''}`} />
           </button>
 
-          {isDropdownOpen && (
+          {isTypeDropdownOpen && (
             <div className="absolute right-0 top-full z-50 mt-1 w-64 overflow-hidden rounded-lg border border-border bg-card shadow-xl backdrop-blur-md">
               <div className="max-h-[320px] overflow-y-auto p-1">
                 {TYPE_OPTIONS.map((group) => (
@@ -113,7 +118,7 @@ export function AttrCard({
                             type="button"
                             onClick={() => {
                               onUpdate(index, "type", option.value);
-                              setIsDropdownOpen(false);
+                              setIsTypeDropdownOpen(false);
                             }}
                             className={`flex w-full items-start gap-3 rounded-md px-2 py-2 text-left transition-colors ${
                               active
@@ -178,27 +183,49 @@ export function AttrCard({
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             {showDist && (
-              <div className="space-y-1.5">
+              <div className="space-y-1.5" ref={distDropdownRef}>
                 <label className="text-xs font-medium text-muted-foreground">
                   Distribution
                 </label>
-                <select
-                  className="w-full rounded-md border border-border bg-background/70 px-2 py-1.5 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
-                  value={attr.distribution}
-                  onChange={(e) =>
-                    onUpdate(
-                      index,
-                      "distribution",
-                      e.target.value as DistributionType,
-                    )
-                  }
-                >
-                  {distributionOptions.map(({ value, label }) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setIsDistDropdownOpen(!isDistDropdownOpen)}
+                    className="flex w-full items-center justify-between gap-2 rounded-md border border-border bg-background/70 px-3 py-2 text-sm text-foreground transition-all hover:border-primary/50 focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/50"
+                  >
+                    <span>
+                      {distributionOptions.find((o) => o.value === attr.distribution)?.label || "Select Distribution"}
+                    </span>
+                    <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${isDistDropdownOpen ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  {isDistDropdownOpen && (
+                    <div className="absolute left-0 top-full z-50 mt-1 w-full overflow-hidden rounded-lg border border-border bg-card shadow-xl backdrop-blur-md">
+                      <div className="max-h-[200px] overflow-y-auto p-1">
+                        {distributionOptions.map(({ value, label }) => {
+                          const active = attr.distribution === value;
+                          return (
+                            <button
+                              key={value}
+                              type="button"
+                              onClick={() => {
+                                onUpdate(index, "distribution", value as DistributionType);
+                                setIsDistDropdownOpen(false);
+                              }}
+                              className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors ${
+                                active
+                                  ? "bg-primary/10 text-primary font-medium"
+                                  : "text-foreground hover:bg-white/5"
+                              }`}
+                            >
+                              {label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
