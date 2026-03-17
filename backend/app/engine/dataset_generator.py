@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -50,24 +51,25 @@ class DatasetGenerator:
         self,
         attributes: list[AttributeSpec],
         row_count: int,
+        realism_rules: list[dict] | None = None,
     ) -> pd.DataFrame:
         """Generate a dataframe for the provided attributes and row count."""
-        data: dict[str, pd.Series] = {}
-        for attr in attributes:
-            column = self._generate_column(attr=attr, row_count=row_count)
-            data[attr.name] = inject_nulls(
-                series=column,
-                null_percentage=attr.null_percentage,
-                rng=self.rng,
-            )
-        return pd.DataFrame(data)
+        frame, _ = self._generate_dataframe_with_stats(
+            attributes=attributes,
+            row_count=row_count,
+            realism_rules=realism_rules,
+        )
+        return frame
 
     def generate_preview(
         self,
         attributes: list[AttributeSpec],
+        realism_rules: list[dict] | None = None,
     ) -> list[dict[str, Any]]:
         """Generate a fixed-size 10-row preview payload."""
-        frame = self.generate_dataframe(attributes=attributes, row_count=10)
+        frame = self.generate_dataframe(
+            attributes=attributes, row_count=10, realism_rules=realism_rules
+        )
         return frame.to_dict(orient="records")
 
     def export_dataset_files(
@@ -78,10 +80,15 @@ class DatasetGenerator:
         formats: list[str],
         output_root: Path,
         chunk_size: int = 100_000,
-    ) -> list[dict[str, Any]]:
-        """Export datasets in requested formats, chunking large generations."""
+        realism_rules: list[dict] | None = None,
+        min_chunk_size: int = 10_000,
+        target_cells_per_chunk: int = 1_500_000,
+    ) -> dict[str, Any]:
+        """Export datasets in one consistent pass and return files + quality report."""
         clean_formats = [
-            fmt.lower() for fmt in formats if fmt.lower() in {"csv", "json", "jsonl", "excel"}
+            fmt.lower()
+            for fmt in formats
+            if fmt.lower() in {"csv", "json", "jsonl", "excel"}
         ]
         if not clean_formats:
             clean_formats = ["csv"]
@@ -89,28 +96,108 @@ class DatasetGenerator:
         dataset_dir = output_root / str(dataset_id)
         dataset_dir.mkdir(parents=True, exist_ok=True)
 
-        outputs: list[dict[str, Any]] = []
-        if "csv" in clean_formats:
-            csv_path = dataset_dir / f"dataset_{dataset_id}.csv"
-            self._write_csv(csv_path, attributes, row_count, chunk_size)
-            outputs.append(self._file_metadata(csv_path, "csv"))
+        file_paths: dict[str, Path] = {
+            "csv": dataset_dir / f"dataset_{dataset_id}.csv",
+            "json": dataset_dir / f"dataset_{dataset_id}.json",
+            "jsonl": dataset_dir / f"dataset_{dataset_id}.jsonl",
+            "excel": dataset_dir / f"dataset_{dataset_id}.xlsx",
+        }
+
+        for export_format in clean_formats:
+            file_paths[export_format].unlink(missing_ok=True)
+
+        effective_chunk_size = self._effective_chunk_size(
+            base_chunk_size=chunk_size,
+            attribute_count=max(1, len(attributes)),
+            row_count=row_count,
+            min_chunk_size=min_chunk_size,
+            target_cells_per_chunk=target_cells_per_chunk,
+        )
+
+        csv_first = True
+        jsonl_first = True
+        json_first = True
+        excel_writer: pd.ExcelWriter | None = None
+        excel_state = {
+            "sheet_index": 1,
+            "sheet_name": "dataset_1",
+            "startrow": 0,
+        }
 
         if "json" in clean_formats:
-            json_path = dataset_dir / f"dataset_{dataset_id}.json"
-            self._write_json(json_path, attributes, row_count, chunk_size)
-            outputs.append(self._file_metadata(json_path, "json"))
-
-        if "jsonl" in clean_formats:
-            jsonl_path = dataset_dir / f"dataset_{dataset_id}.jsonl"
-            self._write_jsonl(jsonl_path, attributes, row_count, chunk_size)
-            outputs.append(self._file_metadata(jsonl_path, "jsonl"))
+            json_handle = open(file_paths["json"], "w", encoding="utf-8")
+            json_handle.write("[\n")
+        else:
+            json_handle = None
 
         if "excel" in clean_formats:
-            xlsx_path = dataset_dir / f"dataset_{dataset_id}.xlsx"
-            self._write_excel(xlsx_path, attributes, row_count, chunk_size)
-            outputs.append(self._file_metadata(xlsx_path, "excel"))
+            excel_writer = pd.ExcelWriter(file_paths["excel"], engine="openpyxl")
 
-        return outputs
+        quality = self._init_quality_state(attributes=attributes)
+
+        try:
+            for current_chunk_size in self._iter_chunks(
+                row_count, effective_chunk_size
+            ):
+                frame, chunk_stats = self._generate_dataframe_with_stats(
+                    attributes=attributes,
+                    row_count=current_chunk_size,
+                    realism_rules=realism_rules,
+                )
+                self._update_quality_state(quality, frame, chunk_stats)
+
+                if "csv" in clean_formats:
+                    frame.to_csv(
+                        file_paths["csv"],
+                        mode="w" if csv_first else "a",
+                        header=csv_first,
+                        index=False,
+                    )
+                    csv_first = False
+
+                if "jsonl" in clean_formats:
+                    frame.to_json(
+                        file_paths["jsonl"],
+                        orient="records",
+                        lines=True,
+                        mode="w" if jsonl_first else "a",
+                        date_format="iso",
+                    )
+                    jsonl_first = False
+
+                if json_handle is not None:
+                    payload = frame.to_json(orient="records", date_format="iso")
+                    records_blob = payload.strip()
+                    if records_blob.startswith("[") and records_blob.endswith("]"):
+                        records_blob = records_blob[1:-1].strip()
+                    if records_blob:
+                        if not json_first:
+                            json_handle.write(",\n")
+                        json_handle.write(records_blob)
+                        json_first = False
+
+                if excel_writer is not None:
+                    self._append_excel_chunk(excel_writer, excel_state, frame)
+        finally:
+            if json_handle is not None:
+                json_handle.write("\n]\n")
+                json_handle.close()
+            if excel_writer is not None:
+                excel_writer.close()
+
+        outputs = [
+            self._file_metadata(file_paths[fmt], fmt)
+            for fmt in clean_formats
+            if file_paths[fmt].exists()
+        ]
+
+        quality_report = self._finalize_quality_report(
+            quality,
+            row_count=row_count,
+            chunk_size_used=effective_chunk_size,
+            requested_chunk_size=chunk_size,
+        )
+        return {"files": outputs, "quality_report": quality_report}
 
     def _generate_column(self, attr: AttributeSpec, row_count: int) -> pd.Series:
         """Dispatch one attribute to its dedicated generator."""
@@ -147,6 +234,39 @@ class DatasetGenerator:
 
         raise ValueError(f"Unsupported data type: {data_type}")
 
+    def _generate_dataframe_with_stats(
+        self,
+        attributes: list[AttributeSpec],
+        row_count: int,
+        realism_rules: list[dict] | None,
+    ) -> tuple[pd.DataFrame, dict[str, Any]]:
+        """Generate one chunk, apply realism, then inject nulls to preserve targets."""
+        data: dict[str, pd.Series] = {}
+        for attr in attributes:
+            data[attr.name] = self._generate_column(attr=attr, row_count=row_count)
+
+        frame = pd.DataFrame(data)
+        realism_stats: dict[str, Any] = {
+            "rule_impacts": {},
+            "total_rows_affected": 0,
+            "rule_count": 0,
+        }
+
+        if realism_rules:
+            from app.engine.realism_processor import RealismProcessor  # deferred
+
+            processor = RealismProcessor(faker=self.faker, rng=self.rng)
+            frame, realism_stats = processor.apply_with_stats(frame, realism_rules)
+
+        for attr in attributes:
+            frame[attr.name] = inject_nulls(
+                series=frame[attr.name],
+                null_percentage=attr.null_percentage,
+                rng=self.rng,
+            )
+
+        return frame, realism_stats
+
     def _iter_chunks(self, row_count: int, chunk_size: int) -> list[int]:
         """Return chunk sizes that sum exactly to row_count."""
         full_chunks, remainder = divmod(row_count, chunk_size)
@@ -155,111 +275,165 @@ class DatasetGenerator:
             chunks.append(remainder)
         return chunks or [row_count]
 
-    def _write_csv(
+    def _effective_chunk_size(
         self,
-        file_path: Path,
-        attributes: list[AttributeSpec],
+        base_chunk_size: int,
+        attribute_count: int,
         row_count: int,
-        chunk_size: int,
+        min_chunk_size: int,
+        target_cells_per_chunk: int,
+    ) -> int:
+        """Compute adaptive chunk size to reduce peak memory pressure."""
+        by_cells = max(1, target_cells_per_chunk // max(1, attribute_count))
+        bounded = min(base_chunk_size, by_cells)
+        bounded = max(min_chunk_size, bounded)
+        return max(1, min(bounded, row_count))
+
+    def _append_excel_chunk(
+        self,
+        writer: pd.ExcelWriter,
+        state: dict[str, Any],
+        frame: pd.DataFrame,
     ) -> None:
-        """Write chunked CSV output."""
-        first = True
-        for current_chunk_size in self._iter_chunks(row_count, chunk_size):
-            frame = self.generate_dataframe(attributes, current_chunk_size)
-            frame.to_csv(
-                file_path, mode="w" if first else "a", header=first, index=False
+        """Append chunk to xlsx, splitting sheets at Excel row limit."""
+        excel_row_limit = 1_048_576
+        remaining = frame
+
+        while len(remaining) > 0:
+            startrow = int(state["startrow"])
+            include_header = startrow == 0
+            header_offset = 1 if include_header else 0
+            space = excel_row_limit - startrow - header_offset
+
+            if space <= 0:
+                state["sheet_index"] = int(state["sheet_index"]) + 1
+                state["sheet_name"] = f"dataset_{state['sheet_index']}"
+                state["startrow"] = 0
+                startrow = 0
+                include_header = True
+                header_offset = 1
+                space = excel_row_limit - 1
+
+            chunk = remaining.iloc[:space]
+            remaining = remaining.iloc[space:]
+
+            chunk.to_excel(
+                writer,
+                sheet_name=str(state["sheet_name"]),
+                startrow=startrow,
+                index=False,
+                header=include_header,
             )
-            first = False
+            state["startrow"] = startrow + len(chunk) + header_offset
 
-    def _write_json(
+    def _init_quality_state(self, attributes: list[AttributeSpec]) -> dict[str, Any]:
+        column_metrics = {
+            attr.name: {
+                "null_count": 0,
+                "numeric_sum": 0.0,
+                "numeric_count": 0,
+                "numeric_min": None,
+                "numeric_max": None,
+                "top_counter": Counter(),
+            }
+            for attr in attributes
+        }
+
+        return {
+            "column_metrics": column_metrics,
+            "rows_generated": 0,
+            "rule_impacts": Counter(),
+            "rules_total_rows_affected": 0,
+            "rules_total_count": 0,
+        }
+
+    def _update_quality_state(
         self,
-        file_path: Path,
-        attributes: list[AttributeSpec],
-        row_count: int,
-        chunk_size: int,
+        quality: dict[str, Any],
+        frame: pd.DataFrame,
+        chunk_stats: dict[str, Any],
     ) -> None:
-        """Write a JSON array (all rows as a single top-level array)."""
-        import json as _json
+        quality["rows_generated"] += len(frame)
 
-        with open(file_path, "w", encoding="utf-8") as fh:
-            fh.write("[\n")
-            first_row = True
-            for current_chunk_size in self._iter_chunks(row_count, chunk_size):
-                frame = self.generate_dataframe(attributes, current_chunk_size)
-                records = frame.to_dict(orient="records")
-                for record in records:
-                    if not first_row:
-                        fh.write(",\n")
-                    fh.write("  " + _json.dumps(record, default=str))
-                    first_row = False
-            fh.write("\n]\n")
+        for column in frame.columns:
+            col_metric = quality["column_metrics"][column]
+            series = frame[column]
 
-    def _write_jsonl(
+            col_metric["null_count"] += int(series.isna().sum())
+
+            numeric_series = pd.to_numeric(series, errors="coerce")
+            numeric_non_null = numeric_series.dropna()
+            if not numeric_non_null.empty:
+                col_metric["numeric_sum"] += float(numeric_non_null.sum())
+                col_metric["numeric_count"] += int(len(numeric_non_null))
+
+                chunk_min = float(numeric_non_null.min())
+                chunk_max = float(numeric_non_null.max())
+                if (
+                    col_metric["numeric_min"] is None
+                    or chunk_min < col_metric["numeric_min"]
+                ):
+                    col_metric["numeric_min"] = chunk_min
+                if (
+                    col_metric["numeric_max"] is None
+                    or chunk_max > col_metric["numeric_max"]
+                ):
+                    col_metric["numeric_max"] = chunk_max
+
+            top_values = series.dropna().astype(str).value_counts().head(10)
+            col_metric["top_counter"].update(top_values.to_dict())
+
+        impacts = chunk_stats.get("rule_impacts", {})
+        if isinstance(impacts, dict):
+            for key, value in impacts.items():
+                quality["rule_impacts"][str(key)] += int(value)
+
+        quality["rules_total_rows_affected"] += int(
+            chunk_stats.get("total_rows_affected", 0)
+        )
+        quality["rules_total_count"] = max(
+            int(quality["rules_total_count"]),
+            int(chunk_stats.get("rule_count", 0)),
+        )
+
+    def _finalize_quality_report(
         self,
-        file_path: Path,
-        attributes: list[AttributeSpec],
+        quality: dict[str, Any],
         row_count: int,
-        chunk_size: int,
-    ) -> None:
-        """Write newline-delimited JSON (one record per line, .jsonl)."""
-        first = True
-        for current_chunk_size in self._iter_chunks(row_count, chunk_size):
-            frame = self.generate_dataframe(attributes, current_chunk_size)
-            frame.to_json(
-                file_path,
-                orient="records",
-                lines=True,
-                mode="w" if first else "a",
-                date_format="iso",
-            )
-            first = False
+        chunk_size_used: int,
+        requested_chunk_size: int,
+    ) -> dict[str, Any]:
+        report_columns: dict[str, Any] = {}
 
-    def _write_excel(
-        self,
-        file_path: Path,
-        attributes: list[AttributeSpec],
-        row_count: int,
-        chunk_size: int,
-    ) -> None:
-        """Write XLSX output, auto-splitting into multiple sheets at Excel's row limit."""
-        _EXCEL_ROW_LIMIT = 1_048_576
-        sheet_index = 1
-        sheet_name = f"dataset_{sheet_index}"
-        startrow = 0
-        first_sheet = True
+        for column, metric in quality["column_metrics"].items():
+            rows_generated = max(1, int(quality["rows_generated"]))
+            null_count = int(metric["null_count"])
 
-        with pd.ExcelWriter(file_path, engine="openpyxl") as writer:
-            for current_chunk_size in self._iter_chunks(row_count, chunk_size):
-                frame = self.generate_dataframe(attributes, current_chunk_size)
-                remaining = frame
+            numeric_mean = None
+            if metric["numeric_count"] > 0:
+                numeric_mean = float(metric["numeric_sum"] / metric["numeric_count"])
 
-                while len(remaining) > 0:
-                    # Rows available in the current sheet (excluding header row)
-                    header_offset = 1 if startrow == 0 else 0
-                    space = _EXCEL_ROW_LIMIT - startrow - header_offset
+            report_columns[column] = {
+                "null_count": null_count,
+                "null_ratio": round(null_count / rows_generated, 6),
+                "numeric_min": metric["numeric_min"],
+                "numeric_max": metric["numeric_max"],
+                "numeric_mean": numeric_mean,
+                "top_values": dict(metric["top_counter"].most_common(5)),
+            }
 
-                    if space <= 0:
-                        # Start a new sheet
-                        sheet_index += 1
-                        sheet_name = f"dataset_{sheet_index}"
-                        startrow = 0
-                        first_sheet = False
-
-                    include_header = startrow == 0
-                    header_offset = 1 if include_header else 0
-                    space = _EXCEL_ROW_LIMIT - startrow - header_offset
-                    chunk = remaining.iloc[:space]
-                    remaining = remaining.iloc[space:]
-
-                    chunk.to_excel(
-                        writer,
-                        sheet_name=sheet_name,
-                        startrow=startrow,
-                        index=False,
-                        header=include_header,
-                    )
-                    startrow += len(chunk) + header_offset
-                    _ = first_sheet  # suppress unused warning
+        return {
+            "rows_generated": int(quality["rows_generated"]),
+            "requested_rows": row_count,
+            "requested_chunk_size": requested_chunk_size,
+            "effective_chunk_size": chunk_size_used,
+            "columns": report_columns,
+            "realism": {
+                "rule_count": int(quality["rules_total_count"]),
+                "total_rows_affected": int(quality["rules_total_rows_affected"]),
+                "rule_impacts": dict(quality["rule_impacts"]),
+            },
+        }
 
     def _file_metadata(self, file_path: Path, export_format: str) -> dict[str, Any]:
         """Return metadata for a generated output file."""

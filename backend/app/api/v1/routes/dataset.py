@@ -109,7 +109,7 @@ def generate_dataset(
 ) -> GenerateResponse:
     output_root = Path(settings.artifacts_dir)
     try:
-        files = DatasetService.generate_dataset_files(
+        generation_result = DatasetService.generate_dataset_files(
             db=db,
             user_id=current_user.id,
             dataset_id=payload.dataset_id,
@@ -128,7 +128,8 @@ def generate_dataset(
         "dataset_id": payload.dataset_id,
         "status": "completed",
         "row_count": payload.row_count,
-        "files": files,
+        "files": generation_result.get("files", []),
+        "quality_report": generation_result.get("quality_report"),
     }
 
 

@@ -34,10 +34,13 @@ class Settings(BaseSettings):
 
     artifacts_dir: str = "artifacts"
     generation_chunk_size: int = 100000
+    generation_min_chunk_size: int = 10000
+    generation_target_cells_per_chunk: int = 1500000
     artifact_retention_hours: int = 24
     jwt_secret_key: str = Field(validation_alias="JWT_SECRET_KEY")
     jwt_algorithm: str = "HS256"
     jwt_expiration_minutes: int = 60
+    gemini_api_key: str = Field(default="", validation_alias="GEMINI_API_KEY")
 
     @model_validator(mode="after")
     def validate_security_settings(self) -> "Settings":
@@ -65,6 +68,12 @@ class Settings(BaseSettings):
             raise ValueError("MONGODB_URI must start with mongodb:// or mongodb+srv://")
         if not self.mongodb_database.strip():
             raise ValueError("MONGODB_DATABASE cannot be empty")
+        if self.generation_chunk_size < 1:
+            raise ValueError("generation_chunk_size must be >= 1")
+        if self.generation_min_chunk_size < 1:
+            raise ValueError("generation_min_chunk_size must be >= 1")
+        if self.generation_target_cells_per_chunk < 1:
+            raise ValueError("generation_target_cells_per_chunk must be >= 1")
         return self
 
 

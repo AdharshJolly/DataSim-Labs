@@ -6,6 +6,7 @@ from typing import Any
 from pymongo import DESCENDING
 from pymongo.database import Database
 
+from app.core.config import settings
 from app.engine.dataset_generator import AttributeSpec, DatasetGenerator
 from app.models.dataset import Attribute, Dataset, DatasetStatus, DatasetVersion
 from app.schemas.dataset import AttributeConfig
@@ -56,6 +57,31 @@ class DatasetService:
             ],
             "seed": seed,
         }
+
+        # ── Gemini Realism Planning ────────────────────────────────────────────
+        from app.engine.realism_planner import RealismPlanner  # deferred import
+
+        specs_for_planner = [
+            AttributeSpec(
+                name=a.name,
+                data_type=a.type.value,
+                constraints=a.constraints,
+                distribution=a.distribution.value,
+                null_percentage=a.null_percentage,
+            )
+            for a in attributes
+        ]
+        realism_plan = RealismPlanner.plan_with_metadata(
+            attributes=specs_for_planner,
+            api_key=settings.gemini_api_key,
+        )
+        realism_rules = realism_plan.get("rules", [])
+        config_json["realism_rules"] = realism_rules
+        config_json["realism"] = {
+            "rules": realism_rules,
+            "metadata": realism_plan.get("metadata", {}),
+        }
+        # ─────────────────────────────────────────────────────────────────────
 
         version = DatasetVersion.new(
             dataset_id=dataset_id,
@@ -116,9 +142,18 @@ class DatasetService:
             raise ValueError("Dataset version not found")
 
         attributes = DatasetService._load_version_attributes(db, dataset_version_id)
+        realism_config = version.config_json.get("realism")
+        if isinstance(realism_config, dict) and isinstance(
+            realism_config.get("rules"), list
+        ):
+            realism_rules = realism_config.get("rules", [])
+        else:
+            realism_rules = version.config_json.get("realism_rules", [])
         generator_seed = seed if seed is not None else version.seed
         generator = DatasetGenerator(seed=generator_seed)
-        return generator.generate_preview(attributes=attributes)
+        return generator.generate_preview(
+            attributes=attributes, realism_rules=realism_rules
+        )
 
     @staticmethod
     def generate_dataset_files(
@@ -132,7 +167,7 @@ class DatasetService:
         seed: int | None = None,
         dataset_version_id: uuid.UUID | None = None,
         retention_hours: int = 24,
-    ) -> list[dict[str, Any]]:
+    ) -> dict[str, Any]:
         """Generate and export full datasets for a dataset's latest version."""
         dataset_doc = db["datasets"].find_one(
             {"_id": str(dataset_id), "user_id": str(user_id)}
@@ -156,6 +191,14 @@ class DatasetService:
         if not attributes:
             raise ValueError("Dataset version has no attributes")
 
+        realism_config = owned_version.config_json.get("realism")
+        if isinstance(realism_config, dict) and isinstance(
+            realism_config.get("rules"), list
+        ):
+            realism_rules = realism_config.get("rules", [])
+        else:
+            realism_rules = owned_version.config_json.get("realism_rules", [])
+
         DatasetService.cleanup_old_artifacts(
             output_root=output_root,
             max_age_hours=retention_hours,
@@ -169,6 +212,9 @@ class DatasetService:
             formats=formats,
             output_root=output_root,
             chunk_size=chunk_size,
+            realism_rules=realism_rules,
+            min_chunk_size=settings.generation_min_chunk_size,
+            target_cells_per_chunk=settings.generation_target_cells_per_chunk,
         )
 
     @staticmethod

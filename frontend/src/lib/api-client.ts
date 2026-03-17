@@ -168,6 +168,7 @@ export interface GenerateResponse {
   status: string;
   row_count: number;
   files: GeneratedFileInfo[];
+  quality_report?: Record<string, unknown> | null;
 }
 
 export interface DownloadListResponse {

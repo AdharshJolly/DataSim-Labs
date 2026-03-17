@@ -69,9 +69,7 @@ class AttributeConfig(BaseModel):
             skew_direction = self.constraints.get("skew_direction")
             if skew_direction is not None:
                 if skew_direction not in {"left", "right"}:
-                    raise ValueError(
-                        "'skew_direction' must be 'left' or 'right'"
-                    )
+                    raise ValueError("'skew_direction' must be 'left' or 'right'")
 
             skew_intensity = self.constraints.get("skew_intensity")
             if skew_intensity is not None:
@@ -104,9 +102,7 @@ class AttributeConfig(BaseModel):
                 )
             if isinstance(weights, list):
                 if any(float(w) < 0 for w in weights):
-                    raise ValueError(
-                        "Categorical weights must be non-negative"
-                    )
+                    raise ValueError("Categorical weights must be non-negative")
             if isinstance(categories, list) and isinstance(weights, list):
                 if len(categories) != len(weights):
                     raise ValueError("'weights' length must match 'categories' length")
@@ -140,9 +136,7 @@ class AttributeConfig(BaseModel):
             true_probability = self.constraints.get("true_probability")
             if true_probability is not None:
                 if not isinstance(true_probability, (int, float)):
-                    raise ValueError(
-                        "Boolean 'true_probability' must be a number"
-                    )
+                    raise ValueError("Boolean 'true_probability' must be a number")
                 if float(true_probability) < 0 or float(true_probability) > 1:
                     raise ValueError(
                         "Boolean 'true_probability' must be between 0 and 1"
@@ -232,6 +226,7 @@ class GenerateResponse(BaseModel):
     status: str
     row_count: int
     files: list[GeneratedFileInfo]
+    quality_report: dict[str, Any] | None = None
 
 
 class DownloadListResponse(BaseModel):
