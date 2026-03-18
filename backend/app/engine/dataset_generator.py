@@ -335,6 +335,7 @@ class DatasetGenerator:
                 "numeric_min": None,
                 "numeric_max": None,
                 "top_counter": Counter(),
+                "target_null_ratio": float(attr.null_percentage / 100.0),
             }
             for attr in attributes
         }
@@ -404,10 +405,14 @@ class DatasetGenerator:
         requested_chunk_size: int,
     ) -> dict[str, Any]:
         report_columns: dict[str, Any] = {}
+        alerts: list[dict[str, Any]] = []
 
         for column, metric in quality["column_metrics"].items():
             rows_generated = max(1, int(quality["rows_generated"]))
             null_count = int(metric["null_count"])
+            null_ratio = round(null_count / rows_generated, 6)
+            target_null_ratio = float(metric.get("target_null_ratio", 0.0))
+            null_drift = abs(null_ratio - target_null_ratio)
 
             numeric_mean = None
             if metric["numeric_count"] > 0:
@@ -415,12 +420,38 @@ class DatasetGenerator:
 
             report_columns[column] = {
                 "null_count": null_count,
-                "null_ratio": round(null_count / rows_generated, 6),
+                "null_ratio": null_ratio,
+                "target_null_ratio": round(target_null_ratio, 6),
+                "null_drift": round(null_drift, 6),
                 "numeric_min": metric["numeric_min"],
                 "numeric_max": metric["numeric_max"],
                 "numeric_mean": numeric_mean,
                 "top_values": dict(metric["top_counter"].most_common(5)),
             }
+
+            if null_drift > 0.03:
+                alerts.append(
+                    {
+                        "severity": "warning",
+                        "type": "null_ratio_drift",
+                        "column": column,
+                        "details": (
+                            "Observed null ratio differs from configured target by "
+                            f"{round(null_drift, 6)}"
+                        ),
+                    }
+                )
+
+        rule_count = int(quality["rules_total_count"])
+        total_rows_affected = int(quality["rules_total_rows_affected"])
+        if rule_count > 0 and total_rows_affected == 0:
+            alerts.append(
+                {
+                    "severity": "warning",
+                    "type": "realism_no_effect",
+                    "details": "Realism rules were provided but did not change any rows.",
+                }
+            )
 
         return {
             "rows_generated": int(quality["rows_generated"]),
@@ -428,9 +459,10 @@ class DatasetGenerator:
             "requested_chunk_size": requested_chunk_size,
             "effective_chunk_size": chunk_size_used,
             "columns": report_columns,
+            "alerts": alerts,
             "realism": {
-                "rule_count": int(quality["rules_total_count"]),
-                "total_rows_affected": int(quality["rules_total_rows_affected"]),
+                "rule_count": rule_count,
+                "total_rows_affected": total_rows_affected,
                 "rule_impacts": dict(quality["rule_impacts"]),
             },
         }

@@ -31,6 +31,14 @@ class DatasetStatus(str, Enum):
     archived = "archived"
 
 
+class GenerationJobStatus(str, Enum):
+    queued = "queued"
+    running = "running"
+    completed = "completed"
+    failed = "failed"
+    cancelled = "cancelled"
+
+
 class AttributeConfig(BaseModel):
     name: str = Field(..., min_length=1)
     type: DataType
@@ -227,6 +235,40 @@ class GenerateResponse(BaseModel):
     row_count: int
     files: list[GeneratedFileInfo]
     quality_report: dict[str, Any] | None = None
+    generation_signature: str | None = None
+    generation_run_id: str | None = None
+    comparison: dict[str, Any] | None = None
+
+
+class GenerateAsyncResponse(BaseModel):
+    job_id: str
+    status: GenerationJobStatus
+    message: str
+
+
+class GenerationJobResponse(BaseModel):
+    job_id: str
+    dataset_id: UUID
+    dataset_version_id: UUID | None
+    status: GenerationJobStatus
+    stage: str
+    progress_percentage: int = Field(ge=0, le=100)
+    row_count: int
+    formats: list[str]
+    seed: int | None = None
+    cancel_requested: bool = False
+    created_at: str
+    started_at: str | None = None
+    finished_at: str | None = None
+    error: str | None = None
+    result: GenerateResponse | None = None
+
+
+class CancelGenerationJobResponse(BaseModel):
+    job_id: str
+    status: GenerationJobStatus
+    cancel_requested: bool
+    message: str
 
 
 class DownloadListResponse(BaseModel):

@@ -25,7 +25,11 @@ import { QuickAdjustCard } from "@/components/studio/quick-adjust-card";
 import type { AttrRow, OutputFormat, Step } from "@/components/studio/types";
 import {
   type AttributeConfig,
+  cancelGenerationJob,
+  generateDatasetAsync,
+  getGenerationJob,
   type GeneratedFileInfo,
+  type GenerationJobStatus,
   createDataset,
   downloadDatasetFile,
   generateDataset,
@@ -36,7 +40,170 @@ import {
 
 import { AuthGuard } from "@/components/auth/auth-guard";
 
+const ASYNC_POLL_INTERVAL_MS = 1500;
+const ASYNC_POLL_MAX_ATTEMPTS = 1200;
+
 // ─── Main Component ───────────────────────────────────────────────────────────
+
+function templateRows(kind: "hr" | "ecommerce" | "healthcare"): AttrRow[] {
+  const makeRow = (overrides: Partial<AttrRow>): AttrRow => ({
+    _id: uid(),
+    name: "field",
+    description: "",
+    type: "integer",
+    distribution: "uniform",
+    allow_nulls: false,
+    null_percentage: 10,
+    min: "0",
+    max: "100",
+    categories: "",
+    weights: "",
+    start_date: "",
+    end_date: "",
+    precision: "2",
+    max_length: "64",
+    true_probability: "0.5",
+    skew_direction: "right",
+    skew_intensity: "2",
+    ...overrides,
+  });
+
+  if (kind === "hr") {
+    return [
+      makeRow({
+        name: "full_name",
+        description: "Employee full name",
+        type: "name",
+      }),
+      makeRow({
+        name: "age",
+        description: "Age in years",
+        type: "integer",
+        min: "18",
+        max: "65",
+      }),
+      makeRow({
+        name: "department",
+        description: "Department assignment",
+        type: "categorical",
+        distribution: "weighted_categorical",
+        categories: "Engineering, Sales, Marketing, HR, Finance",
+        weights: "35, 20, 15, 10, 20",
+      }),
+      makeRow({
+        name: "job_role",
+        description: "Employee role",
+        type: "categorical",
+        distribution: "weighted_categorical",
+        categories: "Intern, Analyst, Engineer, Manager, Director",
+        weights: "10, 20, 40, 20, 10",
+      }),
+      makeRow({
+        name: "salary",
+        description: "Annual salary",
+        type: "float",
+        min: "0",
+        max: "250000",
+        precision: "2",
+      }),
+      makeRow({
+        name: "email",
+        description: "Work email",
+        type: "email",
+      }),
+      makeRow({
+        name: "company",
+        description: "Employer company",
+        type: "categorical",
+        categories: "Acme Labs, Nova Health, Orbit Systems",
+      }),
+    ];
+  }
+
+  if (kind === "ecommerce") {
+    return [
+      makeRow({
+        name: "customer_name",
+        description: "Customer name",
+        type: "name",
+      }),
+      makeRow({
+        name: "customer_email",
+        description: "Customer email",
+        type: "email",
+      }),
+      makeRow({
+        name: "country",
+        description: "Shipping country",
+        type: "categorical",
+        distribution: "weighted_categorical",
+        categories: "India, United States, Canada, Australia, United Kingdom",
+        weights: "30, 25, 15, 15, 15",
+      }),
+      makeRow({
+        name: "state",
+        description: "Shipping state/province",
+        type: "categorical",
+        categories:
+          "Maharashtra, California, Texas, Ontario, Victoria, England",
+      }),
+      makeRow({
+        name: "postal_code",
+        description: "Postal code",
+        type: "text",
+        max_length: "10",
+      }),
+      makeRow({
+        name: "order_value",
+        description: "Order value",
+        type: "float",
+        min: "10",
+        max: "2500",
+      }),
+    ];
+  }
+
+  return [
+    makeRow({
+      name: "patient_name",
+      description: "Patient full name",
+      type: "name",
+    }),
+    makeRow({
+      name: "gender",
+      description: "Biological sex/gender",
+      type: "categorical",
+      categories: "male, female, non-binary",
+    }),
+    makeRow({
+      name: "age",
+      description: "Age in years",
+      type: "integer",
+      min: "0",
+      max: "95",
+    }),
+    makeRow({
+      name: "diagnosis_group",
+      description: "Primary diagnosis category",
+      type: "categorical",
+      categories: "Cardiac, Respiratory, Endocrine, Neuro, Ortho",
+    }),
+    makeRow({
+      name: "admission_date",
+      description: "Date of admission",
+      type: "date",
+      start_date: "2020-01-01",
+      end_date: "2026-12-31",
+    }),
+    makeRow({
+      name: "length_of_stay",
+      description: "Length of stay (days)",
+      type: "integer",
+      min: "1",
+      max: "45",
+    }),
+  ];
+}
 
 export default function StudioPage() {
   const [step, setStep] = useState<Step>(1);
@@ -62,6 +229,25 @@ export default function StudioPage() {
   const [formats, setFormats] = useState<OutputFormat[]>(["csv"]);
   const [seed, setSeed] = useState("");
   const [generatedFiles, setGeneratedFiles] = useState<GeneratedFileInfo[]>([]);
+  const [qualityReport, setQualityReport] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
+  const [generationSignature, setGenerationSignature] = useState("");
+  const [generationRunId, setGenerationRunId] = useState("");
+  const [runComparison, setRunComparison] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
+  const [realismMetadata, setRealismMetadata] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
+  const [useAsyncGeneration, setUseAsyncGeneration] = useState(true);
+  const [jobId, setJobId] = useState("");
+  const [jobStatus, setJobStatus] = useState<GenerationJobStatus | "">("");
+  const [jobStage, setJobStage] = useState("");
+  const [jobProgress, setJobProgress] = useState(0);
 
   // Load existing dataset from query string
   useEffect(() => {
@@ -136,10 +322,22 @@ export default function StudioPage() {
             setSeed(String(latest.seed));
           }
         }
+        const realism = latest.config_json.realism as
+          | { metadata?: Record<string, unknown> }
+          | undefined;
+        if (realism?.metadata) {
+          setRealismMetadata(realism.metadata);
+        }
         setStep(2);
       })
       .catch(() => setStep(2));
   }, []);
+
+  const applyTemplate = (kind: "hr" | "ecommerce" | "healthcare") => {
+    const templated = templateRows(kind);
+    setAttrs(templated);
+    setError("");
+  };
 
   // ── Step 1: Create Dataset ───────────────────────────────────
   const handleCreate = async () => {
@@ -255,18 +453,96 @@ export default function StudioPage() {
       return;
     }
     try {
-      const res = await generateDataset({
+      const payload = {
         dataset_id: datasetId,
         dataset_version_id: versionId || undefined,
         row_count: rowCount,
         formats,
         seed: seed.trim() ? Number(seed) : undefined,
-      });
-      setGeneratedFiles(res.files);
+      };
+
+      if (!useAsyncGeneration) {
+        const res = await generateDataset(payload);
+        setGeneratedFiles(res.files);
+        setQualityReport(
+          (res.quality_report as Record<string, unknown>) ?? null,
+        );
+        setGenerationSignature(res.generation_signature ?? "");
+        setGenerationRunId(res.generation_run_id ?? "");
+        setRunComparison((res.comparison as Record<string, unknown>) ?? null);
+        return;
+      }
+
+      const queued = await generateDatasetAsync(payload);
+      setJobId(queued.job_id);
+      setJobStatus(queued.status);
+      setJobStage("queued");
+      setJobProgress(0);
+
+      const wait = (ms: number) =>
+        new Promise((resolve) => {
+          setTimeout(resolve, ms);
+        });
+
+      for (let attempt = 0; attempt < ASYNC_POLL_MAX_ATTEMPTS; attempt += 1) {
+        const job = await getGenerationJob(queued.job_id);
+        setJobStatus(job.status);
+        setJobStage(job.stage);
+        setJobProgress(job.progress_percentage);
+
+        if (job.status === "completed") {
+          const result = job.result;
+          if (!result) {
+            throw new Error(
+              "Generation completed but no result payload returned.",
+            );
+          }
+          setGeneratedFiles(result.files);
+          setQualityReport(
+            (result.quality_report as Record<string, unknown>) ?? null,
+          );
+          setGenerationSignature(result.generation_signature ?? "");
+          setGenerationRunId(result.generation_run_id ?? "");
+          setRunComparison(
+            (result.comparison as Record<string, unknown>) ?? null,
+          );
+          break;
+        }
+
+        if (job.status === "failed") {
+          throw new Error(job.error || "Async generation job failed.");
+        }
+
+        if (job.status === "cancelled") {
+          throw new Error("Async generation job was cancelled.");
+        }
+
+        await wait(ASYNC_POLL_INTERVAL_MS);
+
+        if (attempt === ASYNC_POLL_MAX_ATTEMPTS - 1) {
+          throw new Error("Timed out waiting for async generation job.");
+        }
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Generation failed");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const handleCancelJob = async () => {
+    if (!jobId) {
+      return;
+    }
+    try {
+      const result = await cancelGenerationJob(jobId);
+      setJobStatus(result.status);
+      setJobStage("cancel_requested");
+      if (result.status === "cancelled") {
+        setJobProgress(100);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to cancel job");
     }
   };
 
@@ -356,8 +632,8 @@ export default function StudioPage() {
                     active
                       ? "bg-primary/10 text-primary"
                       : done
-                      ? "text-muted-foreground hover:bg-white/5 hover:text-foreground"
-                      : "cursor-not-allowed text-muted-foreground/50"
+                        ? "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+                        : "cursor-not-allowed text-muted-foreground/50"
                   }`}
                 >
                   <span
@@ -365,8 +641,8 @@ export default function StudioPage() {
                       active
                         ? "bg-primary text-primary-foreground"
                         : done
-                        ? "bg-green-500/20 text-green-400 group-hover:bg-green-500/30"
-                        : "bg-border text-muted-foreground"
+                          ? "bg-green-500/20 text-green-400 group-hover:bg-green-500/30"
+                          : "bg-border text-muted-foreground"
                     }`}
                   >
                     {done ? <Check className="h-4 w-4" /> : num}
@@ -493,7 +769,8 @@ export default function StudioPage() {
                 >
                   {busy ? (
                     <span className="flex items-center justify-center gap-2">
-                      <LoaderCircle className="h-4 w-4 animate-spin" /> Creating…
+                      <LoaderCircle className="h-4 w-4 animate-spin" />{" "}
+                      Creating…
                     </span>
                   ) : (
                     "Create & Define Fields →"
@@ -537,6 +814,38 @@ export default function StudioPage() {
                   )}
                 </button>
               </header>
+
+              <div className="mb-8 rounded-lg border border-border bg-white/5 p-4">
+                <p className="text-sm font-semibold text-foreground">
+                  Start from a template
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Load a domain starter schema and customize from there.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => applyTemplate("hr")}
+                    className="btn-secondary !h-9 !px-3 !text-xs"
+                  >
+                    HR Template
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyTemplate("ecommerce")}
+                    className="btn-secondary !h-9 !px-3 !text-xs"
+                  >
+                    Ecommerce Template
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyTemplate("healthcare")}
+                    className="btn-secondary !h-9 !px-3 !text-xs"
+                  >
+                    Healthcare Template
+                  </button>
+                </div>
+              </div>
 
               {/* Attribute list */}
               <div className="space-y-4">
@@ -627,6 +936,71 @@ export default function StudioPage() {
                   </button>
                 </div>
               </header>
+
+              {realismMetadata && (
+                <div className="mb-6 rounded-lg border border-border bg-white/5 p-4">
+                  <p className="text-sm font-semibold text-foreground">
+                    Realism Planner Metadata
+                  </p>
+                  <div className="mt-2 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2 lg:grid-cols-4">
+                    <div>
+                      <span className="text-foreground">Source:</span>{" "}
+                      {String(realismMetadata.source ?? "unknown")}
+                    </div>
+                    <div>
+                      <span className="text-foreground">Planner:</span>{" "}
+                      {String(realismMetadata.planner_version ?? "n/a")}
+                    </div>
+                    <div>
+                      <span className="text-foreground">Validated Rules:</span>{" "}
+                      {String(realismMetadata.validated_rule_count ?? 0)}
+                    </div>
+                    <div>
+                      <span className="text-foreground">Conflicts:</span>{" "}
+                      {Array.isArray(realismMetadata.conflicts)
+                        ? realismMetadata.conflicts.length
+                        : 0}
+                    </div>
+                  </div>
+
+                  {Array.isArray(realismMetadata.conflicts) &&
+                    realismMetadata.conflicts.length > 0 && (
+                      <div className="mt-3 rounded border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-200">
+                        <p className="font-medium text-amber-100">
+                          Detected rule conflicts
+                        </p>
+                        <ul className="mt-1 space-y-1">
+                          {realismMetadata.conflicts
+                            .slice(0, 3)
+                            .map((item, idx) => {
+                              const conflict = item as Record<string, unknown>;
+                              return (
+                                <li key={idx}>
+                                  {String(conflict.type ?? "conflict")}:{" "}
+                                  {String(
+                                    conflict.details ?? "details unavailable",
+                                  )}
+                                </li>
+                              );
+                            })}
+                        </ul>
+                      </div>
+                    )}
+
+                  {Array.isArray(realismMetadata.rule_explanations) &&
+                    realismMetadata.rule_explanations.length > 0 && (
+                      <div className="mt-3 text-xs text-muted-foreground">
+                        <p className="font-medium text-foreground">
+                          Rule explainability
+                        </p>
+                        <p className="mt-1">
+                          {realismMetadata.rule_explanations.length} rule
+                          explanations available in version metadata.
+                        </p>
+                      </div>
+                    )}
+                </div>
+              )}
 
               {/* Preview table */}
               {isRefreshing ? (
@@ -753,7 +1127,9 @@ export default function StudioPage() {
                           className="w-32 text-center font-semibold"
                           value={rowCount}
                           onChange={(e) =>
-                            setRowCount(Math.max(1, Number(e.target.value) || 1))
+                            setRowCount(
+                              Math.max(1, Number(e.target.value) || 1),
+                            )
                           }
                         />
                       </div>
@@ -804,6 +1180,50 @@ export default function StudioPage() {
                       </p>
                     </div>
 
+                    <div className="space-y-3 rounded-lg border border-border bg-white/5 p-4">
+                      <label className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4"
+                          checked={useAsyncGeneration}
+                          onChange={(e) =>
+                            setUseAsyncGeneration(e.target.checked)
+                          }
+                        />
+                        Use background generation job (recommended for large
+                        runs)
+                      </label>
+
+                      {jobId && (
+                        <div className="space-y-2 text-xs text-muted-foreground">
+                          <div>
+                            <span className="text-foreground">Job ID:</span>{" "}
+                            {jobId}
+                          </div>
+                          <div>
+                            <span className="text-foreground">Status:</span>{" "}
+                            {jobStatus || "queued"}
+                          </div>
+                          <div>
+                            <span className="text-foreground">Stage:</span>{" "}
+                            {jobStage || "queued"}
+                          </div>
+                          <div>
+                            <span className="text-foreground">Progress:</span>{" "}
+                            {jobProgress}%
+                          </div>
+                          <div className="h-2 w-full overflow-hidden rounded bg-border">
+                            <div
+                              className="h-full bg-primary transition-all"
+                              style={{
+                                width: `${Math.max(0, Math.min(100, jobProgress))}%`,
+                              }}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
                     {/* Actions */}
                     <div className="flex flex-wrap items-center gap-3 pt-4">
                       <button
@@ -828,6 +1248,15 @@ export default function StudioPage() {
                           `Generate ${rowCount.toLocaleString()} Rows`
                         )}
                       </button>
+                      {useAsyncGeneration && jobId && busy && (
+                        <button
+                          type="button"
+                          onClick={() => void handleCancelJob()}
+                          className="inline-flex h-11 items-center justify-center rounded-lg border border-amber-400/50 px-4 text-sm font-medium text-amber-200 transition-colors hover:bg-amber-500/10"
+                        >
+                          Cancel Job
+                        </button>
+                      )}
                     </div>
                   </div>
                 </>
@@ -843,8 +1272,8 @@ export default function StudioPage() {
                         Dataset Ready!
                       </h2>
                       <p className="text-muted-foreground">
-                        {rowCount.toLocaleString()} rows · {attrs.length} columns
-                        · {generatedFiles.length}{" "}
+                        {rowCount.toLocaleString()} rows · {attrs.length}{" "}
+                        columns · {generatedFiles.length}{" "}
                         {generatedFiles.length === 1 ? "file" : "files"}
                       </p>
                     </div>
@@ -874,11 +1303,95 @@ export default function StudioPage() {
                     ))}
                   </div>
 
+                  <div className="rounded-lg border border-border bg-white/5 p-4">
+                    <h3 className="font-semibold text-foreground">
+                      Generation Diagnostics
+                    </h3>
+                    <div className="mt-3 grid gap-3 text-xs text-muted-foreground sm:grid-cols-2">
+                      <div>
+                        <span className="text-foreground">Run ID:</span>{" "}
+                        {generationRunId || "n/a"}
+                      </div>
+                      <div>
+                        <span className="text-foreground">Signature:</span>{" "}
+                        {generationSignature
+                          ? `${generationSignature.slice(0, 16)}...`
+                          : "n/a"}
+                      </div>
+                      <div>
+                        <span className="text-foreground">
+                          Rows affected by realism:
+                        </span>{" "}
+                        {String(
+                          ((
+                            qualityReport?.realism as
+                              | Record<string, unknown>
+                              | undefined
+                          )?.total_rows_affected as number | undefined) ?? 0,
+                        )}
+                      </div>
+                      <div>
+                        <span className="text-foreground">Quality alerts:</span>{" "}
+                        {Array.isArray(qualityReport?.alerts)
+                          ? qualityReport.alerts.length
+                          : 0}
+                      </div>
+                    </div>
+
+                    <div className="mt-3">
+                      <p className="text-xs font-medium text-foreground">
+                        Rule Impacts
+                      </p>
+                      <div className="mt-1 flex flex-wrap gap-2">
+                        {Object.entries(
+                          ((
+                            qualityReport?.realism as
+                              | Record<string, unknown>
+                              | undefined
+                          )?.rule_impacts as
+                            | Record<string, number>
+                            | undefined) ?? {},
+                        ).map(([ruleType, count]) => (
+                          <span
+                            key={ruleType}
+                            className="rounded border border-border bg-background/50 px-2 py-1 text-[11px] text-muted-foreground"
+                          >
+                            {ruleType}: {count}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    {runComparison && (
+                      <div className="mt-3 rounded border border-border/60 bg-background/40 p-3 text-xs text-muted-foreground">
+                        <p className="font-medium text-foreground">
+                          Comparison With Previous Run
+                        </p>
+                        <p className="mt-1">
+                          Delta realism-affected rows:{" "}
+                          {String(runComparison.delta_rows_affected ?? 0)}
+                        </p>
+                        <p>
+                          Previous run id:{" "}
+                          {String(runComparison.previous_run_id ?? "n/a")}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
                   <div className="flex flex-wrap gap-3">
                     <button
                       type="button"
                       onClick={() => {
                         setGeneratedFiles([]);
+                        setQualityReport(null);
+                        setGenerationSignature("");
+                        setGenerationRunId("");
+                        setRunComparison(null);
+                        setJobId("");
+                        setJobStatus("");
+                        setJobStage("");
+                        setJobProgress(0);
                         setRowCount(1000);
                         setFormats(["csv"]);
                       }}

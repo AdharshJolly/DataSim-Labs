@@ -169,6 +169,47 @@ export interface GenerateResponse {
   row_count: number;
   files: GeneratedFileInfo[];
   quality_report?: Record<string, unknown> | null;
+  generation_signature?: string | null;
+  generation_run_id?: string | null;
+  comparison?: Record<string, unknown> | null;
+}
+
+export type GenerationJobStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export interface GenerateAsyncResponse {
+  job_id: string;
+  status: GenerationJobStatus;
+  message: string;
+}
+
+export interface GenerationJobResponse {
+  job_id: string;
+  dataset_id: string;
+  dataset_version_id?: string | null;
+  status: GenerationJobStatus;
+  stage: string;
+  progress_percentage: number;
+  row_count: number;
+  formats: string[];
+  seed?: number | null;
+  cancel_requested: boolean;
+  created_at: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  error?: string | null;
+  result?: GenerateResponse | null;
+}
+
+export interface CancelGenerationJobResponse {
+  job_id: string;
+  status: GenerationJobStatus;
+  cancel_requested: boolean;
+  message: string;
 }
 
 export interface DownloadListResponse {
@@ -271,6 +312,32 @@ export function generateDataset(
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export function generateDatasetAsync(
+  payload: GenerateRequest,
+): Promise<GenerateAsyncResponse> {
+  return apiRequest<GenerateAsyncResponse>("/api/v1/dataset/generate-async", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getGenerationJob(
+  jobId: string,
+): Promise<GenerationJobResponse> {
+  return apiRequest<GenerationJobResponse>(`/api/v1/dataset/jobs/${jobId}`);
+}
+
+export function cancelGenerationJob(
+  jobId: string,
+): Promise<CancelGenerationJobResponse> {
+  return apiRequest<CancelGenerationJobResponse>(
+    `/api/v1/dataset/jobs/${jobId}/cancel`,
+    {
+      method: "POST",
+    },
+  );
 }
 
 export function listDatasetFiles(

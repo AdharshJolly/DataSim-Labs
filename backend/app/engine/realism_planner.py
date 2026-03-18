@@ -526,6 +526,17 @@ def _build_fallback_rules(attributes: list[Any]) -> list[dict[str, Any]]:
 def _fallback_result(
     fallback_rules: list[dict[str, Any]], generated_at: str
 ) -> dict[str, Any]:
+    fallback_explanations = [
+        {
+            "rule_index": index,
+            "type": str(rule.get("type", "unknown")),
+            "confidence": 0.78,
+            "reason": "Schema-based fallback inferred this rule from attribute names and constraints.",
+            "source": "fallback",
+        }
+        for index, rule in enumerate(fallback_rules)
+    ]
+    conflicts = _detect_rule_conflicts(fallback_rules)
     return {
         "rules": fallback_rules,
         "metadata": {
@@ -535,8 +546,98 @@ def _fallback_result(
             "fallback_rule_count": len(fallback_rules),
             "gemini_rule_count": 0,
             "validated_rule_count": 0,
+            "rule_explanations": fallback_explanations,
+            "conflicts": conflicts,
         },
     }
+
+
+def _build_rule_explanations(
+    rules: list[dict[str, Any]],
+    source: str,
+) -> list[dict[str, Any]]:
+    """Attach lightweight explainability metadata per rule."""
+    explanations: list[dict[str, Any]] = []
+    base_confidence = 0.83 if source == "gemini" else 0.78
+
+    reason_map = {
+        "name_gender_alignment": "Name and gender attributes indicate identity consistency.",
+        "age_gate": "Age-dependent target field indicates eligibility threshold behavior.",
+        "mutual_exclusion": "Fields imply logically incompatible states that require override rules.",
+        "conditional_value": "Source field condition strongly determines target field value.",
+        "country_state_alignment": "Country and state fields require geo-consistent combinations.",
+        "country_postal_format": "Country field implies locale-specific postal code formatting.",
+        "email_domain_match": "Email and organization fields imply domain consistency.",
+        "salary_band": "Role-related field implies realistic salary range constraints.",
+    }
+
+    for index, rule in enumerate(rules):
+        rule_type = str(rule.get("type", "unknown"))
+        explanations.append(
+            {
+                "rule_index": index,
+                "type": rule_type,
+                "confidence": base_confidence,
+                "reason": reason_map.get(
+                    rule_type,
+                    "Rule selected based on schema signal strength.",
+                ),
+                "source": source,
+            }
+        )
+
+    return explanations
+
+
+def _detect_rule_conflicts(rules: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Detect simple rule conflicts where multiple rules target same column inconsistently."""
+    conflicts: list[dict[str, Any]] = []
+
+    age_gates_by_target: dict[str, set[Any]] = {}
+    for rule in rules:
+        if str(rule.get("type")) != "age_gate":
+            continue
+        target_col = str(rule.get("target_column", "")).strip()
+        override_value = rule.get("override_value")
+        if not target_col:
+            continue
+        age_gates_by_target.setdefault(target_col, set()).add(str(override_value))
+
+    for target_col, override_values in age_gates_by_target.items():
+        if len(override_values) > 1:
+            conflicts.append(
+                {
+                    "severity": "warning",
+                    "type": "age_gate_override_conflict",
+                    "target_column": target_col,
+                    "details": f"Multiple override values detected: {sorted(override_values)}",
+                }
+            )
+
+    mutual_by_secondary: dict[str, set[Any]] = {}
+    for rule in rules:
+        if str(rule.get("type")) != "mutual_exclusion":
+            continue
+        secondary_col = str(rule.get("secondary_column", "")).strip()
+        secondary_override = rule.get("secondary_override")
+        if not secondary_col:
+            continue
+        mutual_by_secondary.setdefault(secondary_col, set()).add(
+            str(secondary_override)
+        )
+
+    for secondary_col, overrides in mutual_by_secondary.items():
+        if len(overrides) > 1:
+            conflicts.append(
+                {
+                    "severity": "warning",
+                    "type": "mutual_exclusion_override_conflict",
+                    "target_column": secondary_col,
+                    "details": f"Multiple override values detected: {sorted(overrides)}",
+                }
+            )
+
+    return conflicts
 
 
 class RealismPlanner:
@@ -569,6 +670,8 @@ class RealismPlanner:
                     "fallback_rule_count": 0,
                     "gemini_rule_count": 0,
                     "validated_rule_count": 0,
+                    "rule_explanations": [],
+                    "conflicts": [],
                 },
             }
 
@@ -713,6 +816,8 @@ class RealismPlanner:
                 len(valid_rules),
                 len(raw_rules),
             )
+            rule_explanations = _build_rule_explanations(valid_rules, source="gemini")
+            conflicts = _detect_rule_conflicts(valid_rules)
             return {
                 "rules": valid_rules,
                 "metadata": {
@@ -722,6 +827,8 @@ class RealismPlanner:
                     "fallback_rule_count": len(fallback_rules),
                     "gemini_rule_count": len(raw_rules),
                     "validated_rule_count": len(valid_rules),
+                    "rule_explanations": rule_explanations,
+                    "conflicts": conflicts,
                 },
             }
 
@@ -738,5 +845,10 @@ class RealismPlanner:
                 "fallback_rule_count": len(fallback_rules),
                 "gemini_rule_count": len(raw_rules),
                 "validated_rule_count": 0,
+                "rule_explanations": _build_rule_explanations(
+                    fallback_rules,
+                    source="fallback",
+                ),
+                "conflicts": _detect_rule_conflicts(fallback_rules),
             },
         }

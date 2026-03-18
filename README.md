@@ -12,13 +12,13 @@ Synthetic Dataset Generation Platform scaffold.
 
 ## Run (initial scaffold)
 
-1. Copy `.env.example` to `.env` and set your own `DATABASE_URL` and `JWT_SECRET_KEY`.
+1. Copy `.env.example` to `.env` and set your own `REDIS_URL`, `CELERY_BROKER_URL`, and `JWT_SECRET_KEY`.
 2. Start backend:
    - `cd backend`
    - `venv\\Scripts\\activate`
    - `pip install -r requirements.txt`
-   - `alembic upgrade head`
    - `uvicorn app.main:app --reload --host 0.0.0.0 --port 8000`
+   - In another terminal (same backend venv): `celery -A app.worker.celery_app:celery_app worker --loglevel=info`
 3. Start frontend in a second terminal:
    - `cd frontend`
    - `npm install`
@@ -48,14 +48,23 @@ Dataset ownership and versioning:
    - `POST /api/v1/dataset/preview`
 4. Generate dataset files:
    - `POST /api/v1/dataset/generate`
-5. List/download files:
+5. Generate dataset files asynchronously:
+   - `POST /api/v1/dataset/generate-async`
+6. Check async job status:
+   - `GET /api/v1/dataset/jobs/{job_id}`
+7. Cancel async job:
+   - `POST /api/v1/dataset/jobs/{job_id}/cancel`
+8. List/download files:
    - `GET /api/v1/dataset/download/{dataset_id}`
-6. List user datasets:
+9. List user datasets:
    - `GET /api/v1/dataset/list`
-7. Dataset detail:
-   - `GET /api/v1/dataset/{dataset_id}`
-8. Dataset versions:
-   - `GET /api/v1/dataset/{dataset_id}/versions`
+10. Dataset detail:
+
+- `GET /api/v1/dataset/{dataset_id}`
+
+11. Dataset versions:
+
+- `GET /api/v1/dataset/{dataset_id}/versions`
 
 ## Example Requests
 

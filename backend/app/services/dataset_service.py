@@ -1,9 +1,11 @@
 import uuid
+import hashlib
+import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from pymongo import DESCENDING
+from pymongo import DESCENDING, ReturnDocument
 from pymongo.database import Database
 
 from app.core.config import settings
@@ -13,6 +15,8 @@ from app.schemas.dataset import AttributeConfig
 
 
 class DatasetService:
+    TERMINAL_JOB_STATUSES = {"completed", "failed", "cancelled"}
+
     @staticmethod
     def create_dataset(
         db: Database,
@@ -205,7 +209,22 @@ class DatasetService:
         )
         generator_seed = seed if seed is not None else owned_version.seed
         generator = DatasetGenerator(seed=generator_seed)
-        return generator.export_dataset_files(
+        generation_signature = DatasetService._build_generation_signature(
+            dataset_id=dataset.id,
+            dataset_version_id=owned_version.id,
+            row_count=row_count,
+            formats=formats,
+            seed=generator_seed,
+            attributes=attributes,
+            realism_rules=realism_rules,
+            realism_metadata=(
+                realism_config.get("metadata", {})
+                if isinstance(realism_config, dict)
+                else {}
+            ),
+        )
+
+        generation_result = generator.export_dataset_files(
             dataset_id=dataset_id,
             attributes=attributes,
             row_count=row_count,
@@ -216,6 +235,236 @@ class DatasetService:
             min_chunk_size=settings.generation_min_chunk_size,
             target_cells_per_chunk=settings.generation_target_cells_per_chunk,
         )
+
+        run_payload = {
+            "generation_signature": generation_signature,
+            "dataset_id": str(dataset.id),
+            "dataset_version_id": str(owned_version.id),
+            "user_id": str(user_id),
+            "row_count": row_count,
+            "formats": sorted([fmt.lower() for fmt in formats]),
+            "seed": generator_seed,
+            "quality_report": generation_result.get("quality_report", {}),
+            "files": generation_result.get("files", []),
+            "created_at": datetime.now(timezone.utc),
+        }
+        run_id = DatasetService._record_generation_run(db=db, run_payload=run_payload)
+        comparison = DatasetService._compare_with_previous_run(
+            db=db,
+            dataset_id=dataset.id,
+            current_run_id=run_id,
+            current_quality=run_payload["quality_report"],
+        )
+
+        generation_result["generation_signature"] = generation_signature
+        generation_result["generation_run_id"] = run_id
+        generation_result["comparison"] = comparison
+        return generation_result
+
+    @staticmethod
+    def create_generation_job(
+        db: Database,
+        user_id: uuid.UUID,
+        dataset_id: uuid.UUID,
+        row_count: int,
+        formats: list[str],
+        seed: int | None = None,
+        dataset_version_id: uuid.UUID | None = None,
+    ) -> dict[str, Any]:
+        dataset = DatasetService.get_dataset(
+            db=db, user_id=user_id, dataset_id=dataset_id
+        )
+
+        target_version_id = dataset_version_id or dataset.latest_version_id
+        if target_version_id is None:
+            raise ValueError("Dataset has no attribute configuration")
+
+        version_doc = db["dataset_versions"].find_one(
+            {"_id": str(target_version_id), "dataset_id": str(dataset.id)}
+        )
+        if version_doc is None:
+            raise ValueError("Dataset version not found")
+
+        attributes = DatasetService._load_version_attributes(db, target_version_id)
+        if not attributes:
+            raise ValueError("Dataset version has no attributes")
+
+        now = datetime.now(timezone.utc)
+        job_id = str(uuid.uuid4())
+        document: dict[str, Any] = {
+            "_id": job_id,
+            "user_id": str(user_id),
+            "dataset_id": str(dataset.id),
+            "dataset_version_id": str(target_version_id),
+            "row_count": row_count,
+            "formats": sorted([fmt.lower() for fmt in formats]),
+            "seed": seed,
+            "status": "queued",
+            "stage": "queued",
+            "progress_percentage": 0,
+            "cancel_requested": False,
+            "error": None,
+            "result": None,
+            "created_at": now,
+            "updated_at": now,
+            "started_at": None,
+            "finished_at": None,
+        }
+        db["dataset_generation_jobs"].insert_one(document)
+        return document
+
+    @staticmethod
+    def get_generation_job(
+        db: Database,
+        user_id: uuid.UUID,
+        job_id: str,
+    ) -> dict[str, Any]:
+        document = db["dataset_generation_jobs"].find_one(
+            {"_id": job_id, "user_id": str(user_id)}
+        )
+        if document is None:
+            raise ValueError("Generation job not found")
+        return document
+
+    @staticmethod
+    def cancel_generation_job(
+        db: Database,
+        user_id: uuid.UUID,
+        job_id: str,
+    ) -> dict[str, Any]:
+        job = DatasetService.get_generation_job(db=db, user_id=user_id, job_id=job_id)
+        now = datetime.now(timezone.utc)
+        status = str(job.get("status", "queued"))
+
+        if status in DatasetService.TERMINAL_JOB_STATUSES:
+            return job
+
+        update: dict[str, Any] = {
+            "cancel_requested": True,
+            "updated_at": now,
+            "stage": "cancel_requested",
+        }
+
+        if status == "queued":
+            update["status"] = "cancelled"
+            update["progress_percentage"] = 100
+            update["finished_at"] = now
+            update["stage"] = "cancelled"
+
+        db["dataset_generation_jobs"].update_one(
+            {"_id": job_id, "user_id": str(user_id)},
+            {"$set": update},
+        )
+        return DatasetService.get_generation_job(db=db, user_id=user_id, job_id=job_id)
+
+    @staticmethod
+    def mark_job_running(db: Database, job_id: str) -> dict[str, Any] | None:
+        now = datetime.now(timezone.utc)
+        result = db["dataset_generation_jobs"].find_one_and_update(
+            {
+                "_id": job_id,
+                "status": {"$in": ["queued", "running"]},
+            },
+            {
+                "$set": {
+                    "status": "running",
+                    "stage": "generating",
+                    "progress_percentage": 10,
+                    "updated_at": now,
+                    "started_at": now,
+                }
+            },
+            return_document=ReturnDocument.AFTER,
+        )
+        return result
+
+    @staticmethod
+    def mark_job_cancelled(db: Database, job_id: str, stage: str = "cancelled") -> None:
+        now = datetime.now(timezone.utc)
+        db["dataset_generation_jobs"].update_one(
+            {"_id": job_id},
+            {
+                "$set": {
+                    "status": "cancelled",
+                    "stage": stage,
+                    "progress_percentage": 100,
+                    "cancel_requested": True,
+                    "updated_at": now,
+                    "finished_at": now,
+                }
+            },
+        )
+
+    @staticmethod
+    def mark_job_completed(
+        db: Database, job_id: str, result_payload: dict[str, Any]
+    ) -> None:
+        now = datetime.now(timezone.utc)
+        db["dataset_generation_jobs"].update_one(
+            {"_id": job_id},
+            {
+                "$set": {
+                    "status": "completed",
+                    "stage": "completed",
+                    "progress_percentage": 100,
+                    "updated_at": now,
+                    "finished_at": now,
+                    "result": result_payload,
+                    "error": None,
+                }
+            },
+        )
+
+    @staticmethod
+    def mark_job_failed(db: Database, job_id: str, message: str) -> None:
+        now = datetime.now(timezone.utc)
+        db["dataset_generation_jobs"].update_one(
+            {"_id": job_id},
+            {
+                "$set": {
+                    "status": "failed",
+                    "stage": "failed",
+                    "progress_percentage": 100,
+                    "updated_at": now,
+                    "finished_at": now,
+                    "error": message,
+                }
+            },
+        )
+
+    @staticmethod
+    def serialize_generation_job(job: dict[str, Any]) -> dict[str, Any]:
+        result_payload = job.get("result")
+        if not isinstance(result_payload, dict):
+            result_payload = None
+
+        def _iso(value: Any) -> str | None:
+            if isinstance(value, datetime):
+                return value.isoformat()
+            return None
+
+        return {
+            "job_id": str(job.get("_id")),
+            "dataset_id": uuid.UUID(str(job.get("dataset_id"))),
+            "dataset_version_id": (
+                uuid.UUID(str(job.get("dataset_version_id")))
+                if job.get("dataset_version_id")
+                else None
+            ),
+            "status": str(job.get("status", "queued")),
+            "stage": str(job.get("stage", "queued")),
+            "progress_percentage": int(job.get("progress_percentage", 0)),
+            "row_count": int(job.get("row_count", 0)),
+            "formats": [str(item) for item in job.get("formats", [])],
+            "seed": job.get("seed"),
+            "cancel_requested": bool(job.get("cancel_requested", False)),
+            "created_at": _iso(job.get("created_at"))
+            or datetime.now(timezone.utc).isoformat(),
+            "started_at": _iso(job.get("started_at")),
+            "finished_at": _iso(job.get("finished_at")),
+            "error": str(job.get("error")) if job.get("error") else None,
+            "result": result_payload,
+        }
 
     @staticmethod
     def list_generated_files(
@@ -393,3 +642,78 @@ class DatasetService:
             )
             for row in attributes
         ]
+
+    @staticmethod
+    def _build_generation_signature(
+        dataset_id: uuid.UUID,
+        dataset_version_id: uuid.UUID,
+        row_count: int,
+        formats: list[str],
+        seed: int | None,
+        attributes: list[AttributeSpec],
+        realism_rules: list[dict[str, Any]],
+        realism_metadata: dict[str, Any],
+    ) -> str:
+        payload = {
+            "dataset_id": str(dataset_id),
+            "dataset_version_id": str(dataset_version_id),
+            "row_count": row_count,
+            "formats": sorted([fmt.lower() for fmt in formats]),
+            "seed": seed,
+            "attributes": [
+                {
+                    "name": attr.name,
+                    "data_type": attr.data_type,
+                    "constraints": attr.constraints,
+                    "distribution": attr.distribution,
+                    "null_percentage": attr.null_percentage,
+                }
+                for attr in attributes
+            ],
+            "realism_rules": realism_rules,
+            "realism_metadata": realism_metadata,
+        }
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _record_generation_run(db: Database, run_payload: dict[str, Any]) -> str:
+        run_id = str(uuid.uuid4())
+        document = {"_id": run_id, **run_payload}
+        db["dataset_generation_runs"].insert_one(document)
+        return run_id
+
+    @staticmethod
+    def _compare_with_previous_run(
+        db: Database,
+        dataset_id: uuid.UUID,
+        current_run_id: str,
+        current_quality: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        previous = db["dataset_generation_runs"].find_one(
+            {
+                "dataset_id": str(dataset_id),
+                "_id": {"$ne": current_run_id},
+            },
+            sort=[("created_at", DESCENDING)],
+        )
+        if previous is None:
+            return None
+
+        previous_quality = previous.get("quality_report", {})
+        current_realism = current_quality.get("realism", {})
+        previous_realism = previous_quality.get("realism", {})
+
+        current_rows_affected = int(current_realism.get("total_rows_affected", 0))
+        previous_rows_affected = int(previous_realism.get("total_rows_affected", 0))
+
+        return {
+            "previous_run_id": str(previous.get("_id")),
+            "previous_signature": str(previous.get("generation_signature", "")),
+            "delta_rows_affected": current_rows_affected - previous_rows_affected,
+            "previous_created_at": (
+                previous.get("created_at").isoformat()
+                if previous.get("created_at") is not None
+                else None
+            ),
+        }

@@ -23,3 +23,15 @@ def init_db() -> None:
         unique=True,
         name="uq_version_attr_name",
     )
+    database["dataset_generation_runs"].create_index(
+        [("dataset_id", ASCENDING), ("created_at", DESCENDING)]
+    )
+    database["dataset_generation_jobs"].create_index(
+        [("user_id", ASCENDING), ("created_at", DESCENDING)]
+    )
+    database["dataset_generation_jobs"].create_index(
+        [("dataset_id", ASCENDING), ("created_at", DESCENDING)]
+    )
+    database["dataset_generation_jobs"].create_index(
+        [("status", ASCENDING), ("updated_at", DESCENDING)]
+    )

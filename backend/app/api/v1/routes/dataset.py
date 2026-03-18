@@ -12,6 +12,7 @@ from app.auth.models import User
 from app.core.config import settings
 from app.db.session import get_db
 from app.schemas.dataset import (
+    CancelGenerationJobResponse,
     DatasetAttributesRequest,
     DatasetAttributesResponse,
     DatasetDetailResponse,
@@ -21,8 +22,10 @@ from app.schemas.dataset import (
     DatasetVersionSummaryResponse,
     DatasetVersionsResponse,
     DownloadListResponse,
+    GenerateAsyncResponse,
     DatasetCreateRequest,
     DatasetCreateResponse,
+    GenerationJobResponse,
     GenerateRequest,
     GenerateResponse,
     PreviewRequest,
@@ -130,6 +133,92 @@ def generate_dataset(
         "row_count": payload.row_count,
         "files": generation_result.get("files", []),
         "quality_report": generation_result.get("quality_report"),
+        "generation_signature": generation_result.get("generation_signature"),
+        "generation_run_id": generation_result.get("generation_run_id"),
+        "comparison": generation_result.get("comparison"),
+    }
+
+
+@router.post("/generate-async", response_model=GenerateAsyncResponse)
+def generate_dataset_async(
+    payload: GenerateRequest,
+    db: Database = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> GenerateAsyncResponse:
+    if not settings.async_generation_enabled:
+        raise HTTPException(
+            status_code=503,
+            detail="Async generation is disabled. Set ASYNC_GENERATION_ENABLED=true.",
+        )
+
+    try:
+        job = DatasetService.create_generation_job(
+            db=db,
+            user_id=current_user.id,
+            dataset_id=payload.dataset_id,
+            dataset_version_id=payload.dataset_version_id,
+            row_count=payload.row_count,
+            formats=payload.formats,
+            seed=payload.seed,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # Deferred import keeps the API bootable even when worker dependencies are absent.
+    from app.worker.tasks import generate_dataset_async_task
+
+    generate_dataset_async_task.delay(str(job["_id"]))
+
+    return {
+        "job_id": str(job["_id"]),
+        "status": "queued",
+        "message": "Generation job queued",
+    }
+
+
+@router.get("/jobs/{job_id}", response_model=GenerationJobResponse)
+def get_generation_job(
+    job_id: str,
+    db: Database = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> GenerationJobResponse:
+    try:
+        job = DatasetService.get_generation_job(
+            db=db,
+            user_id=current_user.id,
+            job_id=job_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return DatasetService.serialize_generation_job(job)
+
+
+@router.post("/jobs/{job_id}/cancel", response_model=CancelGenerationJobResponse)
+def cancel_generation_job(
+    job_id: str,
+    db: Database = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> CancelGenerationJobResponse:
+    try:
+        job = DatasetService.cancel_generation_job(
+            db=db,
+            user_id=current_user.id,
+            job_id=job_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    status = str(job.get("status", "queued"))
+    return {
+        "job_id": job_id,
+        "status": status,
+        "cancel_requested": bool(job.get("cancel_requested", False)),
+        "message": (
+            "Job already finished"
+            if status in DatasetService.TERMINAL_JOB_STATUSES
+            else "Cancellation requested"
+        ),
     }
 
 

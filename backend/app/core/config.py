@@ -1,9 +1,12 @@
 from pathlib import Path
+import json
+import re
+from typing import Annotated
 from typing import Literal
 import warnings
 
-from pydantic import Field, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, field_validator, model_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
@@ -30,7 +33,9 @@ class Settings(BaseSettings):
         default="datasim_lab",
         validation_alias="MONGODB_DATABASE",
     )
-    cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
+    cors_origins: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["http://localhost:3000"]
+    )
 
     artifacts_dir: str = "artifacts"
     generation_chunk_size: int = 100000
@@ -41,6 +46,51 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expiration_minutes: int = 60
     gemini_api_key: str = Field(default="", validation_alias="GEMINI_API_KEY")
+    redis_url: str = Field(default="", validation_alias="REDIS_URL")
+    celery_broker_url: str = Field(default="", validation_alias="CELERY_BROKER_URL")
+    celery_result_backend: str = Field(
+        default="",
+        validation_alias="CELERY_RESULT_BACKEND",
+    )
+    async_generation_enabled: bool = Field(
+        default=False,
+        validation_alias="ASYNC_GENERATION_ENABLED",
+    )
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, value: object) -> list[str] | object:
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        if not isinstance(value, str):
+            return value
+
+        raw = value.strip()
+        if not raw:
+            return []
+
+        # Accept JSON arrays and shell-wrapped JSON strings.
+        wrapped = (raw.startswith('"') and raw.endswith('"')) or (
+            raw.startswith("'") and raw.endswith("'")
+        )
+        if wrapped:
+            raw = raw[1:-1].strip()
+
+        if raw.startswith("[") and raw.endswith("]"):
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, list):
+                    return [str(item).strip() for item in parsed if str(item).strip()]
+            except json.JSONDecodeError:
+                # Fall back to tolerant token parsing for malformed list strings.
+                raw = raw[1:-1]
+
+        tokens = [
+            part.strip().strip("\"'")
+            for part in re.split(r"[,;]", raw)
+            if part.strip().strip("\"'")
+        ]
+        return tokens
 
     @model_validator(mode="after")
     def validate_security_settings(self) -> "Settings":
@@ -74,6 +124,39 @@ class Settings(BaseSettings):
             raise ValueError("generation_min_chunk_size must be >= 1")
         if self.generation_target_cells_per_chunk < 1:
             raise ValueError("generation_target_cells_per_chunk must be >= 1")
+        return self
+
+    @model_validator(mode="after")
+    def validate_async_settings(self) -> "Settings":
+        if not self.celery_broker_url and self.redis_url:
+            self.celery_broker_url = self.redis_url
+        if not self.celery_result_backend and self.redis_url:
+            self.celery_result_backend = self.redis_url
+
+        if self.async_generation_enabled:
+            if not self.celery_broker_url:
+                raise ValueError(
+                    "CELERY_BROKER_URL or REDIS_URL must be configured when ASYNC_GENERATION_ENABLED=true"
+                )
+            if not self.celery_result_backend:
+                raise ValueError(
+                    "CELERY_RESULT_BACKEND or REDIS_URL must be configured when ASYNC_GENERATION_ENABLED=true"
+                )
+            if not (
+                self.celery_broker_url.startswith("redis://")
+                or self.celery_broker_url.startswith("rediss://")
+            ):
+                raise ValueError(
+                    "CELERY_BROKER_URL must start with redis:// or rediss://"
+                )
+            if not (
+                self.celery_result_backend.startswith("redis://")
+                or self.celery_result_backend.startswith("rediss://")
+            ):
+                raise ValueError(
+                    "CELERY_RESULT_BACKEND must start with redis:// or rediss://"
+                )
+
         return self
 
 
