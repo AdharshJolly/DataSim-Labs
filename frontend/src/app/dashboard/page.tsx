@@ -34,6 +34,7 @@ import { AuthGuard } from "@/components/auth/auth-guard";
 export default function DashboardPage() {
   const [datasets, setDatasets] = useState<DatasetSummary[]>([]);
   const [jobs, setJobs] = useState<GenerationJobResponse[]>([]);
+  const [showJobsPanel, setShowJobsPanel] = useState(false);
   const [email, setEmail] = useState("");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -157,6 +158,16 @@ export default function DashboardPage() {
             )}
           </div>
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowJobsPanel((prev) => !prev)}
+              className="inline-flex h-11 items-center justify-center rounded-lg border border-border px-4 text-sm font-medium text-muted-foreground transition-colors hover:border-cyan-300/50 hover:bg-cyan-500/10 hover:text-cyan-200"
+            >
+              {showJobsPanel ? "Hide Jobs" : "My Jobs"}
+              <span className="ml-2 rounded-full border border-border px-2 py-0.5 text-xs text-foreground">
+                {jobs.length}
+              </span>
+            </button>
             <Link href="/studio" className="btn-cyber !h-11">
               <Plus className="mr-2 h-4 w-4" />
               New Dataset
@@ -210,7 +221,7 @@ export default function DashboardPage() {
           </div>
         ) : (
           <>
-            {jobs.length > 0 && (
+            {showJobsPanel && jobs.length > 0 && (
               <div className="rounded-2xl border border-border bg-white/5 p-5">
                 <div className="mb-4 flex items-center justify-between">
                   <h2 className="font-display text-2xl font-bold">My Jobs</h2>
@@ -264,6 +275,12 @@ export default function DashboardPage() {
                     );
                   })}
                 </div>
+              </div>
+            )}
+
+            {showJobsPanel && jobs.length === 0 && (
+              <div className="rounded-2xl border border-border bg-white/5 p-5 text-sm text-muted-foreground">
+                No jobs yet. Start a generation run to see activity here.
               </div>
             )}
 
