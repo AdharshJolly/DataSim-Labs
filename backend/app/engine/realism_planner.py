@@ -16,6 +16,8 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
 
 # -- Rule contract -------------------------------------------------------------
@@ -55,6 +57,8 @@ REQUIRED_KEYS: dict[str, set[str]] = {
 }
 
 PLANNER_VERSION = "2.1.0"
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
+FALLBACK_GEMINI_MODELS = ["gemini-2.5-flash-lite", "gemini-1.5-flash"]
 
 _SYSTEM_PROMPT = """\
 You are a data realism expert for a synthetic dataset generator.
@@ -675,42 +679,84 @@ class RealismPlanner:
                 },
             }
 
-        try:
-            import google.generativeai as genai  # type: ignore[import-untyped]
-        except ImportError:
-            logger.error(
-                "google-generativeai is not installed. "
-                "Run: pip install google-generativeai>=0.8.0"
-            )
-            return _fallback_result(fallback_rules, generated_at)
-
         user_message = (
             "Here is the dataset schema. Each item is an attribute with rich metadata.\n\n"
             + json.dumps([_safe_attr_payload(a) for a in attributes], indent=2)
             + "\n\nIdentify all applicable realism rules for this schema."
         )
 
+        configured_model = settings.gemini_model.strip() or DEFAULT_GEMINI_MODEL
+        candidate_models = list(
+            dict.fromkeys([configured_model, *FALLBACK_GEMINI_MODELS])
+        )
+
         try:
-            genai.configure(api_key=api_key)
-            model = genai.GenerativeModel(
-                model_name="gemini-2.0-flash",
-                system_instruction=_SYSTEM_PROMPT,
+            from google import genai  # type: ignore[import-untyped]
+            from google.genai import types  # type: ignore[import-untyped]
+        except ImportError:
+            logger.error(
+                "google-genai is not installed. " "Run: pip install google-genai"
             )
-            response = model.generate_content(user_message)
-            raw_text = response.text.strip()
-
-            if raw_text.startswith("```"):
-                lines = raw_text.splitlines()
-                raw_text = "\n".join(
-                    line for line in lines if not line.startswith("```")
-                ).strip()
-
-            parsed = json.loads(raw_text)
-        except json.JSONDecodeError as exc:
-            logger.error("Gemini returned malformed JSON: %s", exc)
             return _fallback_result(fallback_rules, generated_at)
-        except Exception as exc:
-            logger.error("Gemini API call failed: %s", exc)
+
+        parsed: dict[str, Any] | None = None
+        last_error: Exception | None = None
+
+        client = genai.Client(api_key=api_key)
+        for model_name in candidate_models:
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=user_message,
+                    config=types.GenerateContentConfig(
+                        system_instruction=_SYSTEM_PROMPT,
+                        response_mime_type="application/json",
+                    ),
+                )
+                raw_text = (response.text or "").strip()
+                if raw_text.startswith("```"):
+                    lines = raw_text.splitlines()
+                    raw_text = "\n".join(
+                        line for line in lines if not line.startswith("```")
+                    ).strip()
+
+                parsed_candidate = json.loads(raw_text)
+                if not isinstance(parsed_candidate, dict):
+                    raise ValueError("Gemini response JSON root is not an object")
+                parsed = parsed_candidate
+                if model_name != configured_model:
+                    logger.warning(
+                        "Gemini model fallback applied: '%s' -> '%s'",
+                        configured_model,
+                        model_name,
+                    )
+                break
+            except json.JSONDecodeError as exc:
+                logger.error(
+                    "Gemini returned malformed JSON from '%s': %s", model_name, exc
+                )
+                last_error = exc
+                break
+            except Exception as exc:
+                last_error = exc
+                error_message = str(exc)
+                if "404" in error_message or "not found" in error_message.lower():
+                    logger.warning(
+                        "Gemini model '%s' unavailable, trying fallback if available.",
+                        model_name,
+                    )
+                    continue
+                logger.error(
+                    "Gemini API call failed for model '%s': %s", model_name, exc
+                )
+                break
+
+        if parsed is None:
+            if last_error is not None:
+                logger.error(
+                    "Gemini planning failed; using fallback rules. Last error: %s",
+                    last_error,
+                )
             return _fallback_result(fallback_rules, generated_at)
 
         raw_rules = parsed.get("rules") if isinstance(parsed, dict) else None

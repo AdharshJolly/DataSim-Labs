@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expiration_minutes: int = 60
     gemini_api_key: str = Field(default="", validation_alias="GEMINI_API_KEY")
+    gemini_model: str = Field(
+        default="gemini-2.5-flash", validation_alias="GEMINI_MODEL"
+    )
     redis_url: str = Field(default="", validation_alias="REDIS_URL")
     celery_broker_url: str = Field(default="", validation_alias="CELERY_BROKER_URL")
     celery_result_backend: str = Field(
