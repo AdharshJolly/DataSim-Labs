@@ -45,6 +45,11 @@ def generate_dataset_async_task(job_id: str) -> None:
                 else None
             ),
             retention_hours=settings.artifact_retention_hours,
+            drift_profile=(
+                dict(running_job.get("drift_profile", {}))
+                if isinstance(running_job.get("drift_profile"), dict)
+                else None
+            ),
         )
         DatasetService.mark_job_completed(
             db=database,
@@ -55,6 +60,8 @@ def generate_dataset_async_task(job_id: str) -> None:
                 "row_count": int(running_job["row_count"]),
                 "files": result.get("files", []),
                 "quality_report": result.get("quality_report"),
+                "quality_guardrails": result.get("quality_guardrails"),
+                "drift_simulation": result.get("drift_simulation"),
                 "generation_signature": result.get("generation_signature"),
                 "generation_run_id": result.get("generation_run_id"),
                 "comparison": result.get("comparison"),

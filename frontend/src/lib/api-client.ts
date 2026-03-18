@@ -131,6 +131,11 @@ export interface SaveAttributesRequest {
   dataset_id: string;
   attributes: AttributeConfig[];
   seed?: number;
+  correlations?: Array<{
+    source: string;
+    target: string;
+    strength: number;
+  }>;
 }
 
 export interface SaveAttributesResponse {
@@ -153,6 +158,11 @@ export interface GenerateRequest {
   row_count: number;
   formats: Array<"csv" | "json" | "jsonl" | "excel">;
   seed?: number;
+  drift_profile?: {
+    enabled: boolean;
+    intensity: number;
+    target_columns: string[];
+  };
 }
 
 export interface GeneratedFileInfo {
@@ -161,7 +171,7 @@ export interface GeneratedFileInfo {
   size_bytes: number;
 }
 
-export type DatasetStatus = "draft" | "active" | "archived";
+export type DatasetStatus = "draft" | "active" | "generating" | "archived";
 
 export interface GenerateResponse {
   dataset_id: string;
@@ -169,6 +179,13 @@ export interface GenerateResponse {
   row_count: number;
   files: GeneratedFileInfo[];
   quality_report?: Record<string, unknown> | null;
+  quality_guardrails?: {
+    passed: boolean;
+    max_alerts: number;
+    actual_alerts: number;
+    message: string;
+  } | null;
+  drift_simulation?: Record<string, unknown> | null;
   generation_signature?: string | null;
   generation_run_id?: string | null;
   comparison?: Record<string, unknown> | null;
@@ -209,6 +226,17 @@ export interface CancelGenerationJobResponse {
   job_id: string;
   status: GenerationJobStatus;
   cancel_requested: boolean;
+  message: string;
+}
+
+export interface GenerationJobListResponse {
+  jobs: GenerationJobResponse[];
+}
+
+export interface RetryGenerationJobResponse {
+  original_job_id: string;
+  new_job_id: string;
+  status: GenerationJobStatus;
   message: string;
 }
 
@@ -334,6 +362,25 @@ export function cancelGenerationJob(
 ): Promise<CancelGenerationJobResponse> {
   return apiRequest<CancelGenerationJobResponse>(
     `/api/v1/dataset/jobs/${jobId}/cancel`,
+    {
+      method: "POST",
+    },
+  );
+}
+
+export function listGenerationJobs(
+  limit = 20,
+): Promise<GenerationJobListResponse> {
+  return apiRequest<GenerationJobListResponse>(
+    `/api/v1/dataset/jobs?limit=${encodeURIComponent(limit)}`,
+  );
+}
+
+export function retryGenerationJob(
+  jobId: string,
+): Promise<RetryGenerationJobResponse> {
+  return apiRequest<RetryGenerationJobResponse>(
+    `/api/v1/dataset/jobs/${jobId}/retry`,
     {
       method: "POST",
     },

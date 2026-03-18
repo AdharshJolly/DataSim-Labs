@@ -28,6 +28,7 @@ class DistributionType(str, Enum):
 class DatasetStatus(str, Enum):
     draft = "draft"
     active = "active"
+    generating = "generating"
     archived = "archived"
 
 
@@ -188,10 +189,17 @@ class DatasetCreateRequest(BaseModel):
     description: str | None = None
 
 
+class CorrelationRule(BaseModel):
+    source: str = Field(..., min_length=1)
+    target: str = Field(..., min_length=1)
+    strength: float = Field(..., ge=-1.0, le=1.0)
+
+
 class DatasetAttributesRequest(BaseModel):
     dataset_id: UUID
     attributes: list[AttributeConfig]
     seed: int | None = Field(default=None, ge=0)
+    correlations: list[CorrelationRule] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def check_unique_names(self) -> "DatasetAttributesRequest":
@@ -216,11 +224,17 @@ class PreviewResponse(BaseModel):
 
 
 class GenerateRequest(BaseModel):
+    class DriftProfile(BaseModel):
+        enabled: bool = False
+        intensity: float = Field(default=0.1, ge=0.0, le=1.0)
+        target_columns: list[str] = Field(default_factory=list)
+
     dataset_id: UUID
     dataset_version_id: UUID | None = None
     row_count: int = Field(..., ge=1, le=10000000)
     formats: list[str] = Field(default_factory=lambda: ["csv"])
     seed: int | None = Field(default=None, ge=0)
+    drift_profile: DriftProfile | None = None
 
 
 class GeneratedFileInfo(BaseModel):
@@ -235,6 +249,8 @@ class GenerateResponse(BaseModel):
     row_count: int
     files: list[GeneratedFileInfo]
     quality_report: dict[str, Any] | None = None
+    quality_guardrails: dict[str, Any] | None = None
+    drift_simulation: dict[str, Any] | None = None
     generation_signature: str | None = None
     generation_run_id: str | None = None
     comparison: dict[str, Any] | None = None
@@ -268,6 +284,17 @@ class CancelGenerationJobResponse(BaseModel):
     job_id: str
     status: GenerationJobStatus
     cancel_requested: bool
+    message: str
+
+
+class GenerationJobListResponse(BaseModel):
+    jobs: list[GenerationJobResponse]
+
+
+class RetryGenerationJobResponse(BaseModel):
+    original_job_id: str
+    new_job_id: str
+    status: GenerationJobStatus
     message: str
 
 

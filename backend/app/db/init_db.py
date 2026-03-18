@@ -35,3 +35,17 @@ def init_db() -> None:
     database["dataset_generation_jobs"].create_index(
         [("status", ASCENDING), ("updated_at", DESCENDING)]
     )
+    database["dataset_generation_jobs"].create_index(
+        [("source_job_id", ASCENDING), ("created_at", DESCENDING)]
+    )
+    database["dataset_generation_artifacts"].create_index(
+        [("dataset_id", ASCENDING), ("created_at", DESCENDING)]
+    )
+    database["dataset_generation_artifacts"].create_index(
+        [("generation_run_id", ASCENDING), ("file_name", ASCENDING)],
+        unique=True,
+        name="uq_generation_run_file",
+    )
+    database["dataset_generation_artifacts"].create_index(
+        [("status", ASCENDING), ("expires_at", ASCENDING)]
+    )

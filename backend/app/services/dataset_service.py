@@ -35,6 +35,7 @@ class DatasetService:
         dataset_id: uuid.UUID,
         attributes: list[AttributeConfig],
         seed: int | None = None,
+        correlations: list[dict[str, Any]] | None = None,
     ) -> DatasetVersion:
         attr_names = [attr.name for attr in attributes]
         if len(attr_names) != len(set(attr_names)):
@@ -60,6 +61,7 @@ class DatasetService:
                 attribute.model_dump(mode="json") for attribute in attributes
             ],
             "seed": seed,
+            "correlations": correlations or [],
         }
 
         # ── Gemini Realism Planning ────────────────────────────────────────────
@@ -171,6 +173,7 @@ class DatasetService:
         seed: int | None = None,
         dataset_version_id: uuid.UUID | None = None,
         retention_hours: int = 24,
+        drift_profile: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Generate and export full datasets for a dataset's latest version."""
         dataset_doc = db["datasets"].find_one(
@@ -204,6 +207,7 @@ class DatasetService:
             realism_rules = owned_version.config_json.get("realism_rules", [])
 
         DatasetService.cleanup_old_artifacts(
+            db=db,
             output_root=output_root,
             max_age_hours=retention_hours,
         )
@@ -222,6 +226,12 @@ class DatasetService:
                 if isinstance(realism_config, dict)
                 else {}
             ),
+            correlations=(
+                owned_version.config_json.get("correlations", [])
+                if isinstance(owned_version.config_json, dict)
+                else []
+            ),
+            drift_profile=drift_profile or {},
         )
 
         generation_result = generator.export_dataset_files(
@@ -249,16 +259,28 @@ class DatasetService:
             "created_at": datetime.now(timezone.utc),
         }
         run_id = DatasetService._record_generation_run(db=db, run_payload=run_payload)
+        DatasetService.record_generation_artifacts(
+            db=db,
+            dataset_id=dataset.id,
+            generation_run_id=run_id,
+            files=generation_result.get("files", []),
+            retention_hours=retention_hours,
+        )
         comparison = DatasetService._compare_with_previous_run(
             db=db,
             dataset_id=dataset.id,
             current_run_id=run_id,
             current_quality=run_payload["quality_report"],
         )
+        quality_guardrails = DatasetService.evaluate_quality_guardrails(
+            quality_report=run_payload["quality_report"],
+        )
 
         generation_result["generation_signature"] = generation_signature
         generation_result["generation_run_id"] = run_id
         generation_result["comparison"] = comparison
+        generation_result["quality_guardrails"] = quality_guardrails
+        generation_result["drift_simulation"] = drift_profile or {"enabled": False}
         return generation_result
 
     @staticmethod
@@ -270,6 +292,8 @@ class DatasetService:
         formats: list[str],
         seed: int | None = None,
         dataset_version_id: uuid.UUID | None = None,
+        source_job_id: str | None = None,
+        drift_profile: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         dataset = DatasetService.get_dataset(
             db=db, user_id=user_id, dataset_id=dataset_id
@@ -299,6 +323,8 @@ class DatasetService:
             "row_count": row_count,
             "formats": sorted([fmt.lower() for fmt in formats]),
             "seed": seed,
+            "source_job_id": source_job_id,
+            "drift_profile": drift_profile or {"enabled": False},
             "status": "queued",
             "stage": "queued",
             "progress_percentage": 0,
@@ -312,6 +338,66 @@ class DatasetService:
         }
         db["dataset_generation_jobs"].insert_one(document)
         return document
+
+    @staticmethod
+    def list_generation_jobs(
+        db: Database,
+        user_id: uuid.UUID,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        max_limit = max(1, min(limit, 100))
+        cursor = (
+            db["dataset_generation_jobs"]
+            .find({"user_id": str(user_id)})
+            .sort("created_at", DESCENDING)
+            .limit(max_limit)
+        )
+        return list(cursor)
+
+    @staticmethod
+    def retry_generation_job(
+        db: Database,
+        user_id: uuid.UUID,
+        job_id: str,
+    ) -> dict[str, Any]:
+        job = DatasetService.get_generation_job(db=db, user_id=user_id, job_id=job_id)
+        status = str(job.get("status", "queued"))
+        if status not in {"failed", "cancelled", "completed"}:
+            raise ValueError("Only failed, cancelled, or completed jobs can be retried")
+
+        return DatasetService.create_generation_job(
+            db=db,
+            user_id=user_id,
+            dataset_id=uuid.UUID(str(job["dataset_id"])),
+            dataset_version_id=(
+                uuid.UUID(str(job["dataset_version_id"]))
+                if job.get("dataset_version_id")
+                else None
+            ),
+            row_count=int(job["row_count"]),
+            formats=[str(item) for item in job.get("formats", ["csv"])],
+            seed=(int(job["seed"]) if job.get("seed") is not None else None),
+            source_job_id=job_id,
+            drift_profile=(
+                dict(job.get("drift_profile", {}))
+                if isinstance(job.get("drift_profile"), dict)
+                else {"enabled": False}
+            ),
+        )
+
+    @staticmethod
+    def list_active_generation_job_dataset_ids(
+        db: Database,
+        user_id: uuid.UUID,
+    ) -> set[str]:
+        rows = db["dataset_generation_jobs"].find(
+            {
+                "user_id": str(user_id),
+                "status": {"$in": ["queued", "running"]},
+            },
+            {"dataset_id": 1},
+        )
+        return {str(row.get("dataset_id")) for row in rows if row.get("dataset_id")}
 
     @staticmethod
     def get_generation_job(
@@ -542,6 +628,25 @@ class DatasetService:
         return [Dataset.from_document(row) for row in rows]
 
     @staticmethod
+    def resolve_effective_dataset_status(
+        dataset: Dataset,
+        output_root: Path,
+        active_job_dataset_ids: set[str] | None = None,
+    ) -> DatasetStatus:
+        """Resolve runtime status from artifact availability for dashboard UX."""
+        if dataset.status is DatasetStatus.archived:
+            return DatasetStatus.archived
+
+        if active_job_dataset_ids and str(dataset.id) in active_job_dataset_ids:
+            return DatasetStatus.generating
+
+        files = DatasetService.list_generated_files(
+            dataset_id=dataset.id,
+            output_root=output_root,
+        )
+        return DatasetStatus.active if files else DatasetStatus.draft
+
+    @staticmethod
     def get_dataset(db: Database, user_id: uuid.UUID, dataset_id: uuid.UUID) -> Dataset:
         """Get one dataset if owned by the user."""
         row = db["datasets"].find_one({"_id": str(dataset_id), "user_id": str(user_id)})
@@ -602,7 +707,11 @@ class DatasetService:
         return dataset
 
     @staticmethod
-    def cleanup_old_artifacts(output_root: Path, max_age_hours: int) -> None:
+    def cleanup_old_artifacts(
+        output_root: Path,
+        max_age_hours: int,
+        db: Database | None = None,
+    ) -> None:
         """Delete generated files older than retention window."""
         if not output_root.exists():
             return
@@ -618,7 +727,75 @@ class DatasetService:
                     file_path.stat().st_mtime, tz=timezone.utc
                 )
                 if modified_at < cutoff:
+                    if db is not None:
+                        db["dataset_generation_artifacts"].update_many(
+                            {
+                                "dataset_id": dataset_dir.name,
+                                "file_name": file_path.name,
+                                "status": "available",
+                            },
+                            {
+                                "$set": {
+                                    "status": "expired",
+                                    "deleted_at": datetime.now(timezone.utc),
+                                }
+                            },
+                        )
                     file_path.unlink(missing_ok=True)
+
+    @staticmethod
+    def record_generation_artifacts(
+        db: Database,
+        dataset_id: uuid.UUID,
+        generation_run_id: str,
+        files: list[dict[str, Any]],
+        retention_hours: int,
+    ) -> None:
+        now = datetime.now(timezone.utc)
+        expires_at = now + timedelta(hours=retention_hours)
+        for file in files:
+            file_name = str(file.get("file_name", "")).strip()
+            if not file_name:
+                continue
+            db["dataset_generation_artifacts"].update_one(
+                {
+                    "dataset_id": str(dataset_id),
+                    "generation_run_id": generation_run_id,
+                    "file_name": file_name,
+                },
+                {
+                    "$set": {
+                        "dataset_id": str(dataset_id),
+                        "generation_run_id": generation_run_id,
+                        "format": str(file.get("format", "")),
+                        "file_name": file_name,
+                        "size_bytes": int(file.get("size_bytes", 0)),
+                        "status": "available",
+                        "created_at": now,
+                        "expires_at": expires_at,
+                        "deleted_at": None,
+                    }
+                },
+                upsert=True,
+            )
+
+    @staticmethod
+    def evaluate_quality_guardrails(quality_report: dict[str, Any]) -> dict[str, Any]:
+        alerts = (
+            quality_report.get("alerts", []) if isinstance(quality_report, dict) else []
+        )
+        alert_count = len(alerts) if isinstance(alerts, list) else 0
+        max_alerts = settings.quality_alert_threshold
+        return {
+            "passed": alert_count <= max_alerts,
+            "max_alerts": max_alerts,
+            "actual_alerts": alert_count,
+            "message": (
+                "Quality checks passed"
+                if alert_count <= max_alerts
+                else "Quality checks exceeded alert threshold"
+            ),
+        }
 
     @staticmethod
     def _load_version_attributes(
@@ -653,6 +830,8 @@ class DatasetService:
         attributes: list[AttributeSpec],
         realism_rules: list[dict[str, Any]],
         realism_metadata: dict[str, Any],
+        correlations: list[dict[str, Any]],
+        drift_profile: dict[str, Any],
     ) -> str:
         payload = {
             "dataset_id": str(dataset_id),
@@ -672,6 +851,8 @@ class DatasetService:
             ],
             "realism_rules": realism_rules,
             "realism_metadata": realism_metadata,
+            "correlations": correlations,
+            "drift_profile": drift_profile,
         }
         canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()

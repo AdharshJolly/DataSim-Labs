@@ -23,11 +23,13 @@ from app.schemas.dataset import (
     DatasetVersionsResponse,
     DownloadListResponse,
     GenerateAsyncResponse,
+    GenerationJobListResponse,
     DatasetCreateRequest,
     DatasetCreateResponse,
     GenerationJobResponse,
     GenerateRequest,
     GenerateResponse,
+    RetryGenerationJobResponse,
     PreviewRequest,
     PreviewResponse,
 )
@@ -68,6 +70,9 @@ def save_attributes(
             dataset_id=payload.dataset_id,
             attributes=payload.attributes,
             seed=payload.seed,
+            correlations=[
+                rule.model_dump(mode="json") for rule in payload.correlations
+            ],
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -123,6 +128,11 @@ def generate_dataset(
             chunk_size=settings.generation_chunk_size,
             seed=payload.seed,
             retention_hours=settings.artifact_retention_hours,
+            drift_profile=(
+                payload.drift_profile.model_dump(mode="json")
+                if payload.drift_profile
+                else None
+            ),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -133,6 +143,8 @@ def generate_dataset(
         "row_count": payload.row_count,
         "files": generation_result.get("files", []),
         "quality_report": generation_result.get("quality_report"),
+        "quality_guardrails": generation_result.get("quality_guardrails"),
+        "drift_simulation": generation_result.get("drift_simulation"),
         "generation_signature": generation_result.get("generation_signature"),
         "generation_run_id": generation_result.get("generation_run_id"),
         "comparison": generation_result.get("comparison"),
@@ -160,6 +172,11 @@ def generate_dataset_async(
             row_count=payload.row_count,
             formats=payload.formats,
             seed=payload.seed,
+            drift_profile=(
+                payload.drift_profile.model_dump(mode="json")
+                if payload.drift_profile
+                else None
+            ),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -173,6 +190,22 @@ def generate_dataset_async(
         "job_id": str(job["_id"]),
         "status": "queued",
         "message": "Generation job queued",
+    }
+
+
+@router.get("/jobs", response_model=GenerationJobListResponse)
+def list_generation_jobs(
+    limit: int = Query(default=20, ge=1, le=100),
+    db: Database = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> GenerationJobListResponse:
+    jobs = DatasetService.list_generation_jobs(
+        db=db,
+        user_id=current_user.id,
+        limit=limit,
+    )
+    return {
+        "jobs": [DatasetService.serialize_generation_job(job) for job in jobs],
     }
 
 
@@ -222,6 +255,33 @@ def cancel_generation_job(
     }
 
 
+@router.post("/jobs/{job_id}/retry", response_model=RetryGenerationJobResponse)
+def retry_generation_job(
+    job_id: str,
+    db: Database = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> RetryGenerationJobResponse:
+    try:
+        new_job = DatasetService.retry_generation_job(
+            db=db,
+            user_id=current_user.id,
+            job_id=job_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    from app.worker.tasks import generate_dataset_async_task
+
+    generate_dataset_async_task.delay(str(new_job["_id"]))
+
+    return {
+        "original_job_id": job_id,
+        "new_job_id": str(new_job["_id"]),
+        "status": "queued",
+        "message": "Retry job queued",
+    }
+
+
 @router.get("/download/{dataset_id}", response_model=DownloadListResponse)
 def download_dataset(
     dataset_id: uuid.UUID,
@@ -262,6 +322,11 @@ def list_datasets(
     current_user: User = Depends(get_current_user),
 ) -> DatasetListResponse:
     datasets = DatasetService.list_datasets(db=db, user_id=current_user.id)
+    output_root = Path(settings.artifacts_dir)
+    active_job_dataset_ids = DatasetService.list_active_generation_job_dataset_ids(
+        db=db,
+        user_id=current_user.id,
+    )
     return {
         "datasets": [
             DatasetSummaryResponse(
@@ -269,7 +334,11 @@ def list_datasets(
                 name=dataset.name,
                 description=dataset.description,
                 latest_version_id=dataset.latest_version_id,
-                status=dataset.status,
+                status=DatasetService.resolve_effective_dataset_status(
+                    dataset=dataset,
+                    output_root=output_root,
+                    active_job_dataset_ids=active_job_dataset_ids,
+                ),
                 created_at=dataset.created_at.isoformat(),
             )
             for dataset in datasets
@@ -292,12 +361,21 @@ def get_dataset(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
+    output_root = Path(settings.artifacts_dir)
+    active_job_dataset_ids = DatasetService.list_active_generation_job_dataset_ids(
+        db=db,
+        user_id=current_user.id,
+    )
     return DatasetDetailResponse(
         id=dataset.id,
         name=dataset.name,
         description=dataset.description,
         latest_version_id=dataset.latest_version_id,
-        status=dataset.status,
+        status=DatasetService.resolve_effective_dataset_status(
+            dataset=dataset,
+            output_root=output_root,
+            active_job_dataset_ids=active_job_dataset_ids,
+        ),
         created_at=dataset.created_at.isoformat(),
         updated_at=dataset.updated_at.isoformat(),
     )

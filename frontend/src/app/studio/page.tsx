@@ -34,6 +34,7 @@ import {
   downloadDatasetFile,
   generateDataset,
   getDatasetVersions,
+  listDatasetFiles,
   previewDataset,
   saveAttributes,
 } from "@/lib/api-client";
@@ -42,6 +43,8 @@ import { AuthGuard } from "@/components/auth/auth-guard";
 
 const ASYNC_POLL_INTERVAL_MS = 1500;
 const ASYNC_POLL_MAX_ATTEMPTS = 1200;
+const AUTO_ASYNC_ROW_THRESHOLD = 50000;
+const AUTO_ASYNC_CELL_THRESHOLD = 1000000;
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
@@ -218,6 +221,7 @@ export default function StudioPage() {
   // Step 2
   const [attrs, setAttrs] = useState<AttrRow[]>([newAttr(0)]);
   const [versionId, setVersionId] = useState("");
+  const [correlationRulesText, setCorrelationRulesText] = useState("[]");
 
   // Step 3
   const [previewRows, setPreviewRows] = useState<Record<string, unknown>[]>([]);
@@ -239,28 +243,48 @@ export default function StudioPage() {
     string,
     unknown
   > | null>(null);
+  const [qualityGuardrails, setQualityGuardrails] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
   const [realismMetadata, setRealismMetadata] = useState<Record<
     string,
     unknown
   > | null>(null);
-  const [useAsyncGeneration, setUseAsyncGeneration] = useState(true);
   const [jobId, setJobId] = useState("");
   const [jobStatus, setJobStatus] = useState<GenerationJobStatus | "">("");
   const [jobStage, setJobStage] = useState("");
   const [jobProgress, setJobProgress] = useState(0);
+  const [driftEnabled, setDriftEnabled] = useState(false);
+  const [driftIntensity, setDriftIntensity] = useState(0.1);
+  const [driftColumnsText, setDriftColumnsText] = useState("");
+
+  const estimatedCells = rowCount * Math.max(1, attrs.length);
+  const useAsyncGeneration =
+    rowCount >= AUTO_ASYNC_ROW_THRESHOLD ||
+    estimatedCells >= AUTO_ASYNC_CELL_THRESHOLD;
 
   // Load existing dataset from query string
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const id = params.get("datasetId");
+    const queryDatasetId = params.get("datasetId");
+    const storedDatasetId = localStorage.getItem("datasim:dataset_id");
+    const id = queryDatasetId || storedDatasetId;
     if (!id) return;
+
     setDatasetId(id);
-    getDatasetVersions(id)
-      .then((resp) => {
+    Promise.all([getDatasetVersions(id), listDatasetFiles(id)])
+      .then(([resp, filesResponse]) => {
+        const existingFiles = filesResponse.files ?? [];
+        if (existingFiles.length > 0) {
+          setGeneratedFiles(existingFiles);
+        }
+
         if (resp.versions.length === 0) {
-          setStep(2);
+          setStep(existingFiles.length > 0 ? 4 : 2);
           return;
         }
+
         const latest = resp.versions[0];
         const cfgAttrs =
           (latest.config_json.attributes as AttributeConfig[] | undefined) ??
@@ -325,10 +349,15 @@ export default function StudioPage() {
         const realism = latest.config_json.realism as
           | { metadata?: Record<string, unknown> }
           | undefined;
+        const correlations = latest.config_json.correlations;
+        if (Array.isArray(correlations)) {
+          setCorrelationRulesText(JSON.stringify(correlations, null, 2));
+        }
         if (realism?.metadata) {
           setRealismMetadata(realism.metadata);
         }
-        setStep(2);
+
+        setStep(existingFiles.length > 0 ? 4 : 2);
       })
       .catch(() => setStep(2));
   }, []);
@@ -337,6 +366,29 @@ export default function StudioPage() {
     const templated = templateRows(kind);
     setAttrs(templated);
     setError("");
+  };
+
+  const parseCorrelationRules = () => {
+    if (!correlationRulesText.trim()) {
+      return [] as Array<{ source: string; target: string; strength: number }>;
+    }
+    const parsed = JSON.parse(correlationRulesText) as unknown;
+    if (!Array.isArray(parsed)) {
+      throw new Error("Correlation rules must be a JSON array.");
+    }
+    return parsed
+      .filter(
+        (item): item is Record<string, unknown> =>
+          !!item && typeof item === "object",
+      )
+      .map((item) => ({
+        source: String(item.source ?? "").trim(),
+        target: String(item.target ?? "").trim(),
+        strength: Number(item.strength ?? 0),
+      }))
+      .filter(
+        (item) => item.source && item.target && !Number.isNaN(item.strength),
+      );
   };
 
   // ── Step 1: Create Dataset ───────────────────────────────────
@@ -386,10 +438,12 @@ export default function StudioPage() {
       return;
     }
     try {
+      const correlations = parseCorrelationRules();
       const res = await saveAttributes({
         dataset_id: datasetId,
         attributes: attrs.map(toApiAttr),
         seed: seed.trim() ? Number(seed) : undefined,
+        correlations,
       });
       setVersionId(res.version_id);
       localStorage.setItem("datasim:dataset_version_id", res.version_id);
@@ -459,6 +513,14 @@ export default function StudioPage() {
         row_count: rowCount,
         formats,
         seed: seed.trim() ? Number(seed) : undefined,
+        drift_profile: {
+          enabled: driftEnabled,
+          intensity: driftIntensity,
+          target_columns: driftColumnsText
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean),
+        },
       };
 
       if (!useAsyncGeneration) {
@@ -466,6 +528,9 @@ export default function StudioPage() {
         setGeneratedFiles(res.files);
         setQualityReport(
           (res.quality_report as Record<string, unknown>) ?? null,
+        );
+        setQualityGuardrails(
+          (res.quality_guardrails as Record<string, unknown>) ?? null,
         );
         setGenerationSignature(res.generation_signature ?? "");
         setGenerationRunId(res.generation_run_id ?? "");
@@ -500,6 +565,9 @@ export default function StudioPage() {
           setGeneratedFiles(result.files);
           setQualityReport(
             (result.quality_report as Record<string, unknown>) ?? null,
+          );
+          setQualityGuardrails(
+            (result.quality_guardrails as Record<string, unknown>) ?? null,
           );
           setGenerationSignature(result.generation_signature ?? "");
           setGenerationRunId(result.generation_run_id ?? "");
@@ -847,6 +915,23 @@ export default function StudioPage() {
                 </div>
               </div>
 
+              <div className="mb-8 rounded-lg border border-border bg-white/5 p-4">
+                <p className="text-sm font-semibold text-foreground">
+                  Correlation Builder (optional)
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Define correlation rules as JSON array, for example:
+                  <span className="ml-1 rounded bg-background/60 px-1 py-0.5 font-mono text-[11px]">
+                    {'[{"source":"age","target":"income","strength":0.6}]'}
+                  </span>
+                </p>
+                <textarea
+                  className="mt-3 h-28 w-full"
+                  value={correlationRulesText}
+                  onChange={(e) => setCorrelationRulesText(e.target.value)}
+                />
+              </div>
+
               {/* Attribute list */}
               <div className="space-y-4">
                 {attrs.map((attr, i) => (
@@ -1181,18 +1266,16 @@ export default function StudioPage() {
                     </div>
 
                     <div className="space-y-3 rounded-lg border border-border bg-white/5 p-4">
-                      <label className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4"
-                          checked={useAsyncGeneration}
-                          onChange={(e) =>
-                            setUseAsyncGeneration(e.target.checked)
-                          }
-                        />
-                        Use background generation job (recommended for large
-                        runs)
-                      </label>
+                      <p className="text-sm font-medium text-foreground">
+                        Generation mode:{" "}
+                        {useAsyncGeneration ? "Background job" : "Immediate"}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Auto-selected by thresholds (
+                        {AUTO_ASYNC_ROW_THRESHOLD.toLocaleString()} rows or{" "}
+                        {AUTO_ASYNC_CELL_THRESHOLD.toLocaleString()} estimated
+                        cells).
+                      </p>
 
                       {jobId && (
                         <div className="space-y-2 text-xs text-muted-foreground">
@@ -1221,6 +1304,51 @@ export default function StudioPage() {
                             />
                           </div>
                         </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-3 rounded-lg border border-border bg-white/5 p-4">
+                      <label className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4"
+                          checked={driftEnabled}
+                          onChange={(e) => setDriftEnabled(e.target.checked)}
+                        />
+                        Drift simulator
+                      </label>
+                      {driftEnabled && (
+                        <>
+                          <div className="space-y-2">
+                            <label className="text-xs text-muted-foreground">
+                              Drift intensity ({driftIntensity.toFixed(2)})
+                            </label>
+                            <input
+                              type="range"
+                              min={0}
+                              max={1}
+                              step={0.05}
+                              value={driftIntensity}
+                              onChange={(e) =>
+                                setDriftIntensity(Number(e.target.value))
+                              }
+                              className="h-2 w-full cursor-pointer appearance-none rounded-lg bg-border accent-primary"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs text-muted-foreground">
+                              Target columns (comma separated)
+                            </label>
+                            <input
+                              type="text"
+                              value={driftColumnsText}
+                              placeholder="age, income"
+                              onChange={(e) =>
+                                setDriftColumnsText(e.target.value)
+                              }
+                            />
+                          </div>
+                        </>
                       )}
                     </div>
 
@@ -1336,6 +1464,40 @@ export default function StudioPage() {
                           ? qualityReport.alerts.length
                           : 0}
                       </div>
+                      <div>
+                        <span className="text-foreground">Guardrails:</span>{" "}
+                        {qualityGuardrails
+                          ? String(
+                              qualityGuardrails.passed ? "passed" : "failed",
+                            )
+                          : "n/a"}
+                      </div>
+                    </div>
+
+                    {qualityGuardrails && (
+                      <div className="mt-3 rounded border border-border/60 bg-background/40 p-3 text-xs text-muted-foreground">
+                        <p className="font-medium text-foreground">
+                          Quality Guardrails
+                        </p>
+                        <p className="mt-1">
+                          {String(qualityGuardrails.message ?? "")}
+                        </p>
+                        <p>
+                          Alerts: {String(qualityGuardrails.actual_alerts ?? 0)}{" "}
+                          / {String(qualityGuardrails.max_alerts ?? 0)}
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="mt-3 rounded border border-border/60 bg-background/40 p-3 text-xs text-muted-foreground">
+                      <p className="font-medium text-foreground">
+                        Drift Simulation
+                      </p>
+                      <p className="mt-1">
+                        {driftEnabled
+                          ? `Enabled (intensity ${driftIntensity.toFixed(2)})`
+                          : "Disabled"}
+                      </p>
                     </div>
 
                     <div className="mt-3">
@@ -1385,6 +1547,7 @@ export default function StudioPage() {
                       onClick={() => {
                         setGeneratedFiles([]);
                         setQualityReport(null);
+                        setQualityGuardrails(null);
                         setGenerationSignature("");
                         setGenerationRunId("");
                         setRunComparison(null);

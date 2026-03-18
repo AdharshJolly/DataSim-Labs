@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     generation_chunk_size: int = 100000
     generation_min_chunk_size: int = 10000
     generation_target_cells_per_chunk: int = 1500000
+    async_generation_row_threshold: int = 50000
+    async_generation_cell_threshold: int = 1000000
+    quality_alert_threshold: int = 5
     artifact_retention_hours: int = 24
     jwt_secret_key: str = Field(validation_alias="JWT_SECRET_KEY")
     jwt_algorithm: str = "HS256"
@@ -124,6 +127,12 @@ class Settings(BaseSettings):
             raise ValueError("generation_min_chunk_size must be >= 1")
         if self.generation_target_cells_per_chunk < 1:
             raise ValueError("generation_target_cells_per_chunk must be >= 1")
+        if self.async_generation_row_threshold < 1:
+            raise ValueError("async_generation_row_threshold must be >= 1")
+        if self.async_generation_cell_threshold < 1:
+            raise ValueError("async_generation_cell_threshold must be >= 1")
+        if self.quality_alert_threshold < 0:
+            raise ValueError("quality_alert_threshold must be >= 0")
         return self
 
     @model_validator(mode="after")

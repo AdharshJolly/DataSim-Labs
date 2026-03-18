@@ -15,6 +15,7 @@ def _parse_datetime(value: Any) -> datetime:
 class DatasetStatus(str, Enum):
     draft = "draft"
     active = "active"
+    generating = "generating"
     archived = "archived"
 
 
