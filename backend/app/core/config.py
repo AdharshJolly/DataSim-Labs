@@ -3,6 +3,7 @@ import json
 import re
 from typing import Annotated
 from typing import Literal
+from urllib.parse import urlparse
 import warnings
 
 from pydantic import Field, field_validator, model_validator
@@ -137,10 +138,27 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_async_settings(self) -> "Settings":
+        def _is_upstash_host(url: str) -> bool:
+            parsed = urlparse(url)
+            return bool(parsed.hostname and parsed.hostname.endswith("upstash.io"))
+
+        def _validate_upstash_tls(url: str, field_name: str) -> None:
+            if not url:
+                return
+            parsed = urlparse(url)
+            if _is_upstash_host(url) and parsed.scheme != "rediss":
+                raise ValueError(
+                    f"{field_name} uses Upstash and must use rediss:// (TLS)."
+                )
+
         if not self.celery_broker_url and self.redis_url:
             self.celery_broker_url = self.redis_url
         if not self.celery_result_backend and self.redis_url:
             self.celery_result_backend = self.redis_url
+
+        _validate_upstash_tls(self.redis_url, "REDIS_URL")
+        _validate_upstash_tls(self.celery_broker_url, "CELERY_BROKER_URL")
+        _validate_upstash_tls(self.celery_result_backend, "CELERY_RESULT_BACKEND")
 
         if self.async_generation_enabled:
             if not self.celery_broker_url:
