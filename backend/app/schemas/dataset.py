@@ -235,6 +235,8 @@ class GenerateRequest(BaseModel):
     formats: list[str] = Field(default_factory=lambda: ["csv"])
     seed: int | None = Field(default=None, ge=0)
     drift_profile: DriftProfile | None = None
+    enable_refinement: bool = Field(default=False, description="Enable adaptive feedback refinement loop")
+    max_refinement_iterations: int = Field(default=3, ge=1, le=5)
 
 
 class GeneratedFileInfo(BaseModel):

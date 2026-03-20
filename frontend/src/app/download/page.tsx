@@ -16,6 +16,8 @@ import {
   downloadDatasetFile,
   listDatasetFiles,
 } from "@/lib/api-client";
+import { ValidationDashboard } from "@/components/studio/validation-dashboard";
+import type { ValidationSummary } from "@/lib/api-client";
 
 export default function DownloadPage() {
   const [datasetId, setDatasetId] = useState("");
@@ -23,6 +25,7 @@ export default function DownloadPage() {
   const [status, setStatus] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [validationSummary, setValidationSummary] = useState<ValidationSummary | null>(null);
 
   const hasFiles = useMemo(() => files.length > 0, [files.length]);
 
@@ -80,6 +83,16 @@ export default function DownloadPage() {
     const stored = localStorage.getItem("datasim:dataset_id");
     if (stored) {
       setDatasetId(stored);
+    }
+
+    // Load cached validation summary if present
+    try {
+      const storedValidation = localStorage.getItem("datasim:validation_summary");
+      if (storedValidation) {
+        setValidationSummary(JSON.parse(storedValidation));
+      }
+    } catch {
+      // ignore
     }
   }, []);
 
@@ -221,6 +234,11 @@ export default function DownloadPage() {
           </Link>
         </div>
       ) : null}
+
+      {/* Validation Dashboard */}
+      {validationSummary && (
+        <ValidationDashboard report={validationSummary} />
+      )}
     </div>
   );
 }

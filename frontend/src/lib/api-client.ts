@@ -163,6 +163,8 @@ export interface GenerateRequest {
     intensity: number;
     target_columns: string[];
   };
+  enable_refinement?: boolean;
+  max_refinement_iterations?: number;
 }
 
 export interface GeneratedFileInfo {

@@ -164,7 +164,42 @@ export function ValidationDashboard({ report }: ValidationDashboardProps) {
         </div>
       )}
 
-      {/* 5. WARNINGS LIST */}
+      {/* 5. NULL FIDELITY TABLE */}
+      {report.null_fidelity && Object.keys(report.null_fidelity).length > 0 && (
+        <div className="border rounded-xl bg-card p-5 shadow-sm">
+          <h4 className="text-sm font-bold text-foreground mb-4">Null Fidelity</h4>
+          <div className="overflow-hidden rounded-md border text-sm">
+            <table className="w-full text-left">
+              <thead className="bg-muted/50 text-muted-foreground border-b">
+                <tr>
+                  <th className="p-2 font-medium">Column</th>
+                  <th className="p-2 font-medium">Target %</th>
+                  <th className="p-2 font-medium">Actual %</th>
+                  <th className="p-2 font-medium">Drift</th>
+                  <th className="p-2 font-medium text-center">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {Object.entries(report.null_fidelity).map(([col, data]: [string, any]) => (
+                  <tr key={col}>
+                    <td className="p-2 font-medium">{col}</td>
+                    <td className="p-2">{(data.target_ratio * 100).toFixed(1)}%</td>
+                    <td className="p-2">{(data.actual_ratio * 100).toFixed(1)}%</td>
+                    <td className="p-2 font-mono text-xs">{data.drift.toFixed(3)}</td>
+                    <td className="p-2 text-center">
+                      {data.passed
+                        ? <span className="text-green-500">Pass</span>
+                        : <span className="text-red-500">Fail</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* 6. WARNINGS LIST */}
       {report.warnings && report.warnings.length > 0 && (
         <div className="border rounded-xl border-red-200 bg-red-50/50 p-5 dark:bg-red-950/10 dark:border-red-900/50 shadow-sm">
           <h4 className="text-sm font-bold text-red-800 dark:text-red-400 mb-3 flex items-center gap-2">

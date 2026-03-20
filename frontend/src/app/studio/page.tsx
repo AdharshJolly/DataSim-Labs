@@ -532,6 +532,14 @@ export default function StudioPage() {
           (res.quality_report as Record<string, unknown>) ?? null,
         );
         setValidationSummary(res.validation_summary ?? null);
+        if (res.validation_summary) {
+          try {
+            localStorage.setItem(
+              "datasim:validation_summary",
+              JSON.stringify(res.validation_summary),
+            );
+          } catch { /* ignore */ }
+        }
         setQualityGuardrails(
           (res.quality_guardrails as Record<string, unknown>) ?? null,
         );
@@ -570,6 +578,14 @@ export default function StudioPage() {
             (result.quality_report as Record<string, unknown>) ?? null,
           );
           setValidationSummary(result.validation_summary ?? null);
+          if (result.validation_summary) {
+            try {
+              localStorage.setItem(
+                "datasim:validation_summary",
+                JSON.stringify(result.validation_summary),
+              );
+            } catch { /* ignore */ }
+          }
           setQualityGuardrails(
             (result.quality_guardrails as Record<string, unknown>) ?? null,
           );

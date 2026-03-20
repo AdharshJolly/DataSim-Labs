@@ -198,41 +198,68 @@ class DatasetGenerator:
             requested_chunk_size=chunk_size,
         )
 
-        from app.engine.profiling.validator import StatisticalValidator
-        validator = StatisticalValidator()
-        column_profiles = {}
-        for attr in attributes:
-            dist_dict = {}
-            if attr.data_type in ["integer", "float"]:
-                dist_dict = {
+        # ── Statistical Validation ─────────────────────────────────────────────────
+        validation_summary: dict[str, Any] | None = None
+        try:
+            from app.engine.profiling.validator import StatisticalValidator
+
+            column_profiles: dict[str, Any] = {}
+            for attr in attributes:
+                dist_profile: dict[str, Any] = {
                     "type": attr.distribution,
-                    "min": float(attr.constraints.get("min", 0.0)),
-                    "max": float(attr.constraints.get("max", 100.0))
+                    "mean": float(attr.constraints.get("mean",
+                                 (float(attr.constraints.get("min", 0)) +
+                                  float(attr.constraints.get("max", 100))) / 2)),
+                    "std": float(attr.constraints.get("std",
+                                (float(attr.constraints.get("max", 100)) -
+                                 float(attr.constraints.get("min", 0))) / 6)),
+                    "min": float(attr.constraints.get("min", 0)),
+                    "max": float(attr.constraints.get("max", 100)),
                 }
-            elif attr.data_type in ["categorical"]:
-                dist_dict = {
-                    "type": "weighted_categorical",
-                    "categories": attr.constraints.get("categories", []),
-                    "probabilities": attr.constraints.get("weights", [])
+                if attr.data_type in ("categorical", "boolean"):
+                    cats = attr.constraints.get("categories", [])
+                    weights = attr.constraints.get("weights")
+                    if cats:
+                        if weights and len(weights) == len(cats):
+                            total = sum(weights)
+                            probs = [w / total for w in weights]
+                        else:
+                            probs = [1.0 / len(cats)] * len(cats)
+                        dist_profile = {
+                            "type": "weighted_categorical",
+                            "categories": list(cats),
+                            "probabilities": probs,
+                        }
+
+                column_profiles[attr.name] = {
+                    "name": attr.name,
+                    "data_type": attr.data_type,
+                    "null_percentage": float(attr.null_percentage),
+                    "distribution": dist_profile,
                 }
-                if dist_dict["categories"] and dist_dict["probabilities"]:
-                    total_w = sum(dist_dict["probabilities"])
-                    if total_w > 0:
-                        dist_dict["probabilities"] = [w / total_w for w in dist_dict["probabilities"]]
 
-            column_profiles[attr.name] = {
-                "data_type": attr.data_type,
-                "null_percentage": float(attr.null_percentage),
-                "distribution": dist_dict
-            }
+            # Use the last generated chunk stored in quality state as a sample.
+            if quality.get("_last_chunk") is not None:
+                validation_df = quality["_last_chunk"]
+            else:
+                validation_df = self.generate_dataframe(
+                    attributes=attributes,
+                    row_count=min(2000, row_count),
+                    realism_rules=realism_rules,
+                )
 
-        validation_report = validator.validate(
-            generated_df=frame,
-            column_profiles=column_profiles,
-            correlation_target=None
-        )
+            validator = StatisticalValidator()
+            validation_summary = validator.validate(
+                generated_df=validation_df,
+                column_profiles=column_profiles,
+                correlation_target=None,
+            )
+        except Exception as _val_exc:
+            import logging as _log
+            _log.getLogger(__name__).warning("Validation step failed (non-fatal): %s", _val_exc)
+        # ─────────────────────────────────────────────────────────────────────────────
 
-        return {"files": outputs, "quality_report": quality_report, "validation_summary": validation_report}
+        return {"files": outputs, "quality_report": quality_report, "validation_summary": validation_summary}
 
     def _generate_column(self, attr: AttributeSpec, row_count: int) -> pd.Series:
         """Dispatch one attribute to its dedicated generator."""
@@ -381,6 +408,7 @@ class DatasetGenerator:
             "rule_impacts": Counter(),
             "rules_total_rows_affected": 0,
             "rules_total_count": 0,
+            "_last_chunk": None,
         }
 
     def _update_quality_state(
@@ -431,6 +459,8 @@ class DatasetGenerator:
             int(quality["rules_total_count"]),
             int(chunk_stats.get("rule_count", 0)),
         )
+
+        quality["_last_chunk"] = frame  # keep reference to last chunk for validator
 
     def _finalize_quality_report(
         self,

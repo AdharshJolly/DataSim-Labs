@@ -96,13 +96,13 @@ class StatisticalValidator:
                     ref_sample = np.interp(u_vals, q_levels, quantiles)
                     stat, p_val = ks_2samp(valid_syn_series, ref_sample)
                 elif "best_fit" in real_dist and "fit_params" in real_dist:
-                    dist_name = real_dist["best_fit"]
+                    dist_name = real_dist.get("best_fit_scipy_key", real_dist.get("best_fit", "norm"))
                     params = real_dist["fit_params"]
-                    if dist_name == "normal":
+                    if dist_name in ("normal", "norm"):
                         stat, p_val = kstest(valid_syn_series, 'norm', args=params)
                     elif dist_name == "gamma":
                         stat, p_val = kstest(valid_syn_series, 'gamma', args=params)
-                    elif dist_name == "exponential":
+                    elif dist_name in ("exponential", "expon"):
                         stat, p_val = kstest(valid_syn_series, 'expon', args=params)
                 else:
                     mean = real_dist.get("mean", 0.0)

@@ -75,26 +75,32 @@ class DistributionLearner:
                 profile["type"] = "histogram"
 
             from scipy.stats import norm, expon, gamma
-            fit_results = {}
+            # Note: kstest requires scipy's internal distribution string names.
+            # "exponential" is NOT valid — scipy uses "expon".
             distributions_to_try = [
-                ("normal",  norm),
-                ("gamma",   gamma),
-                ("exponential", expon),
+                ("norm",  norm),
+                ("gamma", gamma),
+                ("expon", expon),
             ]
-            for dist_name, dist_obj in distributions_to_try:
+            # Human-readable names for storage (separate from scipy string names)
+            dist_display_names = {"norm": "normal", "gamma": "gamma", "expon": "exponential"}
+
+            fit_results = {}
+            for dist_key, dist_obj in distributions_to_try:
                 try:
                     params = dist_obj.fit(valid_series)
-                    ks_stat, ks_p = stats.kstest(valid_series, dist_name, args=params)
-                    fit_results[dist_name] = {"params": list(params), "ks_p": float(ks_p)}
+                    ks_stat, ks_p = stats.kstest(valid_series, dist_key, args=params)
+                    fit_results[dist_key] = {"params": list(params), "ks_p": float(ks_p)}
                 except Exception:
                     pass
 
             # Choose best fit (highest ks_p)
             if fit_results:
-                best = max(fit_results, key=lambda d: fit_results[d]["ks_p"])
-                profile["best_fit"] = best
-                profile["fit_params"] = fit_results[best]["params"]
-                profile["fit_ks_p"] = fit_results[best]["ks_p"]
+                best_key = max(fit_results, key=lambda d: fit_results[d]["ks_p"])
+                profile["best_fit"] = dist_display_names.get(best_key, best_key)  # human name
+                profile["best_fit_scipy_key"] = best_key                          # scipy name for kstest
+                profile["fit_params"] = fit_results[best_key]["params"]
+                profile["fit_ks_p"] = fit_results[best_key]["ks_p"]
         else:
             profile["type"] = "uniform"
 
