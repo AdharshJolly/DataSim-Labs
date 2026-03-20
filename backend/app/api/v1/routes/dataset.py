@@ -143,6 +143,7 @@ def generate_dataset(
         "row_count": payload.row_count,
         "files": generation_result.get("files", []),
         "quality_report": generation_result.get("quality_report"),
+        "validation_summary": generation_result.get("validation_summary"),
         "quality_guardrails": generation_result.get("quality_guardrails"),
         "drift_simulation": generation_result.get("drift_simulation"),
         "generation_signature": generation_result.get("generation_signature"),

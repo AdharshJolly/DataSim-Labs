@@ -39,6 +39,7 @@ import {
   saveAttributes,
 } from "@/lib/api-client";
 
+import { ValidationDashboard } from "@/components/studio/validation-dashboard";
 import { AuthGuard } from "@/components/auth/auth-guard";
 
 const ASYNC_POLL_INTERVAL_MS = 1500;
@@ -247,6 +248,7 @@ export default function StudioPage() {
     string,
     unknown
   > | null>(null);
+  const [validationSummary, setValidationSummary] = useState<any>(null);
   const [realismMetadata, setRealismMetadata] = useState<Record<
     string,
     unknown
@@ -529,6 +531,7 @@ export default function StudioPage() {
         setQualityReport(
           (res.quality_report as Record<string, unknown>) ?? null,
         );
+        setValidationSummary(res.validation_summary ?? null);
         setQualityGuardrails(
           (res.quality_guardrails as Record<string, unknown>) ?? null,
         );
@@ -566,6 +569,7 @@ export default function StudioPage() {
           setQualityReport(
             (result.quality_report as Record<string, unknown>) ?? null,
           );
+          setValidationSummary(result.validation_summary ?? null);
           setQualityGuardrails(
             (result.quality_guardrails as Record<string, unknown>) ?? null,
           );
@@ -1431,6 +1435,10 @@ export default function StudioPage() {
                     ))}
                   </div>
 
+                  {validationSummary && (
+                    <ValidationDashboard report={validationSummary} />
+                  )}
+
                   <div className="rounded-lg border border-border bg-white/5 p-4">
                     <h3 className="font-semibold text-foreground">
                       Generation Diagnostics
@@ -1548,6 +1556,7 @@ export default function StudioPage() {
                         setGeneratedFiles([]);
                         setQualityReport(null);
                         setQualityGuardrails(null);
+                        setValidationSummary(null);
                         setGenerationSignature("");
                         setGenerationRunId("");
                         setRunComparison(null);

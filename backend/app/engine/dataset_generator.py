@@ -197,7 +197,42 @@ class DatasetGenerator:
             chunk_size_used=effective_chunk_size,
             requested_chunk_size=chunk_size,
         )
-        return {"files": outputs, "quality_report": quality_report}
+
+        from app.engine.profiling.validator import StatisticalValidator
+        validator = StatisticalValidator()
+        column_profiles = {}
+        for attr in attributes:
+            dist_dict = {}
+            if attr.data_type in ["integer", "float"]:
+                dist_dict = {
+                    "type": attr.distribution,
+                    "min": float(attr.constraints.get("min", 0.0)),
+                    "max": float(attr.constraints.get("max", 100.0))
+                }
+            elif attr.data_type in ["categorical"]:
+                dist_dict = {
+                    "type": "weighted_categorical",
+                    "categories": attr.constraints.get("categories", []),
+                    "probabilities": attr.constraints.get("weights", [])
+                }
+                if dist_dict["categories"] and dist_dict["probabilities"]:
+                    total_w = sum(dist_dict["probabilities"])
+                    if total_w > 0:
+                        dist_dict["probabilities"] = [w / total_w for w in dist_dict["probabilities"]]
+
+            column_profiles[attr.name] = {
+                "data_type": attr.data_type,
+                "null_percentage": float(attr.null_percentage),
+                "distribution": dist_dict
+            }
+
+        validation_report = validator.validate(
+            generated_df=frame,
+            column_profiles=column_profiles,
+            correlation_target=None
+        )
+
+        return {"files": outputs, "quality_report": quality_report, "validation_summary": validation_report}
 
     def _generate_column(self, attr: AttributeSpec, row_count: int) -> pd.Series:
         """Dispatch one attribute to its dedicated generator."""

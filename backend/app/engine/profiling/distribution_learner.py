@@ -73,6 +73,28 @@ class DistributionLearner:
                 profile["type"] = "uniform"
             else:
                 profile["type"] = "histogram"
+
+            from scipy.stats import norm, expon, gamma
+            fit_results = {}
+            distributions_to_try = [
+                ("normal",  norm),
+                ("gamma",   gamma),
+                ("exponential", expon),
+            ]
+            for dist_name, dist_obj in distributions_to_try:
+                try:
+                    params = dist_obj.fit(valid_series)
+                    ks_stat, ks_p = stats.kstest(valid_series, dist_name, args=params)
+                    fit_results[dist_name] = {"params": list(params), "ks_p": float(ks_p)}
+                except Exception:
+                    pass
+
+            # Choose best fit (highest ks_p)
+            if fit_results:
+                best = max(fit_results, key=lambda d: fit_results[d]["ks_p"])
+                profile["best_fit"] = best
+                profile["fit_params"] = fit_results[best]["params"]
+                profile["fit_ks_p"] = fit_results[best]["ks_p"]
         else:
             profile["type"] = "uniform"
 

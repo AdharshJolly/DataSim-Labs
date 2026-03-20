@@ -173,12 +173,29 @@ export interface GeneratedFileInfo {
 
 export type DatasetStatus = "draft" | "active" | "generating" | "archived";
 
+export interface ValidationSummary {
+  realism_score: number | null;
+  confidence: "high" | "medium" | "low" | "unknown";
+  passed: boolean;
+  warnings: Array<{
+    severity: "warning" | "error";
+    type: string;
+    column?: string | null;
+    message: string;
+  }>;
+  ks_tests?: Record<string, any> | null;
+  kl_divergence?: Record<string, any> | null;
+  correlation_error?: Record<string, any> | null;
+  null_fidelity?: Record<string, any> | null;
+}
+
 export interface GenerateResponse {
   dataset_id: string;
   status: string;
   row_count: number;
   files: GeneratedFileInfo[];
   quality_report?: Record<string, unknown> | null;
+  validation_summary?: ValidationSummary | null;
   quality_guardrails?: {
     passed: boolean;
     max_alerts: number;

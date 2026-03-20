@@ -243,12 +243,24 @@ class GeneratedFileInfo(BaseModel):
     size_bytes: int
 
 
+class ValidationSummary(BaseModel):
+    realism_score: int | None
+    confidence: str
+    passed: bool
+    warnings: list[dict[str, Any]]
+    ks_tests: dict[str, Any] | None = None
+    kl_divergence: dict[str, Any] | None = None
+    correlation_error: dict[str, Any] | None = None
+    null_fidelity: dict[str, Any] | None = None
+
+
 class GenerateResponse(BaseModel):
     dataset_id: UUID
     status: str
     row_count: int
     files: list[GeneratedFileInfo]
     quality_report: dict[str, Any] | None = None
+    validation_summary: ValidationSummary | None = None
     quality_guardrails: dict[str, Any] | None = None
     drift_simulation: dict[str, Any] | None = None
     generation_signature: str | None = None
