@@ -22,6 +22,16 @@ class EnhancedDatasetGenerator(DatasetGenerator):
         frame, _ = self._generate_from_profile_with_stats(profile, row_count, realism_rules)
         return frame
 
+    def _nearest_psd(self, matrix: np.ndarray, threshold: float = 1e-8) -> np.ndarray:
+        """Find the nearest positive semi-definite matrix using eigenvalue decomposition."""
+        matrix = (matrix + matrix.T) / 2.0
+        eigenvalues, eigenvectors = np.linalg.eigh(matrix)
+        eigenvalues_clipped = np.maximum(eigenvalues, threshold)
+        psd_matrix = eigenvectors @ np.diag(eigenvalues_clipped) @ eigenvectors.T
+        d = 1.0 / np.sqrt(np.diag(psd_matrix))
+        psd_matrix = psd_matrix * d[:, np.newaxis] * d[np.newaxis, :]
+        return (psd_matrix + psd_matrix.T) / 2.0
+
     def _generate_from_profile_with_stats(
         self,
         profile: DataProfile,
@@ -52,6 +62,7 @@ class EnhancedDatasetGenerator(DatasetGenerator):
         frame = pd.DataFrame(index=range(row_count))
 
         # 2. Generate Multivariate Copula Data first
+        copula_success = True
         if copula_cols and hasattr(profile, 'correlation_matrices'):
             corr_matrices = profile.correlation_matrices
             if corr_matrices and "spearman" in corr_matrices:
@@ -61,10 +72,13 @@ class EnhancedDatasetGenerator(DatasetGenerator):
 
                 if len(cols) > 0:
                     spearman_matrix = pd.DataFrame(corr_matrices["spearman"]).loc[cols, cols].fillna(0).values
-                    # Ensure positive semi-definite
-                    min_eig = np.min(np.real(np.linalg.eigvals(spearman_matrix)))
-                    if min_eig < 0:
-                        spearman_matrix -= 10 * min_eig * np.eye(*spearman_matrix.shape)
+
+                    cond_number = np.linalg.cond(spearman_matrix)
+                    if cond_number > 1e10:
+                        import logging
+                        logging.warning(f"Correlation matrix condition number is very high ({cond_number}). Adjusting to PSD.")
+
+                    spearman_matrix = self._nearest_psd(spearman_matrix)
 
                     # Generate Z ~ N(0, R)
                     try:
@@ -75,8 +89,9 @@ class EnhancedDatasetGenerator(DatasetGenerator):
                             col_prof = profile.columns[col]
                             frame[col] = self._inverse_transform_sample(U[:, i], col_prof)
                     except Exception as e:
-                        # Fallback to independent generation if copula fails
-                        pass
+                        import logging
+                        logging.error(f"Multivariate copula generation failed: {e}. Falling back to independent generation.")
+                        copula_success = False
 
         # 3. Generate remaining independent columns, and then dependent ones
         for col in ordered_columns:
@@ -252,6 +267,32 @@ class EnhancedDatasetGenerator(DatasetGenerator):
                     return original_val
 
                 series = pd.Series([generate_cond(s, t) for s, t in zip(frame[source_col], series)])
+
+            elif dep_type == "numeric_to_categorical":
+                bins = dep.get("bins", [])
+                cpt = dep.get("cpt", {})
+                source_col = sources[0]
+
+                def generate_num_to_cat(val):
+                    if pd.isna(val):
+                        return None
+                    # Find which bin this value falls into
+                    for i in range(len(bins) - 1):
+                        if bins[i] <= val <= bins[i+1]:
+                            key = f"{bins[i]},{bins[i+1]}"
+                            if key in cpt:
+                                probs = cpt[key]
+                                cats = list(probs.keys())
+                                weights = list(probs.values())
+                                return self.rng.choice(cats, p=weights)
+                    return None
+
+                new_vals = frame[source_col].apply(generate_num_to_cat)
+                mask = new_vals.notna()
+                series.loc[mask] = new_vals.loc[mask]
+
+                if col_profile.get("data_type") == "boolean":
+                    series = series.astype(str).str.lower().isin(["true", "1", "t", "yes"])
 
             elif dep_type == "linear_regression":
                 coeffs = dep.get("coefficients", {})

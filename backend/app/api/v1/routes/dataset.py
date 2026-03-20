@@ -506,3 +506,30 @@ def generate_from_profile(
         return response_data
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+from pydantic import BaseModel
+from app.services.template_service import TemplateService
+from app.services.copilot_service import CoPilotService
+
+class CopilotRequest(BaseModel):
+    prompt: str
+
+@router.get("/templates")
+def get_templates(
+    current_user: User = Depends(get_current_user),
+):
+    return {
+        "templates": TemplateService.get_all_templates(),
+        "personas": TemplateService.get_all_personas()
+    }
+
+@router.post("/copilot/generate-profile")
+def copilot_generate_profile(
+    payload: CopilotRequest,
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        profile = CoPilotService.generate_profile_from_prompt(payload.prompt)
+        return {"message": "AI generation successful", "profile": profile}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

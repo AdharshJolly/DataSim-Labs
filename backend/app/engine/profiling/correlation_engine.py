@@ -9,8 +9,10 @@ class CorrelationEngine:
         dependencies = []
         correlation_matrices = {}
 
-        # 1. Numeric Correlations (Full Matrix for Gaussian Copula)
         numeric_cols = [col for col, prof in column_profiles.items() if prof["data_type"] in ["integer", "float"]]
+        categorical_cols = [col for col, prof in column_profiles.items() if prof["data_type"] in ["categorical", "boolean"]]
+
+        # 1. Numeric Correlations (Full Matrix for Gaussian Copula)
         if len(numeric_cols) > 1:
             numeric_df = df[numeric_cols].dropna()
             if len(numeric_df) > 10:
@@ -35,21 +37,16 @@ class CorrelationEngine:
                     pass
 
         # 2. Conditional Probability Tables (Categorical to Categorical)
-        categorical_cols = [col for col, prof in column_profiles.items() if prof["data_type"] in ["categorical", "boolean"]]
-
         for target_col in categorical_cols:
             for source_col in categorical_cols:
                 if source_col == target_col:
                     continue
 
-                # Check P(target | source)
                 cpt_dep = self._check_categorical_cpt(df, source_col, target_col)
                 if cpt_dep:
                     dependencies.append(cpt_dep)
 
         # 3. Multi-Column Regression Dependencies (Numeric -> Numeric)
-        # This is an alternative or supplement to Copula, to explicitly model "age + experience -> salary"
-        # We'll detect if a target is strongly predicted by multiple sources
         if len(numeric_cols) > 2:
             regression_deps = self._find_regression_dependencies(df, numeric_cols)
             dependencies.extend(regression_deps)
@@ -60,6 +57,13 @@ class CorrelationEngine:
                 cond_dep = self._check_conditional_numeric(df, cat_col, num_col)
                 if cond_dep:
                     dependencies.append(cond_dep)
+
+        # 5. Numeric -> Categorical mapping (e.g. Income -> Premium User)
+        for num_col in numeric_cols:
+            for cat_col in categorical_cols:
+                num_to_cat_dep = self._check_numeric_to_categorical(df, num_col, cat_col)
+                if num_to_cat_dep:
+                    dependencies.append(num_to_cat_dep)
 
         return {
             "dependencies": dependencies,
@@ -72,11 +76,7 @@ class CorrelationEngine:
         if len(clean_df) < 20:
             return None
 
-        # Calculate joint distribution to find mutual information
         crosstab = pd.crosstab(clean_df[source], clean_df[target], normalize='index')
-
-        # We check if knowing source significantly changes the target distribution
-        # Compare conditional distribution to marginal
         marginal = clean_df[target].value_counts(normalize=True)
 
         divergence_sum = 0
@@ -159,6 +159,65 @@ class CorrelationEngine:
 
         return None
 
+    def _check_numeric_to_categorical(self, df: pd.DataFrame, source: str, target: str) -> Dict[str, Any]:
+        """Check if categorical target depends on numeric source via quantile binning."""
+        clean_df = df[[source, target]].dropna()
+        if len(clean_df) < 50:
+            return None
+
+        try:
+            clean_df[source] = clean_df[source].astype(float)
+        except (ValueError, TypeError):
+            return None
+
+        # Bin numeric source into quintiles
+        try:
+            clean_df['source_bins'], bins = pd.qcut(clean_df[source], q=5, retbins=True, duplicates='drop')
+        except Exception:
+            return None
+
+        if len(bins) < 3: # Not enough unique values to split
+            return None
+
+        # Build CPT for bins -> categorical
+        crosstab = pd.crosstab(clean_df['source_bins'], clean_df[target], normalize='index')
+        marginal = clean_df[target].value_counts(normalize=True)
+
+        divergence_sum = 0
+        valid_groups = 0
+
+        cpt = {}
+        for interval, row in crosstab.iterrows():
+            probs = {}
+            for tgt_val, prob in row.items():
+                if prob > 0:
+                    probs[str(tgt_val)] = float(prob)
+
+            # Key format: "left,right"
+            key = f"{interval.left},{interval.right}"
+            cpt[key] = probs
+
+            for tgt_val, prob in row.items():
+                if prob > 0:
+                    marg_prob = marginal.get(tgt_val, 0)
+                    if marg_prob > 0:
+                        divergence_sum += prob * np.log(prob / marg_prob)
+            valid_groups += 1
+
+        if valid_groups == 0:
+            return None
+
+        avg_divergence = divergence_sum / valid_groups
+        if avg_divergence > 0.15:  # Needs stronger signal for numeric->cat
+            return {
+                "source": [source],
+                "target": target,
+                "type": "numeric_to_categorical",
+                "bins": bins.tolist(),
+                "cpt": cpt
+            }
+        return None
+
     def _find_regression_dependencies(self, df: pd.DataFrame, numeric_cols: List[str]) -> List[Dict[str, Any]]:
         """Find targets that are strongly predicted by multiple other numeric columns."""
         deps = []
@@ -171,8 +230,6 @@ class CorrelationEngine:
         except Exception:
             return deps
 
-        # We look for targets that have high R^2 when regressed on others
-        # To avoid circular dependencies, we only add it if R^2 > 0.6
         for target in numeric_cols:
             sources = [c for c in numeric_cols if c != target]
             X = clean_df[sources]
@@ -183,9 +240,7 @@ class CorrelationEngine:
             r2 = model.score(X, y)
 
             if r2 > 0.6:
-                # Store regression coefficients
                 coefficients = dict(zip(sources, model.coef_))
-                # Only keep significant coefficients
                 sig_sources = [s for s, c in coefficients.items() if abs(c) > 0.05 * abs(y.mean())]
                 if not sig_sources:
                     sig_sources = sources
