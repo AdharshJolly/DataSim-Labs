@@ -452,3 +452,57 @@ def update_dataset_status(
         created_at=dataset.created_at.isoformat(),
         updated_at=dataset.updated_at.isoformat(),
     )
+
+from fastapi import File, UploadFile
+from app.services.profile_service import ProfileService
+
+@router.post("/{dataset_version_id}/profile/upload")
+def upload_dataset_profile(
+    dataset_version_id: uuid.UUID,
+    file: UploadFile = File(...),
+    db: Database = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        profile = ProfileService.process_and_save_profile(
+            db=db,
+            dataset_version_id=dataset_version_id,
+            file=file
+        )
+        return {"message": "Profile learned successfully", "profile": profile}
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+@router.get("/{dataset_version_id}/profile")
+def get_dataset_profile(
+    dataset_version_id: uuid.UUID,
+    db: Database = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        profile = ProfileService.get_profile(
+            db=db,
+            dataset_version_id=dataset_version_id
+        )
+        return profile
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+@router.post("/{dataset_version_id}/profile/generate")
+def generate_from_profile(
+    dataset_version_id: uuid.UUID,
+    row_count: int = Query(default=10, ge=1, le=1000),
+    seed: int | None = Query(default=None),
+    db: Database = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        response_data = ProfileService.generate_from_profile(
+            db=db,
+            dataset_version_id=dataset_version_id,
+            row_count=row_count,
+            seed=seed
+        )
+        return response_data
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

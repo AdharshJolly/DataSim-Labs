@@ -24,6 +24,7 @@ export function Navbar() {
   const navLinks = [
     { name: "Studio", href: "/studio" },
     { name: "Dashboard", href: "/dashboard" },
+    { name: "Profile", href: "/profile-upload" },
   ];
 
   const isActive = (path: string) => pathname === path;

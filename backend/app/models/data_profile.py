@@ -1,0 +1,56 @@
+import uuid
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Any, Dict
+
+def _parse_datetime(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc)
+
+@dataclass(slots=True)
+class DataProfile:
+    id: uuid.UUID
+    dataset_version_id: uuid.UUID
+    columns: Dict[str, Any]
+    dependency_graph: list[Dict[str, Any]]
+    row_count: int
+    created_at: datetime
+
+    @classmethod
+    def new(
+        cls,
+        dataset_version_id: uuid.UUID,
+        columns: Dict[str, Any],
+        dependency_graph: list[Dict[str, Any]],
+        row_count: int,
+    ) -> "DataProfile":
+        return cls(
+            id=uuid.uuid4(),
+            dataset_version_id=dataset_version_id,
+            columns=columns,
+            dependency_graph=dependency_graph,
+            row_count=row_count,
+            created_at=datetime.now(timezone.utc),
+        )
+
+    @classmethod
+    def from_document(cls, document: dict[str, Any]) -> "DataProfile":
+        return cls(
+            id=uuid.UUID(str(document["_id"])),
+            dataset_version_id=uuid.UUID(str(document["dataset_version_id"])),
+            columns=document.get("columns", {}),
+            dependency_graph=document.get("dependency_graph", []),
+            row_count=document.get("row_count", 0),
+            created_at=_parse_datetime(document.get("created_at")),
+        )
+
+    def to_document(self) -> dict[str, Any]:
+        return {
+            "_id": str(self.id),
+            "dataset_version_id": str(self.dataset_version_id),
+            "columns": self.columns,
+            "dependency_graph": self.dependency_graph,
+            "row_count": self.row_count,
+            "created_at": self.created_at,
+        }
