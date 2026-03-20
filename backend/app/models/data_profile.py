@@ -14,6 +14,7 @@ class DataProfile:
     dataset_version_id: uuid.UUID
     columns: Dict[str, Any]
     dependency_graph: list[Dict[str, Any]]
+    correlation_matrices: Dict[str, Any]
     row_count: int
     created_at: datetime
 
@@ -23,6 +24,7 @@ class DataProfile:
         dataset_version_id: uuid.UUID,
         columns: Dict[str, Any],
         dependency_graph: list[Dict[str, Any]],
+        correlation_matrices: Dict[str, Any],
         row_count: int,
     ) -> "DataProfile":
         return cls(
@@ -30,6 +32,7 @@ class DataProfile:
             dataset_version_id=dataset_version_id,
             columns=columns,
             dependency_graph=dependency_graph,
+            correlation_matrices=correlation_matrices,
             row_count=row_count,
             created_at=datetime.now(timezone.utc),
         )
@@ -41,6 +44,7 @@ class DataProfile:
             dataset_version_id=uuid.UUID(str(document["dataset_version_id"])),
             columns=document.get("columns", {}),
             dependency_graph=document.get("dependency_graph", []),
+            correlation_matrices=document.get("correlation_matrices", {}),
             row_count=document.get("row_count", 0),
             created_at=_parse_datetime(document.get("created_at")),
         )
@@ -51,6 +55,7 @@ class DataProfile:
             "dataset_version_id": str(self.dataset_version_id),
             "columns": self.columns,
             "dependency_graph": self.dependency_graph,
+            "correlation_matrices": self.correlation_matrices,
             "row_count": self.row_count,
             "created_at": self.created_at,
         }

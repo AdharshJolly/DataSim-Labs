@@ -1,18 +1,20 @@
 import pandas as pd
 import numpy as np
+from scipy import stats
 from typing import Dict, Any
 from app.models.data_profile import DataProfile
 
 class DataValidator:
     def validate_synthetic_data(self, real_profile: DataProfile, synthetic_df: pd.DataFrame) -> Dict[str, Any]:
-        """Compare synthetic data against the real data profile to calculate drift."""
+        """Compare synthetic data against the real data profile to calculate statistical fidelity."""
         report = {
-            "drift_score": 0.0,
+            "overall_fidelity_score": 0.0,
             "column_metrics": {},
+            "correlation_error": None,
             "alerts": []
         }
 
-        total_drift = 0.0
+        total_fidelity = 0.0
         cols_checked = 0
 
         for col_name, prof in real_profile.columns.items():
@@ -29,75 +31,138 @@ class DataValidator:
             real_dist = prof.get("distribution", {})
             data_type = prof.get("data_type")
 
-            drift = 0.0
+            col_report = {
+                "fidelity": 0.0,
+                "null_pct_real": prof.get("null_percentage", 0.0),
+                "null_pct_syn": (synthetic_df[col_name].isna().sum() / max(len(synthetic_df), 1)) * 100
+            }
 
-            # Check numeric drift (Difference in means relative to std dev)
+            fidelity_score = 1.0 # Start perfect, deduct for errors
+
+            # 1. Numeric Validation (Mean diff, Std diff, KS Test)
             if data_type in ["integer", "float"] and len(syn_series) > 0:
                 real_mean = real_dist.get("mean", 0.0)
-                real_std = real_dist.get("std", 1.0)
-                if real_std == 0:
-                    real_std = 1.0
+                real_std = real_dist.get("std", 1.0) or 1.0
 
                 syn_mean = syn_series.mean()
-                syn_std = syn_series.std()
+                syn_std = syn_series.std() or 0.0
 
-                # Z-score of the difference in means
-                mean_drift = abs(syn_mean - real_mean) / real_std
-                drift += mean_drift
+                col_report["mean_diff"] = abs(syn_mean - real_mean)
+                col_report["std_diff"] = abs(syn_std - real_std)
 
-                if mean_drift > 0.5:
+                mean_z_diff = abs(syn_mean - real_mean) / real_std
+                std_z_diff = abs(syn_std - real_std) / real_std
+
+                # KS Test (using quantiles to reconstruct real sample)
+                if "quantiles" in real_dist:
+                    quantiles = np.array(real_dist["quantiles"])
+                    q_levels = np.linspace(0, 1, len(quantiles))
+
+                    # Generate a representative sample of the real distribution
+                    u_vals = np.linspace(0, 1, 1000)
+                    real_sample = np.interp(u_vals, q_levels, quantiles)
+
+                    # Calculate KS Statistic
+                    ks_stat, p_value = stats.ks_2samp(syn_series, real_sample)
+                    col_report["ks_statistic"] = ks_stat
+                    col_report["ks_p_value"] = p_value
+
+                    # KS statistic ranges from 0 to 1, where 0 is identical.
+                    fidelity_score -= ks_stat
+                else:
+                    # Fallback if no quantiles available
+                    fidelity_score -= min(mean_z_diff * 0.1 + std_z_diff * 0.1, 1.0)
+
+                if fidelity_score < 0.7:
                     report["alerts"].append({
                         "column": col_name,
-                        "type": "mean_drift",
+                        "type": "distribution_drift",
                         "severity": "warning",
-                        "message": f"Mean drift detected: {mean_drift:.2f} standard deviations."
+                        "message": f"Significant numeric drift detected (Fidelity: {fidelity_score:.2f})."
                     })
 
-            # Check categorical drift (Jensen-Shannon or absolute probability difference)
+            # 2. Categorical Validation (Frequency diff, KL Divergence)
             elif data_type in ["categorical", "boolean"] and len(syn_series) > 0:
                 real_cats = real_dist.get("categories", [])
                 real_probs = real_dist.get("probabilities", [])
 
                 syn_counts = syn_series.value_counts(normalize=True)
 
-                cat_drift = 0.0
-                for cat, prob in zip(real_cats, real_probs):
+                kl_divergence = 0.0
+                tv_distance = 0.0 # Total Variation Distance
+
+                for cat, real_prob in zip(real_cats, real_probs):
                     syn_prob = syn_counts.get(cat, 0.0)
-                    cat_drift += abs(prob - syn_prob)
 
-                drift += cat_drift
+                    # Total variation
+                    tv_distance += abs(real_prob - syn_prob)
 
-                if cat_drift > 0.3:
+                    # KL Divergence
+                    p = max(real_prob, 1e-9)
+                    q = max(syn_prob, 1e-9)
+                    kl_divergence += p * np.log(p / q)
+
+                # TV Distance is divided by 2
+                tv_distance = tv_distance / 2.0
+
+                col_report["kl_divergence"] = kl_divergence
+                col_report["tv_distance"] = tv_distance
+
+                # Fidelity based on TV distance (0 is identical, 1 is completely disjoint)
+                fidelity_score -= tv_distance
+
+                if fidelity_score < 0.7:
                     report["alerts"].append({
                         "column": col_name,
-                        "type": "category_distribution_drift",
+                        "type": "categorical_drift",
                         "severity": "warning",
-                        "message": f"Categorical distribution drift detected: {cat_drift:.2f} total variation."
+                        "message": f"Significant categorical drift detected (TVD: {tv_distance:.2f})."
                     })
 
             # Check null percentage drift
-            real_null_pct = prof.get("null_percentage", 0.0)
-            syn_null_pct = (synthetic_df[col_name].isna().sum() / len(synthetic_df)) * 100
+            null_drift = abs(col_report["null_pct_real"] - col_report["null_pct_syn"]) / 100.0
+            fidelity_score -= null_drift
 
-            null_drift = abs(real_null_pct - syn_null_pct)
-            if null_drift > 5.0:
-                report["alerts"].append({
-                    "column": col_name,
-                    "type": "null_percentage_drift",
-                    "severity": "warning",
-                    "message": f"Null percentage drift detected: {null_drift:.2f}%."
-                })
+            col_report["fidelity"] = max(fidelity_score, 0.0)
+            report["column_metrics"][col_name] = col_report
 
-            report["column_metrics"][col_name] = {
-                "drift": drift,
-                "null_pct_real": real_null_pct,
-                "null_pct_syn": syn_null_pct
-            }
-
-            total_drift += drift
+            total_fidelity += col_report["fidelity"]
             cols_checked += 1
 
+        # 3. Correlation Validation
+        if hasattr(real_profile, 'correlation_matrices') and real_profile.correlation_matrices:
+            corr_matrices = real_profile.correlation_matrices
+            if "spearman" in corr_matrices:
+                cols = corr_matrices.get("columns", [])
+                cols = [c for c in cols if c in synthetic_df.columns]
+
+                if len(cols) > 1:
+                    real_corr = pd.DataFrame(corr_matrices["spearman"]).loc[cols, cols].values
+                    syn_corr = synthetic_df[cols].astype(float).corr(method='spearman').fillna(0).values
+
+                    # Mean Absolute Error of Correlation Matrix (upper triangle)
+                    # We only care about upper triangle without diagonal
+                    mask = np.triu(np.ones_like(real_corr, dtype=bool), k=1)
+                    mae_corr = np.mean(np.abs(real_corr[mask] - syn_corr[mask]))
+
+                    report["correlation_error"] = mae_corr
+
+                    # Adjust overall score by correlation error (max penalty 0.3)
+                    correlation_penalty = min(mae_corr, 0.3)
+
+                    if mae_corr > 0.15:
+                        report["alerts"].append({
+                            "type": "correlation_drift",
+                            "severity": "warning",
+                            "message": f"Global correlation structure deviates significantly (MAE: {mae_corr:.3f})."
+                        })
+                else:
+                    correlation_penalty = 0.0
+        else:
+            correlation_penalty = 0.0
+
         if cols_checked > 0:
-            report["drift_score"] = total_drift / cols_checked
+            # Overall score is the average column fidelity, penalized by correlation error
+            report["overall_fidelity_score"] = max((total_fidelity / cols_checked) - correlation_penalty, 0.0)
 
         return report

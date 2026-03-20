@@ -65,23 +65,50 @@ class ProfileService:
         row_count: int,
         seed: int | None = None
     ) -> Dict[str, Any]:
-        """Generate synthetic data from a saved profile."""
+        """Generate synthetic data from a saved profile with a quality feedback loop."""
         manager = ProfileManager(db)
         profile = manager.get_profile_by_version(dataset_version_id)
         if not profile:
             raise ValueError("Profile not found for this dataset version.")
 
-        generator = EnhancedDatasetGenerator(seed=seed)
-        df = generator.generate_from_profile(profile=profile, row_count=row_count)
-
-        # 4. Validate synthetic data against real profile
         from app.engine.profiling.validator import DataValidator
         validator = DataValidator()
-        validation_report = validator.validate_synthetic_data(profile, df)
+
+        best_df = None
+        best_report = None
+        best_score = -1.0
+
+        max_attempts = 3
+        current_seed = seed
+
+        # Quality Feedback Loop
+        for attempt in range(max_attempts):
+            generator = EnhancedDatasetGenerator(seed=current_seed)
+            df = generator.generate_from_profile(profile=profile, row_count=row_count)
+
+            validation_report = validator.validate_synthetic_data(profile, df)
+            fidelity_score = validation_report.get("overall_fidelity_score", 0.0)
+
+            if fidelity_score > best_score:
+                best_score = fidelity_score
+                best_df = df
+                best_report = validation_report
+
+            # If fidelity is excellent, we can stop early
+            if best_score > 0.95:
+                break
+
+            # If not excellent, we mutate the seed to try and get a better statistical sample
+            if current_seed is not None:
+                current_seed += (attempt + 1) * 999
+            else:
+                # Let numpy pick a random seed next iteration
+                current_seed = None
 
         return {
             "dataset_version_id": dataset_version_id,
             "rows": row_count,
-            "data": df.to_dict(orient="records"),
-            "validation_report": validation_report
+            "data": best_df.to_dict(orient="records"),
+            "validation_report": best_report,
+            "feedback_loop_attempts": attempt + 1
         }

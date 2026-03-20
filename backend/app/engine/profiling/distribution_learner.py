@@ -17,7 +17,7 @@ class DistributionLearner:
         return {}
 
     def _learn_numeric_distribution(self, series: pd.Series) -> Dict[str, Any]:
-        """Learn mean, std, min, max, skewness, and infer distribution type."""
+        """Learn mean, std, min, max, skewness, and infer distribution type using histograms and quantiles."""
         if len(series) == 0:
             return {"type": "uniform", "min": 0.0, "max": 1.0, "mean": 0.5, "std": 0.0, "skewness": 0.0}
 
@@ -29,17 +29,36 @@ class DistributionLearner:
             "skewness": float(series.skew()) if len(series) > 2 else 0.0,
         }
 
-        # Infer distribution type (normal, uniform, skewed)
-        if len(series) >= 8:
-            # Check if uniform (KS test against uniform)
+        # Quantile extraction (from 0 to 1 with 0.01 step)
+        valid_series = series.dropna()
+        if len(valid_series) > 0:
+            quantiles = np.linspace(0, 1, 101)
+            quantile_values = np.quantile(valid_series, quantiles)
+            profile["quantiles"] = quantile_values.tolist()
+
+            # Histogram-based distribution learning
+            try:
+                counts, bin_edges = np.histogram(valid_series, bins='auto')
+                if len(counts) > 100:
+                    counts, bin_edges = np.histogram(valid_series, bins=100)
+
+                probabilities = counts / counts.sum()
+                profile["histogram"] = {
+                    "counts": counts.tolist(),
+                    "probabilities": probabilities.tolist(),
+                    "bin_edges": bin_edges.tolist()
+                }
+            except Exception:
+                pass
+
+        # Infer distribution type (normal, uniform, skewed, histogram)
+        if len(valid_series) >= 8:
             if profile["max"] > profile["min"]:
-                _, p_uniform = stats.kstest(series, 'uniform', args=(profile["min"], profile["max"] - profile["min"]))
+                _, p_uniform = stats.kstest(valid_series, 'uniform', args=(profile["min"], profile["max"] - profile["min"]))
             else:
                 p_uniform = 0.0
 
-            # Check if normal (Shapiro-Wilk)
-            # Shapiro-Wilk requires at least 3 samples, up to 5000. Take a sample if too large.
-            sample = series if len(series) <= 5000 else series.sample(5000)
+            sample = valid_series if len(valid_series) <= 5000 else valid_series.sample(5000)
             try:
                 _, p_normal = stats.shapiro(sample)
             except ValueError:
@@ -53,12 +72,7 @@ class DistributionLearner:
             elif p_uniform > 0.05:
                 profile["type"] = "uniform"
             else:
-                # Default fallback
-                if abs(profile["skewness"]) > 0.5:
-                    profile["type"] = "skewed"
-                    profile["skew_direction"] = "right" if profile["skewness"] > 0 else "left"
-                else:
-                    profile["type"] = "normal"
+                profile["type"] = "histogram"
         else:
             profile["type"] = "uniform"
 

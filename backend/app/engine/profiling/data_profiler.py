@@ -21,11 +21,12 @@ class DataProfiler:
             column_profiles[col] = self._profile_column(df[col])
 
         # 2. Learn Correlations and Dependencies
-        dependency_graph = self.correlation_engine.compute_dependencies(df, column_profiles)
+        correlation_results = self.correlation_engine.compute_dependencies(df, column_profiles)
 
         return {
             "columns": column_profiles,
-            "dependency_graph": dependency_graph,
+            "dependency_graph": correlation_results.get("dependencies", []),
+            "correlation_matrices": correlation_results.get("correlation_matrices", {}),
             "row_count": len(df)
         }
 

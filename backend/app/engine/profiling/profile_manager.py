@@ -15,6 +15,7 @@ class ProfileManager:
             dataset_version_id=dataset_version_id,
             columns=profile_data.get("columns", {}),
             dependency_graph=profile_data.get("dependency_graph", []),
+            correlation_matrices=profile_data.get("correlation_matrices", {}),
             row_count=profile_data.get("row_count", 0),
         )
         self.collection.insert_one(data_profile.to_document())
