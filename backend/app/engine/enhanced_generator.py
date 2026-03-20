@@ -49,9 +49,9 @@ class EnhancedDatasetGenerator(DatasetGenerator):
         for dep in dependency_graph:
             if dep.get("type") == "multivariate_copula":
                 copula_cols.update(dep.get("target", []))
-            elif dep.get("type") in ["conditional_probability", "conditional_numeric", "linear_regression"]:
+            elif dep.get("type") in ["conditional_probability", "conditional_numeric", "linear_regression", "numeric_to_categorical"]:
                 targets = [dep["target"]] if isinstance(dep["target"], str) else dep["target"]
-                sources = dep["source"] if isinstance(dep["source"], list) else [dep["source"]]
+                sources = dep["sources"] if isinstance(dep["sources"], list) else [dep["sources"]]
                 for t in targets:
                     for s in sources:
                         adj[t].append(s)
@@ -220,7 +220,7 @@ class EnhancedDatasetGenerator(DatasetGenerator):
     def _apply_dependencies(self, series: pd.Series, frame: pd.DataFrame, deps: List[Dict], col_profile: Dict[str, Any]) -> pd.Series:
         """Modify series using advanced conditional models (CPTs, Regression, Conditional Numeric)."""
         for dep in deps:
-            sources = dep.get("source", [])
+            sources = dep.get("sources", [])
             if isinstance(sources, str):
                 sources = [sources]
 
@@ -228,9 +228,10 @@ class EnhancedDatasetGenerator(DatasetGenerator):
                 continue
 
             dep_type = dep.get("type")
+            model = dep.get("model", {})
 
             if dep_type == "conditional_probability":
-                cpt = dep.get("cpt", {})
+                cpt = model.get("cpt", {})
                 source_col = sources[0]
 
                 def sample_cpt(src_val):
@@ -251,7 +252,7 @@ class EnhancedDatasetGenerator(DatasetGenerator):
                     series = series.astype(str).str.lower().isin(["true", "1", "t", "yes"])
 
             elif dep_type == "conditional_numeric":
-                cond_dists = dep.get("distributions", {})
+                cond_dists = model.get("distributions", {})
                 source_col = sources[0]
 
                 def generate_cond(val, original_val):
@@ -269,8 +270,8 @@ class EnhancedDatasetGenerator(DatasetGenerator):
                 series = pd.Series([generate_cond(s, t) for s, t in zip(frame[source_col], series)])
 
             elif dep_type == "numeric_to_categorical":
-                bins = dep.get("bins", [])
-                cpt = dep.get("cpt", {})
+                bins = model.get("bins", [])
+                cpt = model.get("cpt", {})
                 source_col = sources[0]
 
                 def generate_num_to_cat(val):
@@ -295,9 +296,9 @@ class EnhancedDatasetGenerator(DatasetGenerator):
                     series = series.astype(str).str.lower().isin(["true", "1", "t", "yes"])
 
             elif dep_type == "linear_regression":
-                coeffs = dep.get("coefficients", {})
-                intercept = dep.get("intercept", 0.0)
-                residual_std = dep.get("residual_std", 0.0)
+                coeffs = model.get("coefficients", {})
+                intercept = model.get("intercept", 0.0)
+                residual_std = model.get("residual_std", 0.0)
 
                 y_pred = np.full(len(series), intercept)
                 for src in sources:

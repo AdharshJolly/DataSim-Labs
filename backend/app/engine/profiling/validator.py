@@ -8,14 +8,18 @@ class DataValidator:
     def validate_synthetic_data(self, real_profile: DataProfile, synthetic_df: pd.DataFrame) -> Dict[str, Any]:
         """Compare synthetic data against the real data profile to calculate statistical fidelity."""
         report = {
-            "overall_fidelity_score": 0.0,
+            "overall_score": 0.0,
             "column_metrics": {},
             "correlation_error": None,
+            "distribution_error": 0.0,
             "alerts": []
         }
 
-        total_fidelity = 0.0
-        cols_checked = 0
+        total_numeric_fidelity = 0.0
+        numeric_count = 0
+
+        total_categorical_fidelity = 0.0
+        categorical_count = 0
 
         for col_name, prof in real_profile.columns.items():
             if col_name not in synthetic_df.columns:
@@ -37,7 +41,7 @@ class DataValidator:
                 "null_pct_syn": (synthetic_df[col_name].isna().sum() / max(len(synthetic_df), 1)) * 100
             }
 
-            fidelity_score = 1.0 # Start perfect, deduct for errors
+            fidelity_score = 1.0 # 0.0 to 1.0
 
             # 1. Numeric Validation (Mean diff, Std diff, KS Test)
             if data_type in ["integer", "float"] and len(syn_series) > 0:
@@ -73,12 +77,23 @@ class DataValidator:
                     # Fallback if no quantiles available
                     fidelity_score -= min(mean_z_diff * 0.1 + std_z_diff * 0.1, 1.0)
 
+                # Check null percentage drift
+                null_drift = abs(col_report["null_pct_real"] - col_report["null_pct_syn"]) / 100.0
+                fidelity_score -= null_drift
+
+                fidelity_score = max(fidelity_score, 0.0)
+                col_report["fidelity"] = fidelity_score
+                report["column_metrics"][col_name] = col_report
+
+                total_numeric_fidelity += fidelity_score
+                numeric_count += 1
+
                 if fidelity_score < 0.7:
                     report["alerts"].append({
                         "column": col_name,
                         "type": "distribution_drift",
                         "severity": "warning",
-                        "message": f"Significant numeric drift detected (Fidelity: {fidelity_score:.2f})."
+                        "message": f"Significant numeric drift detected (Fidelity: {fidelity_score*100:.1f}/100)."
                     })
 
             # 2. Categorical Validation (Frequency diff, KL Divergence)
@@ -111,25 +126,33 @@ class DataValidator:
                 # Fidelity based on TV distance (0 is identical, 1 is completely disjoint)
                 fidelity_score -= tv_distance
 
+                # Check null percentage drift
+                null_drift = abs(col_report["null_pct_real"] - col_report["null_pct_syn"]) / 100.0
+                fidelity_score -= null_drift
+
+                fidelity_score = max(fidelity_score, 0.0)
+                col_report["fidelity"] = fidelity_score
+                report["column_metrics"][col_name] = col_report
+
+                total_categorical_fidelity += fidelity_score
+                categorical_count += 1
+
                 if fidelity_score < 0.7:
                     report["alerts"].append({
                         "column": col_name,
                         "type": "categorical_drift",
                         "severity": "warning",
-                        "message": f"Significant categorical drift detected (TVD: {tv_distance:.2f})."
+                        "message": f"Significant categorical drift detected (Fidelity: {fidelity_score*100:.1f}/100)."
                     })
+            else:
+                col_report["fidelity"] = 1.0
+                report["column_metrics"][col_name] = col_report
 
-            # Check null percentage drift
-            null_drift = abs(col_report["null_pct_real"] - col_report["null_pct_syn"]) / 100.0
-            fidelity_score -= null_drift
-
-            col_report["fidelity"] = max(fidelity_score, 0.0)
-            report["column_metrics"][col_name] = col_report
-
-            total_fidelity += col_report["fidelity"]
-            cols_checked += 1
+        numeric_score = (total_numeric_fidelity / numeric_count * 100) if numeric_count > 0 else 100.0
+        categorical_score = (total_categorical_fidelity / categorical_count * 100) if categorical_count > 0 else 100.0
 
         # 3. Correlation Validation
+        correlation_score = 100.0
         if hasattr(real_profile, 'correlation_matrices') and real_profile.correlation_matrices:
             corr_matrices = real_profile.correlation_matrices
             if "spearman" in corr_matrices:
@@ -140,29 +163,47 @@ class DataValidator:
                     real_corr = pd.DataFrame(corr_matrices["spearman"]).loc[cols, cols].values
                     syn_corr = synthetic_df[cols].astype(float).corr(method='spearman').fillna(0).values
 
+                    # Frobenius Norm diff
+                    frob_diff = np.linalg.norm(real_corr - syn_corr, 'fro')
+
                     # Mean Absolute Error of Correlation Matrix (upper triangle)
-                    # We only care about upper triangle without diagonal
                     mask = np.triu(np.ones_like(real_corr, dtype=bool), k=1)
                     mae_corr = np.mean(np.abs(real_corr[mask] - syn_corr[mask]))
 
                     report["correlation_error"] = mae_corr
 
-                    # Adjust overall score by correlation error (max penalty 0.3)
-                    correlation_penalty = min(mae_corr, 0.3)
+                    # Score drops by 10 points for every 0.1 of MAE
+                    correlation_score = max(100.0 - (mae_corr * 100 * 2), 0.0)
 
                     if mae_corr > 0.15:
                         report["alerts"].append({
                             "type": "correlation_drift",
                             "severity": "warning",
-                            "message": f"Global correlation structure deviates significantly (MAE: {mae_corr:.3f})."
+                            "message": f"Global correlation deviates significantly (MAE: {mae_corr:.3f})."
                         })
-                else:
-                    correlation_penalty = 0.0
-        else:
-            correlation_penalty = 0.0
 
-        if cols_checked > 0:
-            # Overall score is the average column fidelity, penalized by correlation error
-            report["overall_fidelity_score"] = max((total_fidelity / cols_checked) - correlation_penalty, 0.0)
+        # Calculate final overall score
+        # Weighted: Numeric (40%), Categorical (40%), Correlation (20%)
+        weights = 0
+        final_score = 0.0
+
+        if numeric_count > 0:
+            final_score += numeric_score * 0.4
+            weights += 0.4
+
+        if categorical_count > 0:
+            final_score += categorical_score * 0.4
+            weights += 0.4
+
+        if report["correlation_error"] is not None:
+            final_score += correlation_score * 0.2
+            weights += 0.2
+
+        if weights > 0:
+            report["overall_score"] = final_score / weights
+        else:
+            report["overall_score"] = 100.0
+
+        report["distribution_error"] = 100.0 - ((numeric_score + categorical_score) / 2)
 
         return report

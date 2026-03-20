@@ -29,9 +29,10 @@ class CorrelationEngine:
 
                     # We add a generic global dependency for all numerics to be handled by Copula
                     dependencies.append({
-                        "source": numeric_cols,
+                        "type": "multivariate_copula",
+                        "sources": numeric_cols,
                         "target": numeric_cols,
-                        "type": "multivariate_copula"
+                        "model": {}
                     })
                 except (ValueError, TypeError):
                     pass
@@ -105,10 +106,12 @@ class CorrelationEngine:
         avg_divergence = divergence_sum / valid_groups
         if avg_divergence > 0.1:  # Significant information gain
             return {
-                "source": [source],
-                "target": target,
                 "type": "conditional_probability",
-                "cpt": cpt
+                "sources": [source],
+                "target": target,
+                "model": {
+                    "cpt": cpt
+                }
             }
         return None
 
@@ -151,10 +154,12 @@ class CorrelationEngine:
 
         if significant_diff and len(conditional_dists) > 0:
             return {
-                "source": [source],
-                "target": target,
                 "type": "conditional_numeric",
-                "distributions": conditional_dists
+                "sources": [source],
+                "target": target,
+                "model": {
+                    "distributions": conditional_dists
+                }
             }
 
         return None
@@ -210,11 +215,13 @@ class CorrelationEngine:
         avg_divergence = divergence_sum / valid_groups
         if avg_divergence > 0.15:  # Needs stronger signal for numeric->cat
             return {
-                "source": [source],
-                "target": target,
                 "type": "numeric_to_categorical",
-                "bins": bins.tolist(),
-                "cpt": cpt
+                "sources": [source],
+                "target": target,
+                "model": {
+                    "bins": bins.tolist(),
+                    "cpt": cpt
+                }
             }
         return None
 
@@ -246,13 +253,15 @@ class CorrelationEngine:
                     sig_sources = sources
 
                 deps.append({
-                    "source": sig_sources,
-                    "target": target,
                     "type": "linear_regression",
-                    "coefficients": {s: float(coefficients[s]) for s in sig_sources},
-                    "intercept": float(model.intercept_),
-                    "residual_std": float(y.std() * np.sqrt(1 - r2)),
-                    "r2": float(r2)
+                    "sources": sig_sources,
+                    "target": target,
+                    "model": {
+                        "coefficients": {s: float(coefficients[s]) for s in sig_sources},
+                        "intercept": float(model.intercept_),
+                        "residual_std": float(y.std() * np.sqrt(1 - r2)),
+                        "r2": float(r2)
+                    }
                 })
 
         return deps

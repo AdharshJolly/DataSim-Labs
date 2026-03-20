@@ -493,6 +493,8 @@ def generate_from_profile(
     dataset_version_id: uuid.UUID,
     row_count: int = Query(default=10, ge=1, le=1000),
     seed: int | None = Query(default=None),
+    enable_feedback_loop: bool = Query(default=True),
+    max_iterations: int = Query(default=3, ge=1, le=10),
     db: Database = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -501,7 +503,9 @@ def generate_from_profile(
             db=db,
             dataset_version_id=dataset_version_id,
             row_count=row_count,
-            seed=seed
+            seed=seed,
+            enable_feedback_loop=enable_feedback_loop,
+            max_iterations=max_iterations
         )
         return response_data
     except ValueError as exc:
