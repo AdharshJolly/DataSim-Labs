@@ -390,14 +390,59 @@ class DatasetService:
         db: Database,
         user_id: uuid.UUID,
     ) -> set[str]:
+        # Consider only the most recent job per dataset; older stuck jobs should not
+        # override a newer terminal state like completed/failed/cancelled.
         rows = db["dataset_generation_jobs"].find(
-            {
-                "user_id": str(user_id),
-                "status": {"$in": ["queued", "running"]},
-            },
-            {"dataset_id": 1},
+            {"user_id": str(user_id)},
+            {"dataset_id": 1, "status": 1, "created_at": 1, "updated_at": 1},
         )
-        return {str(row.get("dataset_id")) for row in rows if row.get("dataset_id")}
+
+        latest_by_dataset: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            dataset_id = str(row.get("dataset_id", ""))
+            if not dataset_id:
+                continue
+
+            existing = latest_by_dataset.get(dataset_id)
+            if existing is None:
+                latest_by_dataset[dataset_id] = row
+                continue
+
+            current_created = row.get("created_at")
+            existing_created = existing.get("created_at")
+            current_updated = row.get("updated_at")
+            existing_updated = existing.get("updated_at")
+
+            if (
+                isinstance(current_created, datetime)
+                and isinstance(existing_created, datetime)
+                and current_created > existing_created
+            ):
+                latest_by_dataset[dataset_id] = row
+                continue
+
+            if isinstance(current_created, datetime) and not isinstance(
+                existing_created, datetime
+            ):
+                latest_by_dataset[dataset_id] = row
+                continue
+
+            if (
+                isinstance(current_created, datetime)
+                and isinstance(existing_created, datetime)
+                and current_created == existing_created
+                and isinstance(current_updated, datetime)
+                and isinstance(existing_updated, datetime)
+                and current_updated > existing_updated
+            ):
+                latest_by_dataset[dataset_id] = row
+
+        active_statuses = {"queued", "running"}
+        return {
+            dataset_id
+            for dataset_id, job in latest_by_dataset.items()
+            if str(job.get("status", "")) in active_statuses
+        }
 
     @staticmethod
     def get_generation_job(
