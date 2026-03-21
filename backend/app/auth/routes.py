@@ -13,8 +13,17 @@ from app.auth.schemas import (
     CurrentUserResponse,
     LoginRequest,
     RegisterRequest,
+    RefreshTokenRequest,
+    TokenRefreshResponse,
 )
-from app.auth.security import create_access_token, hash_password, verify_password
+from app.auth.security import (
+    create_access_token,
+    create_refresh_token,
+    decode_refresh_token,
+    hash_password,
+    verify_password,
+    InvalidTokenError,
+)
 from app.db.session import get_db
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -52,7 +61,13 @@ def register_user(
         _raise_database_unavailable()
 
     token = create_access_token({"user_id": str(user.id), "email": user.email})
-    return AuthResponse(access_token=token, user_id=user.id, email=user.email)
+    refresh_token = create_refresh_token({"user_id": str(user.id), "email": user.email})
+    return AuthResponse(
+        access_token=token,
+        refresh_token=refresh_token,
+        user_id=user.id,
+        email=user.email,
+    )
 
 
 @router.post("/login", response_model=AuthResponse)
@@ -73,7 +88,52 @@ def login_user(
         )
 
     token = create_access_token({"user_id": str(user.id), "email": user.email})
-    return AuthResponse(access_token=token, user_id=user.id, email=user.email)
+    refresh_token = create_refresh_token({"user_id": str(user.id), "email": user.email})
+    return AuthResponse(
+        access_token=token,
+        refresh_token=refresh_token,
+        user_id=user.id,
+        email=user.email,
+    )
+
+
+@router.post("/refresh", response_model=TokenRefreshResponse)
+def refresh_token(
+    payload: RefreshTokenRequest,
+    db: Database = Depends(get_db),
+) -> TokenRefreshResponse:
+    """Issue a new access token and refresh token."""
+    try:
+        decoded = decode_refresh_token(payload.refresh_token)
+    except InvalidTokenError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)
+        ) from exc
+
+    user_id = decoded.get("user_id")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Token missing user identifier"
+        )
+
+    try:
+        user_doc = db["users"].find_one({"_id": user_id})
+    except PyMongoError:
+        _raise_database_unavailable()
+
+    if not user_doc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
+        )
+
+    user = User.from_document(user_doc)
+    new_access_token = create_access_token({"user_id": str(user.id), "email": user.email})
+    new_refresh_token = create_refresh_token({"user_id": str(user.id), "email": user.email})
+
+    return TokenRefreshResponse(
+        access_token=new_access_token,
+        refresh_token=new_refresh_token,
+    )
 
 
 @router.post("/logout")

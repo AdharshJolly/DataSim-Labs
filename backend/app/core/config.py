@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     jwt_secret_key: str = Field(validation_alias="JWT_SECRET_KEY")
     jwt_algorithm: str = "HS256"
     jwt_expiration_minutes: int = 60
+    jwt_refresh_expiration_days: int = 7
     gemini_api_key: str = Field(default="", validation_alias="GEMINI_API_KEY")
     gemini_model: str = Field(
         default="gemini-2.5-flash", validation_alias="GEMINI_MODEL"

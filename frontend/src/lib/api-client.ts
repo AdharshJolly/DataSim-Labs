@@ -2,6 +2,7 @@ export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
 const AUTH_TOKEN_KEY = "datasim_access_token";
+const REFRESH_TOKEN_KEY = "datasim_refresh_token";
 
 function getAuthToken(): string | null {
   if (typeof window === "undefined") return null;
@@ -12,10 +13,22 @@ function getAuthToken(): string | null {
   }
 }
 
-export function setAuthToken(token: string): void {
+function getRefreshToken(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(REFRESH_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setAuthToken(token: string, refreshToken?: string): void {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(AUTH_TOKEN_KEY, token);
+    if (refreshToken) {
+      window.localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+    }
   } catch {
     // Ignore storage access errors.
   }
@@ -25,6 +38,7 @@ export function clearAuthToken(): void {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.removeItem(AUTH_TOKEN_KEY);
+    window.localStorage.removeItem(REFRESH_TOKEN_KEY);
   } catch {
     // Ignore storage access errors.
   }
@@ -49,18 +63,95 @@ async function parseApiError(response: Response): Promise<string> {
   return response.statusText || `HTTP ${response.status}`;
 }
 
+export interface TokenRefreshResponse {
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
+}
+
+let refreshPromise: Promise<TokenRefreshResponse | null> | null = null;
+
+async function attemptRefresh(): Promise<TokenRefreshResponse | null> {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) return null;
+
+  if (refreshPromise) return refreshPromise;
+
+  refreshPromise = (async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        clearAuthToken();
+        if (typeof window !== "undefined") {
+          window.location.href = "/login?expired=true";
+        }
+        return null;
+      }
+
+      const data = (await response.json()) as TokenRefreshResponse;
+      setAuthToken(data.access_token, data.refresh_token);
+      return data;
+    } catch {
+      clearAuthToken();
+      if (typeof window !== "undefined") {
+        window.location.href = "/login?expired=true";
+      }
+      return null;
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+
+  return refreshPromise;
+}
+
+async function fetchWithAuth(url: string | URL, init?: RequestInit): Promise<Response> {
+  let token = getAuthToken();
+  const headers = new Headers(init?.headers);
+  if (token && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+
+  const requestInit = { ...init, headers };
+  let response = await fetch(url, requestInit);
+
+  // If unauthorized and we're not already trying to hit the auth endpoints
+  const urlStr = url.toString();
+  if (
+    response.status === 401 &&
+    !urlStr.includes("/api/v1/auth/refresh") &&
+    !urlStr.includes("/api/v1/auth/login") &&
+    !urlStr.includes("/api/v1/auth/register")
+  ) {
+    const newTokens = await attemptRefresh();
+    if (newTokens) {
+      // Retry with new token
+      headers.set("Authorization", `Bearer ${newTokens.access_token}`);
+      response = await fetch(url, { ...init, headers });
+    }
+  }
+
+  return response;
+}
+
 export async function apiRequest<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
-  const token = getAuthToken();
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const headers = new Headers(init?.headers);
+  if (!headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+
+  const response = await fetchWithAuth(`${API_BASE_URL}${path}`, {
     ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(init?.headers || {}),
-    },
+    headers,
     cache: "no-store",
   });
 
@@ -110,6 +201,7 @@ export interface AuthRequest {
 
 export interface AuthResponse {
   access_token: string;
+  refresh_token: string;
   token_type: string;
   user_id: string;
   email: string;
@@ -454,15 +546,11 @@ export async function downloadDatasetFile(
   datasetId: string,
   format: string,
 ): Promise<{ blob: Blob; fileName: string }> {
-  const token = getAuthToken();
   const search = new URLSearchParams({ format });
-  const response = await fetch(
+  const response = await fetchWithAuth(
     `${API_BASE_URL}/api/v1/dataset/download/${datasetId}?${search.toString()}`,
     {
       method: "GET",
-      headers: {
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
     },
   );
 
@@ -500,18 +588,14 @@ export async function uploadDatasetProfile(
   datasetVersionId: string,
   file: File,
 ): Promise<UploadProfileResponse> {
-  const token = getAuthToken();
   const formData = new FormData();
   formData.append("file", file);
 
-  const response = await fetch(
+  const response = await fetchWithAuth(
     `${API_BASE_URL}/api/v1/dataset/${encodeURIComponent(datasetVersionId)}/profile/upload`,
     {
       method: "POST",
       body: formData,
-      headers: {
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
       cache: "no-store",
     },
   );

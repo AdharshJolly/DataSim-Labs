@@ -34,6 +34,22 @@ def create_access_token(subject: dict[str, Any]) -> str:
     )
     payload = {
         **subject,
+        "type": "access",
+        "exp": expire_at,
+    }
+    return jwt.encode(
+        payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm
+    )
+
+
+def create_refresh_token(subject: dict[str, Any]) -> str:
+    """Create signed JWT refresh token with extended expiration."""
+    expire_at = datetime.now(timezone.utc) + timedelta(
+        days=settings.jwt_refresh_expiration_days
+    )
+    payload = {
+        **subject,
+        "type": "refresh",
         "exp": expire_at,
     }
     return jwt.encode(
@@ -42,10 +58,26 @@ def create_access_token(subject: dict[str, Any]) -> str:
 
 
 def decode_access_token(token: str) -> dict[str, Any]:
-    """Decode and validate JWT token."""
+    """Decode and validate JWT access token."""
     try:
-        return jwt.decode(
+        payload = jwt.decode(
             token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm]
         )
+        if payload.get("type") != "access":
+            raise InvalidTokenError("Invalid token type")
+        return payload
+    except JWTError as exc:
+        raise InvalidTokenError("Invalid or expired token") from exc
+
+
+def decode_refresh_token(token: str) -> dict[str, Any]:
+    """Decode and validate JWT refresh token."""
+    try:
+        payload = jwt.decode(
+            token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm]
+        )
+        if payload.get("type") != "refresh":
+            raise InvalidTokenError("Invalid token type")
+        return payload
     except JWTError as exc:
         raise InvalidTokenError("Invalid or expired token") from exc

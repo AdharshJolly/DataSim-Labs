@@ -171,7 +171,7 @@ export default function DashboardPage() {
               </Badge>
             </Button>
             <Button asChild variant="cyber" className="!h-11">
-              <Link href="/studio">
+              <Link href="/studio?new=true">
                 <Plus className="mr-2 h-4 w-4" />
                 New Dataset
               </Link>
@@ -220,7 +220,7 @@ export default function DashboardPage() {
               </p>
             </div>
             <Button asChild variant="cyber" className="!h-12">
-              <Link href="/studio">
+              <Link href="/studio?new=true">
                 <Plus className="mr-2 h-4 w-4" />
                 Create Your First Dataset
               </Link>

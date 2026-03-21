@@ -24,8 +24,8 @@ function RegisterContent() {
     setIsSubmitting(true);
     try {
       const auth = await register({ email, password });
-      setAuthToken(auth.access_token);
-      
+      setAuthToken(auth.access_token, auth.refresh_token);
+
       const returnUrl = searchParams.get("returnUrl");
       if (returnUrl) {
         window.location.href = decodeURIComponent(returnUrl);
@@ -40,7 +40,7 @@ function RegisterContent() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center p-4">
+    <div className="flex items-center justify-center p-4">
       <div className="w-full max-w-md space-y-8">
         <div className="text-center">
           <h1 className="font-display text-4xl font-bold tracking-tight text-foreground">
@@ -108,7 +108,8 @@ function RegisterContent() {
               >
                 {isSubmitting ? (
                   <span className="flex items-center justify-center gap-2">
-                    <LoaderCircle className="h-4 w-4 animate-spin" /> Creating account…
+                    <LoaderCircle className="h-4 w-4 animate-spin" /> Creating
+                    account…
                   </span>
                 ) : (
                   <span className="flex items-center justify-center gap-2">
@@ -136,11 +137,13 @@ function RegisterContent() {
 
 export default function RegisterPage() {
   return (
-    <Suspense fallback={
-      <div className="flex min-h-screen items-center justify-center">
-        <LoaderCircle className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    }>
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center">
+          <LoaderCircle className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      }
+    >
       <RegisterContent />
     </Suspense>
   );

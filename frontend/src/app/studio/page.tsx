@@ -272,6 +272,17 @@ export default function StudioPage() {
   // Load existing dataset from query string
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+
+    if (params.get("new") === "true") {
+      localStorage.removeItem("datasim:dataset_id");
+      localStorage.removeItem("datasim:dataset_version_id");
+      localStorage.removeItem("datasim:validation_summary");
+
+      const newUrl = window.location.pathname;
+      window.history.replaceState({}, document.title, newUrl);
+      return;
+    }
+
     const queryDatasetId = params.get("datasetId");
     const storedDatasetId = localStorage.getItem("datasim:dataset_id");
     const id = queryDatasetId || storedDatasetId;
