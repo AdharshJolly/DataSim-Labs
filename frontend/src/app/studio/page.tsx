@@ -41,6 +41,9 @@ import {
 
 import { ValidationDashboard } from "@/components/studio/validation-dashboard";
 import { AuthGuard } from "@/components/auth/auth-guard";
+import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Card } from "@/components/ui/card";
 
 const ASYNC_POLL_INTERVAL_MS = 1500;
 const ASYNC_POLL_MAX_ATTEMPTS = 1200;
@@ -783,20 +786,20 @@ export default function StudioPage() {
 
           {/* Error banner */}
           {error && (
-            <div className="mb-6 flex items-start justify-between gap-4 rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="h-5 w-5 flex-shrink-0" />
+            <Alert variant="destructive" className="mb-6">
+              <AlertTriangle className="h-5 w-5" />
+              <AlertDescription className="flex items-center justify-between">
                 <span>{error}</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setError("")}
-                className="rounded-full p-1 transition-colors hover:bg-destructive/20"
-                aria-label="Dismiss error"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
+                <button
+                  type="button"
+                  onClick={() => setError("")}
+                  className="rounded-full p-1 transition-colors hover:bg-destructive/20"
+                  aria-label="Dismiss error"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </AlertDescription>
+            </Alert>
           )}
 
           {/* ════════════════ STEP 1 ════════════════ */}
@@ -849,11 +852,11 @@ export default function StudioPage() {
               </div>
 
               <div className="mt-8 flex items-center gap-3">
-                <button
+                <Button
                   type="button"
+                  variant="default"
                   disabled={busy || !dsName.trim()}
                   onClick={() => void handleCreate()}
-                  className="btn-primary"
                 >
                   {busy ? (
                     <span className="flex items-center justify-center gap-2">
@@ -863,13 +866,12 @@ export default function StudioPage() {
                   ) : (
                     "Create & Define Fields →"
                   )}
-                </button>
-                <Link
-                  href="/dashboard"
-                  className="inline-flex h-11 items-center justify-center rounded-lg border border-border px-4 text-sm font-medium text-muted-foreground transition-colors hover:border-border hover:bg-white/5"
-                >
-                  Cancel
-                </Link>
+                </Button>
+                <Button asChild variant="outline">
+                  <Link href="/dashboard">
+                    Cancel
+                  </Link>
+                </Button>
               </div>
             </div>
           )}
@@ -887,11 +889,12 @@ export default function StudioPage() {
                     guide generation — the more detail, the better.
                   </p>
                 </div>
-                <button
+                <Button
                   type="button"
+                  variant="default"
+                  className="whitespace-nowrap"
                   disabled={busy || attrs.length === 0}
                   onClick={() => void handleSaveAndPreview()}
-                  className="btn-primary whitespace-nowrap"
                 >
                   {busy ? (
                     <span className="flex items-center justify-center gap-2">
@@ -900,10 +903,10 @@ export default function StudioPage() {
                   ) : (
                     "Save & Preview →"
                   )}
-                </button>
+                </Button>
               </header>
 
-              <div className="mb-8 rounded-lg border border-border bg-white/5 p-4">
+              <Card className="mb-8 p-4 bg-white/5 border-border">
                 <p className="text-sm font-semibold text-foreground">
                   Start from a template
                 </p>
@@ -911,31 +914,34 @@ export default function StudioPage() {
                   Load a domain starter schema and customize from there.
                 </p>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <button
+                  <Button
                     type="button"
+                    variant="secondary"
+                    size="sm"
                     onClick={() => applyTemplate("hr")}
-                    className="btn-secondary !h-9 !px-3 !text-xs"
                   >
                     HR Template
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
+                    variant="secondary"
+                    size="sm"
                     onClick={() => applyTemplate("ecommerce")}
-                    className="btn-secondary !h-9 !px-3 !text-xs"
                   >
                     Ecommerce Template
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
+                    variant="secondary"
+                    size="sm"
                     onClick={() => applyTemplate("healthcare")}
-                    className="btn-secondary !h-9 !px-3 !text-xs"
                   >
                     Healthcare Template
-                  </button>
+                  </Button>
                 </div>
-              </div>
+              </Card>
 
-              <div className="mb-8 rounded-lg border border-border bg-white/5 p-4">
+              <Card className="mb-8 p-4 bg-white/5 border-border">
                 <p className="text-sm font-semibold text-foreground">
                   Correlation Builder (optional)
                 </p>
@@ -950,7 +956,7 @@ export default function StudioPage() {
                   value={correlationRulesText}
                   onChange={(e) => setCorrelationRulesText(e.target.value)}
                 />
-              </div>
+              </Card>
 
               {/* Attribute list */}
               <div className="space-y-4">
@@ -977,21 +983,21 @@ export default function StudioPage() {
               </button>
 
               <div className="mt-8 flex items-center gap-3">
-                <button
+                <Button
                   type="button"
+                  variant="default"
                   disabled={busy || attrs.length === 0}
                   onClick={() => void handleSaveAndPreview()}
-                  className="btn-primary"
                 >
                   {busy ? "Saving…" : "Save & Preview →"}
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
+                  variant="outline"
                   onClick={() => setStep(1)}
-                  className="inline-flex h-11 items-center justify-center rounded-lg border border-border px-4 text-sm font-medium text-muted-foreground transition-colors hover:border-border hover:bg-white/5"
                 >
                   ← Back
-                </button>
+                </Button>
               </div>
             </div>
           )}
@@ -1010,18 +1016,18 @@ export default function StudioPage() {
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <button
+                  <Button
                     type="button"
+                    variant="outline"
                     onClick={() => setStep(2)}
-                    className="inline-flex h-11 items-center justify-center rounded-lg border border-border px-4 text-sm font-medium text-muted-foreground transition-colors hover:border-border hover:bg-white/5"
                   >
                     ← Edit Fields
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
+                    variant="outline"
                     disabled={isRefreshing}
                     onClick={() => void handleRegenerate()}
-                    className="inline-flex h-11 items-center justify-center rounded-lg border border-border px-4 text-sm font-medium text-muted-foreground transition-colors hover:border-border hover:bg-white/5"
                   >
                     {isRefreshing ? (
                       <span className="flex items-center gap-2">
@@ -1031,19 +1037,19 @@ export default function StudioPage() {
                     ) : (
                       "↺ Regenerate"
                     )}
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
+                    variant="default"
                     onClick={() => setStep(4)}
-                    className="btn-primary"
                   >
                     Looks Good →
-                  </button>
+                  </Button>
                 </div>
               </header>
 
               {realismMetadata && (
-                <div className="mb-6 rounded-lg border border-border bg-white/5 p-4">
+                <Card className="mb-6 border-border bg-white/5 p-4">
                   <p className="text-sm font-semibold text-foreground">
                     Realism Planner Metadata
                   </p>
@@ -1104,7 +1110,7 @@ export default function StudioPage() {
                         </p>
                       </div>
                     )}
-                </div>
+                </Card>
               )}
 
               {/* Preview table */}
@@ -1167,14 +1173,16 @@ export default function StudioPage() {
                   <h2 className="font-display text-2xl font-bold">
                     Quick Adjustments
                   </h2>
-                  <button
+                  <Button
                     type="button"
+                    variant="secondary"
+                    size="sm"
+                    className="h-9 px-3 text-xs"
                     disabled={isRefreshing}
                     onClick={() => void handleRegenerate()}
-                    className="btn-secondary !h-9 !px-3 !text-xs"
                   >
                     {isRefreshing ? "…" : "↺ Apply & Regenerate"}
-                  </button>
+                  </Button>
                 </div>
 
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -1374,18 +1382,18 @@ export default function StudioPage() {
 
                     {/* Actions */}
                     <div className="flex flex-wrap items-center gap-3 pt-4">
-                      <button
+                      <Button
                         type="button"
+                        variant="outline"
                         onClick={() => setStep(3)}
-                        className="inline-flex h-11 items-center justify-center rounded-lg border border-border px-4 text-sm font-medium text-muted-foreground transition-colors hover:border-border hover:bg-white/5"
                       >
                         ← Back to Preview
-                      </button>
-                      <button
+                      </Button>
+                      <Button
                         type="button"
+                        variant="default"
                         disabled={busy || formats.length === 0}
                         onClick={() => void handleGenerate()}
-                        className="btn-primary"
                       >
                         {busy ? (
                           <span className="flex items-center justify-center gap-2">
@@ -1395,15 +1403,16 @@ export default function StudioPage() {
                         ) : (
                           `Generate ${rowCount.toLocaleString()} Rows`
                         )}
-                      </button>
+                      </Button>
                       {useAsyncGeneration && jobId && busy && (
-                        <button
+                        <Button
                           type="button"
+                          variant="outline"
+                          className="border-amber-400/50 text-amber-200 hover:bg-amber-500/10 hover:text-amber-100"
                           onClick={() => void handleCancelJob()}
-                          className="inline-flex h-11 items-center justify-center rounded-lg border border-amber-400/50 px-4 text-sm font-medium text-amber-200 transition-colors hover:bg-amber-500/10"
                         >
                           Cancel Job
-                        </button>
+                        </Button>
                       )}
                     </div>
                   </div>
@@ -1439,14 +1448,16 @@ export default function StudioPage() {
                             {formatBytes(file.size_bytes)}
                           </p>
                         </div>
-                        <button
+                        <Button
                           type="button"
+                          variant="secondary"
+                          size="sm"
+                          className="h-9 px-3 text-xs"
                           onClick={() => void handleDownload(file.format)}
-                          className="btn-secondary !h-9 !px-3 !text-xs"
                         >
                           <Download className="mr-1.5 h-3 w-3" />
                           Download
-                        </button>
+                        </Button>
                       </div>
                     ))}
                   </div>
@@ -1566,8 +1577,9 @@ export default function StudioPage() {
                   </div>
 
                   <div className="flex flex-wrap gap-3">
-                    <button
+                    <Button
                       type="button"
+                      variant="outline"
                       onClick={() => {
                         setGeneratedFiles([]);
                         setQualityReport(null);
@@ -1583,13 +1595,14 @@ export default function StudioPage() {
                         setRowCount(1000);
                         setFormats(["csv"]);
                       }}
-                      className="inline-flex h-11 items-center justify-center rounded-lg border border-border px-4 text-sm font-medium text-muted-foreground transition-colors hover:border-border hover:bg-white/5"
                     >
                       Generate Again
-                    </button>
-                    <Link href="/dashboard" className="btn-primary">
-                      Back to Dashboard
-                    </Link>
+                    </Button>
+                    <Button asChild variant="default">
+                      <Link href="/dashboard">
+                        Back to Dashboard
+                      </Link>
+                    </Button>
                   </div>
                 </div>
               )}

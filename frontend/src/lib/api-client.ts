@@ -300,6 +300,37 @@ export interface DatasetVersionsResponse {
   versions: DatasetVersionSummary[];
 }
 
+export interface ProfileColumnDistribution {
+  type?: string;
+  mean?: number;
+  min?: number;
+  max?: number;
+}
+
+export interface ProfileColumn {
+  data_type: string;
+  null_percentage: number;
+  distribution?: ProfileColumnDistribution;
+}
+
+export interface ProfileDependency {
+  source: string;
+  target: string;
+  type: string;
+  correlation?: number;
+}
+
+export interface DatasetProfile {
+  row_count: number;
+  columns: Record<string, ProfileColumn>;
+  dependency_graph?: ProfileDependency[];
+}
+
+export interface UploadProfileResponse {
+  message: string;
+  profile: DatasetProfile;
+}
+
 export function register(payload: AuthRequest): Promise<AuthResponse> {
   return apiRequest<AuthResponse>("/api/v1/auth/register", {
     method: "POST",
@@ -462,6 +493,42 @@ export function getDatasetVersions(
 ): Promise<DatasetVersionsResponse> {
   return apiRequest<DatasetVersionsResponse>(
     `/api/v1/dataset/${datasetId}/versions`,
+  );
+}
+
+export async function uploadDatasetProfile(
+  datasetVersionId: string,
+  file: File,
+): Promise<UploadProfileResponse> {
+  const token = getAuthToken();
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetch(
+    `${API_BASE_URL}/api/v1/dataset/${encodeURIComponent(datasetVersionId)}/profile/upload`,
+    {
+      method: "POST",
+      body: formData,
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      cache: "no-store",
+    },
+  );
+
+  if (!response.ok) {
+    const detail = await parseApiError(response);
+    throw new Error(`${detail} (${response.status})`);
+  }
+
+  return (await response.json()) as UploadProfileResponse;
+}
+
+export function getDatasetProfile(
+  datasetVersionId: string,
+): Promise<DatasetProfile> {
+  return apiRequest<DatasetProfile>(
+    `/api/v1/dataset/${encodeURIComponent(datasetVersionId)}/profile`,
   );
 }
 

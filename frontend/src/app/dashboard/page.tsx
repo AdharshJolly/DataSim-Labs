@@ -30,6 +30,10 @@ import {
 } from "lucide-react";
 
 import { AuthGuard } from "@/components/auth/auth-guard";
+import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
 
 export default function DashboardPage() {
   const [datasets, setDatasets] = useState<DatasetSummary[]>([]);
@@ -112,33 +116,31 @@ export default function DashboardPage() {
       active: {
         icon: CheckCircle2,
         text: "Ready",
-        className: "text-green-400 border-green-400/50 bg-green-400/10",
+        variant: "success",
       },
       generating: {
         icon: LoaderCircle,
         text: "Generating",
-        className: "text-cyan-300 border-cyan-300/50 bg-cyan-300/10",
+        variant: "cyber",
       },
       draft: {
         icon: Pencil,
         text: "Draft",
-        className: "text-amber-400 border-amber-400/50 bg-amber-400/10",
+        variant: "warning",
       },
       archived: {
         icon: Archive,
         text: "Archived",
-        className: "text-gray-500 border-gray-500/50 bg-gray-500/10",
+        variant: "secondary",
       },
     } as const;
 
     const current = statusMap[status];
     return (
-      <span
-        className={`inline-flex flex-shrink-0 items-center gap-1.5 rounded-full border px-2 py-1 text-xs font-medium ${current.className}`}
-      >
+      <Badge variant={current.variant as "success" | "cyber" | "warning" | "secondary" | "default" | "destructive" | "outline"} className="gap-1.5 px-2 py-1 text-xs">
         <current.icon className="h-3 w-3" />
         {current.text}
-      </span>
+      </Badge>
     );
   };
 
@@ -158,44 +160,47 @@ export default function DashboardPage() {
             )}
           </div>
           <div className="flex items-center gap-2">
-            <button
+            <Button
               type="button"
+              variant="outline"
               onClick={() => setShowJobsPanel((prev) => !prev)}
-              className="inline-flex h-11 items-center justify-center rounded-lg border border-border px-4 text-sm font-medium text-muted-foreground transition-colors hover:border-cyan-300/50 hover:bg-cyan-500/10 hover:text-cyan-200"
             >
               {showJobsPanel ? "Hide Jobs" : "My Jobs"}
-              <span className="ml-2 rounded-full border border-border px-2 py-0.5 text-xs text-foreground">
+              <Badge variant="outline" className="ml-2 px-2 py-0.5 text-xs">
                 {jobs.length}
-              </span>
-            </button>
-            <Link href="/studio" className="btn-cyber !h-11">
-              <Plus className="mr-2 h-4 w-4" />
-              New Dataset
-            </Link>
-            <button
+              </Badge>
+            </Button>
+            <Button asChild variant="cyber" className="!h-11">
+              <Link href="/studio">
+                <Plus className="mr-2 h-4 w-4" />
+                New Dataset
+              </Link>
+            </Button>
+            <Button
               type="button"
-              className="group flex h-11 items-center justify-center rounded-lg border border-border px-4 text-sm font-medium text-muted-foreground transition-colors hover:border-red-500/50 hover:bg-red-500/10 hover:text-red-400"
+              variant="outline"
+              className="group hover:border-red-500/50 hover:bg-red-500/10 hover:text-red-400"
               onClick={handleLogout}
             >
               <LogOut className="h-4 w-4 transition-transform group-hover:scale-110" />
-            </button>
+            </Button>
           </div>
         </div>
 
         {error && (
-          <div className="flex items-start justify-between gap-4 rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
-            <div className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 flex-shrink-0" />
+          <Alert variant="destructive">
+            <AlertTriangle className="h-5 w-5" />
+            <AlertDescription className="flex items-center justify-between">
               <span>{error}</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setError("")}
-              className="rounded-full p-1 transition-colors hover:bg-destructive/20"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
+              <button
+                type="button"
+                onClick={() => setError("")}
+                className="rounded-full p-1 transition-colors hover:bg-destructive/20"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </AlertDescription>
+          </Alert>
         )}
 
         {isLoading ? (
@@ -214,15 +219,17 @@ export default function DashboardPage() {
                 Create your first synthetic dataset to get started.
               </p>
             </div>
-            <Link href="/studio" className="btn-cyber !h-12">
-              <Plus className="mr-2 h-4 w-4" />
-              Create Your First Dataset
-            </Link>
+            <Button asChild variant="cyber" className="!h-12">
+              <Link href="/studio">
+                <Plus className="mr-2 h-4 w-4" />
+                Create Your First Dataset
+              </Link>
+            </Button>
           </div>
         ) : (
           <>
             {showJobsPanel && jobs.length > 0 && (
-              <div className="rounded-2xl border border-border bg-white/5 p-5">
+              <Card className="p-5">
                 <div className="mb-4 flex items-center justify-between">
                   <h2 className="font-display text-2xl font-bold">My Jobs</h2>
                   <span className="text-xs text-muted-foreground">
@@ -250,45 +257,46 @@ export default function DashboardPage() {
                           </p>
                         </div>
                         <div className="flex items-center gap-2">
-                          <Link
-                            href={`/studio?datasetId=${job.dataset_id}`}
-                            className="inline-flex h-8 items-center justify-center rounded border border-border px-3 text-xs text-muted-foreground transition-colors hover:border-primary hover:text-primary"
-                          >
-                            Open
-                          </Link>
+                          <Button asChild variant="outline" size="sm" className="h-8">
+                            <Link href={`/studio?datasetId=${job.dataset_id}`}>
+                              Open
+                            </Link>
+                          </Button>
                           {canRetry && (
-                            <button
+                            <Button
                               type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-8 hover:border-cyan-300 hover:text-cyan-300"
                               disabled={retryingJobId === job.job_id}
                               onClick={() => void onRetryJob(job.job_id)}
-                              className="inline-flex h-8 items-center justify-center rounded border border-border px-3 text-xs text-muted-foreground transition-colors hover:border-cyan-300 hover:text-cyan-300 disabled:opacity-60"
                             >
                               {retryingJobId === job.job_id ? (
                                 <LoaderCircle className="h-3 w-3 animate-spin" />
                               ) : (
                                 <RefreshCw className="h-3 w-3" />
                               )}
-                            </button>
+                            </Button>
                           )}
                         </div>
                       </div>
                     );
                   })}
                 </div>
-              </div>
+              </Card>
             )}
 
             {showJobsPanel && jobs.length === 0 && (
-              <div className="rounded-2xl border border-border bg-white/5 p-5 text-sm text-muted-foreground">
+              <Card className="p-5 text-sm text-muted-foreground">
                 No jobs yet. Start a generation run to see activity here.
-              </div>
+              </Card>
             )}
 
             <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
               {datasets.map((dataset) => (
-                <div
+                <Card
                   key={dataset.id}
-                  className="group flex flex-col gap-4 rounded-2xl border border-border bg-gradient-to-br from-white/[0.05] to-transparent p-5 backdrop-blur-sm transition-all duration-300 hover:-translate-y-1 hover:border-primary/50 hover:shadow-xl hover:shadow-primary/5"
+                  className="group flex flex-col gap-4 rounded-2xl bg-gradient-to-br from-white/[0.05] to-transparent p-5 backdrop-blur-sm transition-all duration-300 hover:-translate-y-1 hover:border-primary/50 hover:shadow-xl hover:shadow-primary/5"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
@@ -325,26 +333,26 @@ export default function DashboardPage() {
                   )}
 
                   <div className="mt-auto flex flex-wrap gap-2 pt-2">
-                    <Link
-                      href={`/studio?datasetId=${dataset.id}`}
-                      className="btn-cyber !h-9 flex-1 !text-xs"
-                    >
-                      <Pencil className="mr-1.5 h-3 w-3" />
-                      Open Studio
-                    </Link>
+                    <Button asChild variant="cyber" className="h-9 flex-1 text-xs px-3">
+                      <Link href={`/studio?datasetId=${dataset.id}`}>
+                        <Pencil className="mr-1.5 h-3 w-3" />
+                        Open Studio
+                      </Link>
+                    </Button>
                     {dataset.latest_version_id &&
                       dataset.status !== "draft" && (
-                        <Link
-                          href={`/download?datasetId=${dataset.id}`}
-                          className="flex h-9 flex-shrink-0 items-center justify-center rounded-md border border-border px-3 text-xs font-medium text-muted-foreground transition-colors hover:border-secondary hover:text-secondary"
-                        >
-                          <Download className="h-3 w-3" />
-                        </Link>
+                        <Button asChild variant="outline" size="sm" className="h-9 px-3 hover:border-secondary hover:text-secondary">
+                          <Link href={`/download?datasetId=${dataset.id}`}>
+                            <Download className="h-3 w-3" />
+                          </Link>
+                        </Button>
                       )}
-                    <button
+                    <Button
                       type="button"
+                      variant="outline"
+                      size="sm"
                       disabled={deletingId === dataset.id}
-                      className="flex h-9 flex-shrink-0 items-center justify-center rounded-md border border-border px-3 text-xs font-medium text-muted-foreground transition-colors hover:border-destructive hover:bg-destructive/20 hover:text-destructive disabled:pointer-events-none disabled:opacity-50"
+                      className="h-9 px-3 hover:border-destructive hover:bg-destructive/20 hover:text-destructive"
                       onClick={() => void onDelete(dataset.id)}
                     >
                       {deletingId === dataset.id ? (
@@ -352,9 +360,9 @@ export default function DashboardPage() {
                       ) : (
                         <Trash2 className="h-3 w-3" />
                       )}
-                    </button>
+                    </Button>
                   </div>
-                </div>
+                </Card>
               ))}
             </div>
           </>

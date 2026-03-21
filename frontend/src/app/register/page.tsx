@@ -4,7 +4,11 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useState, Suspense } from "react";
 import { register, setAuthToken } from "@/lib/api-client";
-import { UserPlus, LoaderCircle } from "lucide-react";
+import { UserPlus, LoaderCircle, AlertTriangle } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 function RegisterContent() {
   const router = useRouter();
@@ -47,7 +51,7 @@ function RegisterContent() {
           </p>
         </div>
 
-        <div className="rounded-xl border border-border bg-gradient-to-br from-white/[0.05] to-transparent p-8 backdrop-blur-[2px] shadow-xl shadow-primary/5">
+        <Card className="rounded-xl border-border bg-gradient-to-br from-white/[0.05] to-transparent p-8 backdrop-blur-[2px] shadow-xl shadow-primary/5">
           <div className="relative z-10">
             <form onSubmit={onSubmit} className="space-y-6">
               <div className="space-y-2">
@@ -57,10 +61,9 @@ function RegisterContent() {
                 >
                   Email address
                 </label>
-                <input
+                <Input
                   id="email"
                   type="email"
-                  className="w-full rounded-md border border-border bg-background/70 px-3 py-2 text-foreground placeholder-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   autoComplete="email"
@@ -78,10 +81,9 @@ function RegisterContent() {
                     (min. 8 characters)
                   </span>
                 </label>
-                <input
+                <Input
                   id="password"
                   type="password"
-                  className="w-full rounded-md border border-border bg-background/70 px-3 py-2 text-foreground placeholder-muted-foreground/50 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   autoComplete="new-password"
@@ -92,15 +94,17 @@ function RegisterContent() {
               </div>
 
               {status && (
-                <div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-                  {status}
-                </div>
+                <Alert variant="destructive">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertDescription>{status}</AlertDescription>
+                </Alert>
               )}
 
-              <button
+              <Button
                 type="submit"
+                variant="cyber"
                 disabled={isSubmitting}
-                className="btn-cyber w-full !h-11"
+                className="w-full !h-11"
               >
                 {isSubmitting ? (
                   <span className="flex items-center justify-center gap-2">
@@ -111,7 +115,7 @@ function RegisterContent() {
                     <UserPlus className="h-4 w-4" /> Create Account
                   </span>
                 )}
-              </button>
+              </Button>
             </form>
 
             <p className="mt-6 text-center text-sm text-muted-foreground">
@@ -124,7 +128,7 @@ function RegisterContent() {
               </Link>
             </p>
           </div>
-        </div>
+        </Card>
       </div>
     </div>
   );

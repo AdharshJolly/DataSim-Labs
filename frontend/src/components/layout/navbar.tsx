@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { Milestone, Menu, X, LogOut, User } from "lucide-react";
 import { useState, useEffect } from "react";
 import { logout, clearAuthToken } from "@/lib/api-client";
+import { Button } from "@/components/ui/button";
 
 export function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
@@ -77,13 +78,15 @@ export function Navbar() {
           <div className="h-4 w-px bg-border" />
           <div className="flex items-center gap-4">
             {isAuthenticated ? (
-              <button
+              <Button
+                variant="default"
+                size="sm"
                 onClick={handleLogout}
-                className="btn-primary flex h-9 items-center gap-2 px-5 text-xs transition-colors hover:bg-destructive hover:text-destructive-foreground hover:border-destructive"
+                className="h-9 px-5 text-xs hover:border-destructive hover:bg-destructive hover:text-destructive-foreground"
               >
-                <LogOut className="h-3.5 w-3.5" />
+                <LogOut className="mr-2 h-3.5 w-3.5" />
                 Sign Out
-              </button>
+              </Button>
             ) : (
               <>
                 <Link
@@ -92,21 +95,25 @@ export function Navbar() {
                 >
                   Sign In
                 </Link>
-                <Link href="/register" className="btn-primary h-9 px-5 text-xs">
-                  Get Started
-                </Link>
+                <Button asChild variant="default" size="sm" className="h-9 px-5 text-xs">
+                  <Link href="/register">
+                    Get Started
+                  </Link>
+                </Button>
               </>
             )}
           </div>
         </div>
 
         {/* Mobile Toggle */}
-        <button
-          className="flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-white/5 md:hidden"
+        <Button
+          variant="outline"
+          size="icon"
+          className="md:hidden"
           onClick={() => setIsOpen(!isOpen)}
         >
           {isOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-        </button>
+        </Button>
       </div>
 
       {/* Mobile Menu */}
@@ -127,16 +134,17 @@ export function Navbar() {
             ))}
             <hr className="border-border" />
             {isAuthenticated ? (
-              <button
+              <Button
+                variant="default"
+                className="w-full"
                 onClick={() => {
                   setIsOpen(false);
                   handleLogout();
                 }}
-                className="btn-primary w-full flex items-center justify-center gap-2"
               >
-                <LogOut className="h-4 w-4" />
+                <LogOut className="mr-2 h-4 w-4" />
                 Sign Out
-              </button>
+              </Button>
             ) : (
               <>
                 <Link
@@ -146,13 +154,14 @@ export function Navbar() {
                 >
                   Sign In
                 </Link>
-                <Link
-                  href="/register"
-                  className="btn-primary w-full text-center"
-                  onClick={() => setIsOpen(false)}
-                >
-                  Get Started
-                </Link>
+                <Button asChild variant="default" className="w-full">
+                  <Link
+                    href="/register"
+                    onClick={() => setIsOpen(false)}
+                  >
+                    Get Started
+                  </Link>
+                </Button>
               </>
             )}
           </div>

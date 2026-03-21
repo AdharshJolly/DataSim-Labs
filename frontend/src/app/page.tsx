@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   ArrowRight,
   Code,
@@ -28,10 +30,10 @@ export default function HomePage() {
         {/* Animated Glow Blobs */}
         <div className="absolute -top-24 left-1/2 -z-10 h-[500px] w-[500px] -translate-x-1/2 bg-glow-primary opacity-50 blur-3xl animate-pulse" />
 
-        <div className="inline-flex animate-fade-in items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-4 py-1.5 text-xs font-semibold tracking-wide text-primary backdrop-blur-sm">
+        <Badge variant="outline" className="animate-fade-in gap-2 border-primary/20 bg-primary/5 px-4 py-1.5 text-xs tracking-wide text-primary backdrop-blur-sm">
           <Sparkles className="h-3.5 w-3.5" />
           <span>REALISM ENGINE LIVE</span>
-        </div>
+        </Badge>
 
         <h1 className="mt-8 font-display text-5xl font-extrabold tracking-tight md:text-7xl lg:text-8xl">
           Generate Data
@@ -48,20 +50,18 @@ export default function HomePage() {
         </p>
 
         <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
-          <Link
-            href="/register"
-            className="btn-primary h-12 px-8 text-base shadow-lg shadow-primary/20"
-          >
-            <span>Launch Dataset Builder</span>
-            <ArrowRight className="ml-2 h-5 w-5" />
-          </Link>
-          <Link
-            href="/studio"
-            className="group inline-flex h-12 items-center justify-center rounded-lg border border-border bg-white/5 px-8 font-medium transition-all hover:bg-white/10"
-          >
-            <span>Open Interactive Studio</span>
-            <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
-          </Link>
+          <Button asChild className="h-12 px-8 text-base shadow-lg shadow-primary/20">
+            <Link href="/register">
+              <span>Launch Dataset Builder</span>
+              <ArrowRight className="ml-2 h-5 w-5" />
+            </Link>
+          </Button>
+          <Button asChild variant="secondary" className="group h-12 px-8 transition-all hover:bg-white/10">
+            <Link href="/studio">
+              <span>Open Interactive Studio</span>
+              <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
+            </Link>
+          </Button>
         </div>
 
         {/* Hero Visual */}
@@ -326,10 +326,10 @@ export default function HomePage() {
 
           {/* Description */}
           <div className="space-y-6 lg:pl-8">
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-muted-foreground">
+            <Badge variant="outline" className="gap-2 border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-muted-foreground">
               <Sparkles className="h-3.5 w-3.5 text-primary" /> Multi-Format
               Support
-            </div>
+            </Badge>
             <h3 className="font-display text-3xl font-bold">
               Built for real engineering workflows
             </h3>
@@ -373,12 +373,11 @@ export default function HomePage() {
             testing, analytics, and model iteration.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <Link
-              href="/register"
-              className="btn-primary h-14 px-10 text-lg w-full sm:w-auto"
-            >
-              <span>Create a Dataset Now</span>
-            </Link>
+            <Button asChild className="h-14 w-full px-10 text-lg sm:w-auto">
+              <Link href="/register">
+                <span>Create a Dataset Now</span>
+              </Link>
+            </Button>
             <p className="text-sm text-muted-foreground">
               No credit card required. Get started in minutes.
             </p>
