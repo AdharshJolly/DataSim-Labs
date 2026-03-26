@@ -1,47 +1,14 @@
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
-const AUTH_TOKEN_KEY = "datasim_access_token";
-const REFRESH_TOKEN_KEY = "datasim_refresh_token";
-
-function getAuthToken(): string | null {
-  if (typeof window === "undefined") return null;
-  try {
-    return window.localStorage.getItem(AUTH_TOKEN_KEY);
-  } catch {
-    return null;
-  }
-}
-
-function getRefreshToken(): string | null {
-  if (typeof window === "undefined") return null;
-  try {
-    return window.localStorage.getItem(REFRESH_TOKEN_KEY);
-  } catch {
-    return null;
-  }
-}
-
 export function setAuthToken(token: string, refreshToken?: string): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(AUTH_TOKEN_KEY, token);
-    if (refreshToken) {
-      window.localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
-    }
-  } catch {
-    // Ignore storage access errors.
-  }
+  // Backward compatibility shim during migration to HttpOnly cookies.
+  void token;
+  void refreshToken;
 }
 
 export function clearAuthToken(): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.removeItem(AUTH_TOKEN_KEY);
-    window.localStorage.removeItem(REFRESH_TOKEN_KEY);
-  } catch {
-    // Ignore storage access errors.
-  }
+  // Backward compatibility shim during migration to HttpOnly cookies.
 }
 
 async function parseApiError(response: Response): Promise<string> {
@@ -72,9 +39,6 @@ export interface TokenRefreshResponse {
 let refreshPromise: Promise<TokenRefreshResponse | null> | null = null;
 
 async function attemptRefresh(): Promise<TokenRefreshResponse | null> {
-  const refreshToken = getRefreshToken();
-  if (!refreshToken) return null;
-
   if (refreshPromise) return refreshPromise;
 
   refreshPromise = (async () => {
@@ -82,12 +46,12 @@ async function attemptRefresh(): Promise<TokenRefreshResponse | null> {
       const response = await fetch(`${API_BASE_URL}/api/v1/auth/refresh`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refresh_token: refreshToken }),
+        body: JSON.stringify({}),
+        credentials: "include",
         cache: "no-store",
       });
 
       if (!response.ok) {
-        clearAuthToken();
         if (typeof window !== "undefined") {
           window.location.href = "/login?expired=true";
         }
@@ -95,10 +59,8 @@ async function attemptRefresh(): Promise<TokenRefreshResponse | null> {
       }
 
       const data = (await response.json()) as TokenRefreshResponse;
-      setAuthToken(data.access_token, data.refresh_token);
       return data;
     } catch {
-      clearAuthToken();
       if (typeof window !== "undefined") {
         window.location.href = "/login?expired=true";
       }
@@ -111,14 +73,14 @@ async function attemptRefresh(): Promise<TokenRefreshResponse | null> {
   return refreshPromise;
 }
 
-async function fetchWithAuth(url: string | URL, init?: RequestInit): Promise<Response> {
-  let token = getAuthToken();
-  const headers = new Headers(init?.headers);
-  if (token && !headers.has("Authorization")) {
-    headers.set("Authorization", `Bearer ${token}`);
-  }
-
-  const requestInit = { ...init, headers };
+async function fetchWithAuth(
+  url: string | URL,
+  init?: RequestInit,
+): Promise<Response> {
+  const requestInit: RequestInit = {
+    ...init,
+    credentials: "include",
+  };
   let response = await fetch(url, requestInit);
 
   // If unauthorized and we're not already trying to hit the auth endpoints
@@ -131,9 +93,11 @@ async function fetchWithAuth(url: string | URL, init?: RequestInit): Promise<Res
   ) {
     const newTokens = await attemptRefresh();
     if (newTokens) {
-      // Retry with new token
-      headers.set("Authorization", `Bearer ${newTokens.access_token}`);
-      response = await fetch(url, { ...init, headers });
+      // Retry after backend refresh updates HttpOnly cookies.
+      response = await fetch(url, {
+        ...init,
+        credentials: "include",
+      });
     }
   }
 
@@ -152,6 +116,7 @@ export async function apiRequest<T>(
   const response = await fetchWithAuth(`${API_BASE_URL}${path}`, {
     ...init,
     headers,
+    credentials: "include",
     cache: "no-store",
   });
 

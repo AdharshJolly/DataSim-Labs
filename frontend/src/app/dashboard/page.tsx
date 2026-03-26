@@ -9,7 +9,6 @@ import {
   retryGenerationJob,
   deleteDataset,
   logout,
-  clearAuthToken,
   type DatasetSummary,
   type GenerationJobResponse,
 } from "@/lib/api-client";
@@ -97,9 +96,8 @@ export default function DashboardPage() {
     try {
       await logout();
     } catch {
-      // Ignore logout API failures and still clear local auth state.
+      // Ignore logout API failures; client navigation still resets session UX.
     }
-    clearAuthToken();
     window.location.href = "/login";
   };
 

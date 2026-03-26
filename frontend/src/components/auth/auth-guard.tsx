@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { LoaderCircle } from "lucide-react";
+import { me } from "@/lib/api-client";
 
 interface AuthGuardProps {
   children: React.ReactNode;
@@ -14,17 +15,28 @@ export function AuthGuard({ children }: AuthGuardProps) {
   const pathname = usePathname();
 
   useEffect(() => {
-    // Check if token exists in localStorage
-    const token = localStorage.getItem("datasim_access_token");
-    
-    if (!token) {
-      setIsAuthenticated(false);
-      // Redirect to login if not authenticated
-      const returnUrl = encodeURIComponent(pathname);
-      router.push(`/login?returnUrl=${returnUrl}`);
-    } else {
-      setIsAuthenticated(true);
-    }
+    let cancelled = false;
+
+    const checkSession = async () => {
+      try {
+        await me();
+        if (!cancelled) {
+          setIsAuthenticated(true);
+        }
+      } catch {
+        if (!cancelled) {
+          setIsAuthenticated(false);
+          const returnUrl = encodeURIComponent(pathname);
+          router.push(`/login?returnUrl=${returnUrl}`);
+        }
+      }
+    };
+
+    void checkSession();
+
+    return () => {
+      cancelled = true;
+    };
   }, [router, pathname]);
 
   // Show loading state while checking authentication

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Milestone, Menu, X, LogOut, User } from "lucide-react";
 import { useState, useEffect } from "react";
-import { logout, clearAuthToken } from "@/lib/api-client";
+import { logout, me } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 
 export function Navbar() {
@@ -14,12 +14,28 @@ export function Navbar() {
   const pathname = usePathname();
 
   useEffect(() => {
-    // Check auth status
-    setIsAuthenticated(!!localStorage.getItem("datasim_access_token"));
+    let cancelled = false;
+    const checkSession = async () => {
+      try {
+        await me();
+        if (!cancelled) {
+          setIsAuthenticated(true);
+        }
+      } catch {
+        if (!cancelled) {
+          setIsAuthenticated(false);
+        }
+      }
+    };
+
+    void checkSession();
 
     const handleScroll = () => setScrolled(window.scrollY > 20);
     window.addEventListener("scroll", handleScroll);
-    return () => window.removeEventListener("scroll", handleScroll);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("scroll", handleScroll);
+    };
   }, []);
 
   const navLinks = [
@@ -36,7 +52,6 @@ export function Navbar() {
     } catch {
       // Ignore API errors on logout
     } finally {
-      clearAuthToken();
       setIsAuthenticated(false);
       window.location.href = "/";
     }
@@ -95,10 +110,13 @@ export function Navbar() {
                 >
                   Sign In
                 </Link>
-                <Button asChild variant="default" size="sm" className="h-9 px-5 text-xs">
-                  <Link href="/register">
-                    Get Started
-                  </Link>
+                <Button
+                  asChild
+                  variant="default"
+                  size="sm"
+                  className="h-9 px-5 text-xs"
+                >
+                  <Link href="/register">Get Started</Link>
                 </Button>
               </>
             )}
@@ -125,7 +143,9 @@ export function Navbar() {
                 key={link.name}
                 href={link.href}
                 className={`px-4 py-2 text-sm font-medium transition-colors ${
-                  isActive(link.href) ? "text-primary bg-primary/10 rounded-lg" : "text-muted-foreground"
+                  isActive(link.href)
+                    ? "text-primary bg-primary/10 rounded-lg"
+                    : "text-muted-foreground"
                 }`}
                 onClick={() => setIsOpen(false)}
               >
@@ -155,10 +175,7 @@ export function Navbar() {
                   Sign In
                 </Link>
                 <Button asChild variant="default" className="w-full">
-                  <Link
-                    href="/register"
-                    onClick={() => setIsOpen(false)}
-                  >
+                  <Link href="/register" onClick={() => setIsOpen(false)}>
                     Get Started
                   </Link>
                 </Button>

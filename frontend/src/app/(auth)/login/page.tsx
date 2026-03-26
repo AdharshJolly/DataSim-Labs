@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { FormEvent, useState, Suspense } from "react";
-import { login, setAuthToken } from "@/lib/api-client";
+import { login } from "@/lib/api-client";
 import { ArrowLeft, LogIn, LoaderCircle, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,7 +11,6 @@ import { Card } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
 function LoginContent() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -23,8 +22,7 @@ function LoginContent() {
     setStatus("");
     setIsSubmitting(true);
     try {
-      const auth = await login({ email, password });
-      setAuthToken(auth.access_token, auth.refresh_token);
+      await login({ email, password });
 
       const returnUrl = searchParams.get("returnUrl");
       if (returnUrl) {

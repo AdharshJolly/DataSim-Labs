@@ -50,6 +50,23 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expiration_minutes: int = 60
     jwt_refresh_expiration_days: int = 7
+    auth_access_cookie_name: str = Field(
+        default="datasim_access_token",
+        validation_alias="AUTH_ACCESS_COOKIE_NAME",
+    )
+    auth_refresh_cookie_name: str = Field(
+        default="datasim_refresh_token",
+        validation_alias="AUTH_REFRESH_COOKIE_NAME",
+    )
+    auth_cookie_domain: str = Field(default="", validation_alias="AUTH_COOKIE_DOMAIN")
+    auth_cookie_path: str = Field(default="/", validation_alias="AUTH_COOKIE_PATH")
+    auth_cookie_secure: bool = Field(
+        default=False, validation_alias="AUTH_COOKIE_SECURE"
+    )
+    auth_cookie_samesite: Literal["lax", "strict", "none"] = Field(
+        default="lax",
+        validation_alias="AUTH_COOKIE_SAMESITE",
+    )
     gemini_api_key: str = Field(default="", validation_alias="GEMINI_API_KEY")
     gemini_model: str = Field(
         default="gemini-2.5-flash", validation_alias="GEMINI_MODEL"
@@ -118,6 +135,20 @@ class Settings(BaseSettings):
             )
         if not self.cors_origins:
             raise ValueError("CORS origins cannot be empty")
+        if not self.auth_access_cookie_name.strip():
+            raise ValueError("AUTH_ACCESS_COOKIE_NAME cannot be empty")
+        if not self.auth_refresh_cookie_name.strip():
+            raise ValueError("AUTH_REFRESH_COOKIE_NAME cannot be empty")
+        if not self.auth_cookie_path.strip():
+            raise ValueError("AUTH_COOKIE_PATH cannot be empty")
+        if (
+            self.auth_cookie_samesite == "none"
+            and (self.app_env == "production" or self.auth_cookie_secure)
+            and not self.auth_cookie_secure
+        ):
+            raise ValueError(
+                "AUTH_COOKIE_SECURE must be true when AUTH_COOKIE_SAMESITE=none"
+            )
         return self
 
     @model_validator(mode="after")

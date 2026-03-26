@@ -35,7 +35,7 @@ class AuthResponse(BaseModel):
 class RefreshTokenRequest(BaseModel):
     """Payload for refreshing an access token."""
 
-    refresh_token: str
+    refresh_token: str | None = None
 
 
 class TokenRefreshResponse(BaseModel):
