@@ -1,139 +1,214 @@
-# DataSim Lab
+# DataSim-Labs
 
-Synthetic Dataset Generation Platform scaffold.
+<div align="center">
 
-## Stack
+Synthetic Data Generation Platform for schema-driven, high-volume dataset synthesis.
 
-- Frontend: Next.js + TypeScript + TailwindCSS + ShadCN UI + TanStack Table
-- Backend: FastAPI + Pydantic
-- Data engine: pandas + numpy + faker
-- Storage: PostgreSQL
-- Deployment: local development first (Docker can be added later)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](backend/requirements.txt)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.116-009688?logo=fastapi&logoColor=white)](backend)
+[![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)](frontend)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)](frontend)
+[![Status](https://img.shields.io/badge/Status-Active-blue)](#)
 
-## Run (initial scaffold)
+</div>
 
-1. Copy `.env.example` to `.env` and set your own `REDIS_URL`, `CELERY_BROKER_URL`, and `JWT_SECRET_KEY`.
-2. Start backend:
-   - `cd backend`
-   - `venv\\Scripts\\activate`
-   - `pip install -r requirements.txt`
-   - `python run_services.py` (starts API + worker with graceful shutdown)
-3. Start frontend in a second terminal:
-   - `cd frontend`
-   - `npm install`
-   - `npm run dev`
-4. Open:
-   - Frontend: `http://localhost:3000`
-   - Backend docs: `http://localhost:8000/docs`
+---
 
-## API Flow
+## Table of Contents
 
-Authentication:
+- [Overview](#overview)
+- [Platform Snapshot](#platform-snapshot)
+- [Visual Architecture](#visual-architecture)
+- [How It Works](#how-it-works)
+- [Features](#features)
+- [Tech Stack](#tech-stack)
+- [Quick Start](#quick-start)
+- [API Surface](#api-surface)
+- [Project Layout](#project-layout)
+- [Security](#security)
+- [Contributing](#contributing)
+- [License](#license)
 
-1. Register user:
-   - `POST /api/v1/auth/register`
-2. Login:
-   - `POST /api/v1/auth/login`
-3. Current user:
-   - `GET /api/v1/auth/me`
+## Overview
 
-Dataset ownership and versioning:
+DataSim-Labs is a full-stack platform for defining synthetic dataset schemas, previewing generated records, and exporting datasets in multiple formats.
 
-1. Create dataset:
-   - `POST /api/v1/dataset/create`
-2. Save attributes:
-   - `POST /api/v1/dataset/attributes`
-3. Preview 10 rows:
-   - `POST /api/v1/dataset/preview`
-4. Generate dataset files:
-   - `POST /api/v1/dataset/generate`
-5. Generate dataset files asynchronously:
-   - `POST /api/v1/dataset/generate-async`
-6. Check async job status:
-   - `GET /api/v1/dataset/jobs/{job_id}`
-7. Cancel async job:
-   - `POST /api/v1/dataset/jobs/{job_id}/cancel`
-8. List/download files:
-   - `GET /api/v1/dataset/download/{dataset_id}`
-9. List user datasets:
-   - `GET /api/v1/dataset/list`
-10. Dataset detail:
+It is designed for product teams, data teams, and developers who need repeatable synthetic datasets for testing, demos, and analytics workflows.
 
+## Platform Snapshot
+
+| Area          | What You Get                                                                 |
+| ------------- | ---------------------------------------------------------------------------- |
+| Data Modeling | Typed attributes, constraints, null controls, and configurable distributions |
+| Generation    | Sync and async workflows with preflight checks for safe execution            |
+| Outputs       | CSV, JSON, JSONL, and Excel exports                                          |
+| Quality       | Validation summary and guardrails in generation response                     |
+| Security      | Cookie-based auth with refresh rotation and structured API errors            |
+| UX            | Guided studio flow, diagnostics, and actionable error feedback               |
+
+## Visual Architecture
+
+```mermaid
+flowchart LR
+	U[User] --> FE[Frontend: Next.js]
+	FE --> API[Backend API: FastAPI]
+	API --> DB[(MongoDB)]
+	API --> GEN[Generation Engine]
+	API --> Q[Queue: Redis/Celery]
+	Q --> WK[Worker]
+	WK --> GEN
+	GEN --> ART[(Artifacts Storage)]
+	API --> ART
+	FE --> API
+```
+
+## How It Works
+
+```mermaid
+sequenceDiagram
+	participant UI as Frontend Studio
+	participant BE as Backend API
+	participant W as Worker
+	participant S as Storage
+
+	UI->>BE: Create dataset
+	UI->>BE: Save attributes/version
+	UI->>BE: Preview (10 rows)
+	UI->>BE: Preflight generation
+	alt Sync generation
+		UI->>BE: Generate dataset
+		BE->>S: Save files
+		BE-->>UI: Files + quality summary
+	else Async generation
+		UI->>BE: Queue job
+		BE->>W: Dispatch task
+		W->>S: Save files
+		UI->>BE: Poll job status
+		BE-->>UI: Final result
+	end
+```
+
+## Features
+
+- Schema-driven synthetic generation with per-column constraints
+- Dataset versioning with reproducibility via seed
+- Preflight safety checks before full generation
+- Async generation for larger workloads
+- Multi-format artifact export (CSV/JSON/JSONL/XLSX)
+- Runtime quality diagnostics and validation summary
+- Structured error responses and request correlation IDs
+
+## Tech Stack
+
+### Backend
+
+- FastAPI
+- Pydantic + pydantic-settings
+- Pandas, NumPy, SciPy, Faker
+- Celery + Redis
+
+### Frontend
+
+- Next.js (App Router)
+- React + TypeScript
+- Tailwind CSS
+- TanStack Table
+
+## Quick Start
+
+### Prerequisites
+
+- Python 3.11+
+- Node.js 20+
+- npm 10+
+- Redis (for async job execution)
+
+### 1) Configure Environment
+
+Copy templates:
+
+- `backend/.env.example` -> `backend/.env`
+- `frontend/.env.example` -> `frontend/.env`
+
+Set strong values for sensitive environment variables.
+
+### 2) Start Backend
+
+```bash
+cd backend
+venv\Scripts\activate
+pip install -r requirements.txt
+python run_services.py
+```
+
+### 3) Start Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+### 4) Open
+
+- Frontend: http://localhost:3000
+- Backend API docs: http://localhost:8000/docs
+
+## API Surface
+
+### Auth
+
+- `POST /api/v1/auth/register`
+- `POST /api/v1/auth/login`
+- `POST /api/v1/auth/refresh`
+- `POST /api/v1/auth/logout`
+- `GET /api/v1/auth/me`
+
+### Dataset Lifecycle
+
+- `POST /api/v1/dataset/create`
+- `POST /api/v1/dataset/attributes`
+- `POST /api/v1/dataset/preview`
+- `POST /api/v1/dataset/preflight`
+- `POST /api/v1/dataset/generate`
+- `POST /api/v1/dataset/generate-async`
+- `GET /api/v1/dataset/jobs`
+- `GET /api/v1/dataset/jobs/{job_id}`
+- `POST /api/v1/dataset/jobs/{job_id}/cancel`
+- `POST /api/v1/dataset/jobs/{job_id}/retry`
+- `GET /api/v1/dataset/download/{dataset_id}`
+- `GET /api/v1/dataset/list`
 - `GET /api/v1/dataset/{dataset_id}`
-
-11. Dataset versions:
-
 - `GET /api/v1/dataset/{dataset_id}/versions`
 
-## Example Requests
+## Project Layout
 
-Create dataset:
-
-```json
-{
-  "name": "customer_synthetic",
-  "description": "Synthetic customer profile dataset"
-}
+```text
+.
+|-- backend/
+|   |-- app/
+|   |-- requirements.txt
+|   `-- run_services.py
+|-- frontend/
+|   `-- src/
+|-- docs/
+|-- README.md
+`-- railway.toml
 ```
 
-Register request:
+## Security
 
-```json
-{
-  "email": "researcher@example.com",
-  "password": "strong-password-123"
-}
-```
+- Never commit `.env` files, tokens, or secrets
+- Use strong and rotated secrets for JWT and API keys
+- Keep dependencies updated and monitor advisories
 
-Login request:
+See `SECURITY.md` for private vulnerability reporting guidance.
 
-```json
-{
-  "email": "researcher@example.com",
-  "password": "strong-password-123"
-}
-```
+## Contributing
 
-Save attributes:
+Contributions are welcome. Please review `CONTRIBUTING.md` before opening a pull request.
 
-```json
-{
-  "dataset_id": "<dataset_id>",
-  "attributes": [
-    {
-      "name": "age",
-      "type": "integer",
-      "description": "Customer age",
-      "constraints": { "min": 18, "max": 70 },
-      "distribution": "normal",
-      "null_percentage": 5
-    },
-    {
-      "name": "email",
-      "type": "email",
-      "description": "Customer email",
-      "constraints": {},
-      "distribution": "uniform",
-      "null_percentage": 0
-    }
-  ]
-}
-```
+## License
 
-Preview request:
-
-```json
-{
-  "dataset_version_id": "<dataset_version_id>"
-}
-```
-
-Generation request:
-
-```json
-{
-  "dataset_id": "<dataset_id>",
-  "row_count": 100000,
-  "formats": ["csv", "json", "excel"]
-}
-```
+This project is licensed under the MIT License. See `LICENSE` for full text.

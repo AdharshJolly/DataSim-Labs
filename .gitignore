@@ -1,25 +1,50 @@
+# OS and editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
 # Python
 __pycache__/
 *.py[cod]
 *.egg-info/
-venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+**/venv/
+**/.venv/
 
-# Node
+# Node / Next
 node_modules/
+**/node_modules/
 .next/
+frontend/.next/
 out/
+dist/
+.turbo/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
-# Env
+# Environment files
 .env
-.env.local
+.env.*
+!.env.example
 
-# Data and build artifacts
+# Logs and runtime files
+*.log
+*.pid
+
+# Data and generated artifacts
 artifacts/
+backend/artifacts/
 *.csv
-artifacts/**/*.json
-backend/artifacts/**/*.json
 *.xlsx
+*.jsonl
 
-# Editor
-.vscode/
-.idea/
+# Local workspace/cache
+.cache/
