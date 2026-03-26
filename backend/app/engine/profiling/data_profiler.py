@@ -32,11 +32,13 @@ class DataProfiler:
 
         row_count = len(df)
         confidence_score = min(1.0, row_count / 200.0) if row_count > 0 else 0.0
+        semantic_groups = self._detect_semantic_groups(list(df.columns))
 
         return {
             "columns": column_profiles,
             "dependency_graph": correlation_results.get("dependencies", []),
             "correlation_matrices": correlation_results.get("correlation_matrices", {}),
+            "semantic_groups": semantic_groups,
             "row_count": row_count,
             "metadata": {
                 "row_count": row_count,
@@ -165,3 +167,43 @@ class DataProfiler:
         if "name" in normalized:
             return "name"
         return None
+
+    def _detect_semantic_groups(self, columns: List[str]) -> List[Dict[str, Any]]:
+        """Detect common cross-column semantic groups for identity-linked generation."""
+        normalized_to_original: Dict[str, str] = {
+            str(column).strip().lower(): column for column in columns
+        }
+
+        groups: List[Dict[str, Any]] = []
+        if all(
+            key in normalized_to_original
+            for key in ["first_name", "last_name", "email"]
+        ):
+            groups.append(
+                {
+                    "type": "identity",
+                    "columns": [
+                        normalized_to_original["first_name"],
+                        normalized_to_original["last_name"],
+                        normalized_to_original["email"],
+                    ],
+                }
+            )
+
+        if all(key in normalized_to_original for key in ["name", "email"]):
+            email_column = normalized_to_original["email"]
+            overlaps_existing = any(
+                email_column in group.get("columns", []) for group in groups
+            )
+            if not overlaps_existing:
+                groups.append(
+                    {
+                        "type": "identity",
+                        "columns": [
+                            normalized_to_original["name"],
+                            email_column,
+                        ],
+                    }
+                )
+
+        return groups

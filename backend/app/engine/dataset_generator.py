@@ -20,6 +20,7 @@ from app.engine.generators.faker_generator import (
     generate_email,
     generate_name,
 )
+from app.engine.generators.identity_generator import generate_identity_batch
 from app.engine.generators.float_generator import generate_float
 from app.engine.generators.integer_generator import generate_integer
 from app.engine.generators.text_generator import generate_text
@@ -52,12 +53,14 @@ class DatasetGenerator:
         attributes: list[AttributeSpec],
         row_count: int,
         realism_rules: list[dict] | None = None,
+        semantic_groups: list[dict[str, Any]] | None = None,
     ) -> pd.DataFrame:
         """Generate a dataframe for the provided attributes and row count."""
         frame, _ = self._generate_dataframe_with_stats(
             attributes=attributes,
             row_count=row_count,
             realism_rules=realism_rules,
+            semantic_groups=semantic_groups,
         )
         return frame
 
@@ -65,10 +68,14 @@ class DatasetGenerator:
         self,
         attributes: list[AttributeSpec],
         realism_rules: list[dict] | None = None,
+        semantic_groups: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
         """Generate a fixed-size 10-row preview payload."""
         frame = self.generate_dataframe(
-            attributes=attributes, row_count=10, realism_rules=realism_rules
+            attributes=attributes,
+            row_count=10,
+            realism_rules=realism_rules,
+            semantic_groups=semantic_groups,
         )
         return frame.to_dict(orient="records")
 
@@ -81,6 +88,7 @@ class DatasetGenerator:
         output_root: Path,
         chunk_size: int = 100_000,
         realism_rules: list[dict] | None = None,
+        semantic_groups: list[dict[str, Any]] | None = None,
         min_chunk_size: int = 10_000,
         target_cells_per_chunk: int = 1_500_000,
     ) -> dict[str, Any]:
@@ -143,6 +151,7 @@ class DatasetGenerator:
                     attributes=attributes,
                     row_count=current_chunk_size,
                     realism_rules=realism_rules,
+                    semantic_groups=semantic_groups,
                 )
                 self._update_quality_state(quality, frame, chunk_stats)
 
@@ -260,6 +269,7 @@ class DatasetGenerator:
                     attributes=attributes,
                     row_count=min(2000, row_count),
                     realism_rules=realism_rules,
+                    semantic_groups=semantic_groups,
                 )
 
             validator = StatisticalValidator()
@@ -333,10 +343,25 @@ class DatasetGenerator:
         attributes: list[AttributeSpec],
         row_count: int,
         realism_rules: list[dict] | None,
+        semantic_groups: list[dict[str, Any]] | None,
     ) -> tuple[pd.DataFrame, dict[str, Any]]:
         """Generate one chunk, apply realism, then inject nulls to preserve targets."""
+        resolved_groups = semantic_groups or self._detect_semantic_groups(attributes)
+
         data: dict[str, pd.Series] = {}
+        grouped_columns: set[str] = set()
+        grouped_data = self._generate_semantic_group_columns(
+            groups=resolved_groups,
+            attributes=attributes,
+            row_count=row_count,
+        )
+        for column_name, values in grouped_data.items():
+            grouped_columns.add(column_name)
+            data[column_name] = pd.Series(values, name=column_name)
+
         for attr in attributes:
+            if attr.name in grouped_columns:
+                continue
             data[attr.name] = self._generate_column(attr=attr, row_count=row_count)
 
         frame = pd.DataFrame(data)
@@ -360,6 +385,85 @@ class DatasetGenerator:
             )
 
         return frame, realism_stats
+
+    def _detect_semantic_groups(
+        self,
+        attributes: list[AttributeSpec],
+    ) -> list[dict[str, Any]]:
+        """Infer identity groups from configured columns when no profile groups are supplied."""
+        normalized_to_original = {
+            attribute.name.strip().lower(): attribute.name for attribute in attributes
+        }
+
+        groups: list[dict[str, Any]] = []
+        if all(
+            key in normalized_to_original
+            for key in ["first_name", "last_name", "email"]
+        ):
+            groups.append(
+                {
+                    "type": "identity",
+                    "columns": [
+                        normalized_to_original["first_name"],
+                        normalized_to_original["last_name"],
+                        normalized_to_original["email"],
+                    ],
+                }
+            )
+
+        if all(key in normalized_to_original for key in ["name", "email"]):
+            email_column = normalized_to_original["email"]
+            overlaps_existing = any(
+                email_column in group.get("columns", []) for group in groups
+            )
+            if not overlaps_existing:
+                groups.append(
+                    {
+                        "type": "identity",
+                        "columns": [
+                            normalized_to_original["name"],
+                            email_column,
+                        ],
+                    }
+                )
+
+        return groups
+
+    def _generate_semantic_group_columns(
+        self,
+        groups: list[dict[str, Any]],
+        attributes: list[AttributeSpec],
+        row_count: int,
+    ) -> dict[str, list[str]]:
+        allowed_columns = {attribute.name for attribute in attributes}
+        grouped_data: dict[str, list[str]] = {}
+        already_bound: set[str] = set()
+
+        for group in groups:
+            if str(group.get("type", "")).lower() != "identity":
+                continue
+
+            requested_columns = [
+                str(column)
+                for column in group.get("columns", [])
+                if str(column) in allowed_columns
+            ]
+            if not requested_columns or any(
+                column in already_bound for column in requested_columns
+            ):
+                continue
+
+            batch = generate_identity_batch(
+                row_count=row_count,
+                faker=self.faker,
+                rng=self.rng,
+                columns=requested_columns,
+            )
+            for column in requested_columns:
+                grouped_data[column] = batch.get(column, [""] * row_count)
+                already_bound.add(column)
+
+        return grouped_data
 
     def _iter_chunks(self, row_count: int, chunk_size: int) -> list[int]:
         """Return chunk sizes that sum exactly to row_count."""

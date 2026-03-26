@@ -56,6 +56,7 @@ class ProfileService:
             "columns": saved_profile.columns,
             "dependency_graph": saved_profile.dependency_graph,
             "correlation_matrices": saved_profile.correlation_matrices,
+            "semantic_groups": saved_profile.semantic_groups,
             "row_count": saved_profile.row_count,
             "metadata": saved_profile.metadata,
             "explainability": explainability,
@@ -82,6 +83,7 @@ class ProfileService:
             "columns": profile.columns,
             "dependency_graph": profile.dependency_graph,
             "correlation_matrices": profile.correlation_matrices,
+            "semantic_groups": profile.semantic_groups,
             "row_count": profile.row_count,
             "metadata": profile.metadata,
             "explainability": explainability,
@@ -141,6 +143,7 @@ class ProfileService:
             "dataset_version_id": dataset_version_id,
             "rows": row_count,
             "data": generated_df.to_dict(orient="records"),
+            "semantic_groups": base_profile.semantic_groups,
             "validation_summary": validation_summary,
             "generation_metadata": {
                 "used_profile_id": str(used_profile.id),
@@ -157,6 +160,7 @@ class ProfileService:
                     "confidence_score", 0.0
                 ),
                 "low_confidence": base_profile.metadata.get("low_confidence", False),
+                "semantic_groups": base_profile.semantic_groups,
                 "validation_report": validation_report,
             },
             # Backward-compatible fields preserved for existing consumers.

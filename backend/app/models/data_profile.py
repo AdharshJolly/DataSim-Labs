@@ -17,6 +17,7 @@ class DataProfile:
     columns: Dict[str, Any]
     dependency_graph: list[Dict[str, Any]]
     correlation_matrices: Dict[str, Any]
+    semantic_groups: list[Dict[str, Any]]
     row_count: int
     metadata: Dict[str, Any]
     created_at: datetime
@@ -29,6 +30,7 @@ class DataProfile:
         dependency_graph: list[Dict[str, Any]],
         correlation_matrices: Dict[str, Any],
         row_count: int,
+        semantic_groups: list[Dict[str, Any]] | None = None,
         metadata: Dict[str, Any] | None = None,
     ) -> "DataProfile":
         return cls(
@@ -37,6 +39,7 @@ class DataProfile:
             columns=columns,
             dependency_graph=dependency_graph,
             correlation_matrices=correlation_matrices,
+            semantic_groups=semantic_groups or [],
             row_count=row_count,
             metadata=metadata or {},
             created_at=datetime.now(timezone.utc),
@@ -50,6 +53,7 @@ class DataProfile:
             columns=document.get("columns", {}),
             dependency_graph=document.get("dependency_graph", []),
             correlation_matrices=document.get("correlation_matrices", {}),
+            semantic_groups=document.get("semantic_groups", []),
             row_count=document.get("row_count", 0),
             metadata=document.get("metadata", {}),
             created_at=_parse_datetime(document.get("created_at")),
@@ -62,6 +66,7 @@ class DataProfile:
             "columns": self.columns,
             "dependency_graph": self.dependency_graph,
             "correlation_matrices": self.correlation_matrices,
+            "semantic_groups": self.semantic_groups,
             "row_count": self.row_count,
             "metadata": self.metadata,
             "created_at": self.created_at,

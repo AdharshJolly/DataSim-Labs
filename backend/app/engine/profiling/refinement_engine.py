@@ -156,6 +156,7 @@ class RefinementEngine:
             columns=updated_columns,
             dependency_graph=copy.deepcopy(profile.dependency_graph),
             correlation_matrices=copy.deepcopy(profile.correlation_matrices),
+            semantic_groups=copy.deepcopy(profile.semantic_groups),
             row_count=profile.row_count,
             metadata=copy.deepcopy(profile.metadata),
         )

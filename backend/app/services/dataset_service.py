@@ -157,8 +157,14 @@ class DatasetService:
             realism_rules = version.config_json.get("realism_rules", [])
         generator_seed = seed if seed is not None else version.seed
         generator = DatasetGenerator(seed=generator_seed)
+        semantic_groups = DatasetService._load_semantic_groups_for_version(
+            db=db,
+            dataset_version_id=dataset_version_id,
+        )
         return generator.generate_preview(
-            attributes=attributes, realism_rules=realism_rules
+            attributes=attributes,
+            realism_rules=realism_rules,
+            semantic_groups=semantic_groups,
         )
 
     @staticmethod
@@ -227,6 +233,10 @@ class DatasetService:
         )
         generator_seed = seed if seed is not None else owned_version.seed
         generator = DatasetGenerator(seed=generator_seed)
+        semantic_groups = DatasetService._load_semantic_groups_for_version(
+            db=db,
+            dataset_version_id=owned_version.id,
+        )
         generation_signature = DatasetService._build_generation_signature(
             dataset_id=dataset.id,
             dataset_version_id=owned_version.id,
@@ -256,6 +266,7 @@ class DatasetService:
             output_root=output_root,
             chunk_size=chunk_size,
             realism_rules=realism_rules,
+            semantic_groups=semantic_groups,
             min_chunk_size=settings.generation_min_chunk_size,
             target_cells_per_chunk=settings.generation_target_cells_per_chunk,
         )
@@ -967,6 +978,21 @@ class DatasetService:
             )
             for row in attributes
         ]
+
+    @staticmethod
+    def _load_semantic_groups_for_version(
+        db: Database,
+        dataset_version_id: uuid.UUID,
+    ) -> list[dict[str, Any]]:
+        """Load persisted semantic dependency groups for profile-aware generation."""
+        profile_doc = db["data_profiles"].find_one(
+            {"dataset_version_id": str(dataset_version_id)},
+            {"semantic_groups": 1},
+        )
+        groups = profile_doc.get("semantic_groups", []) if profile_doc else []
+        if isinstance(groups, list):
+            return [group for group in groups if isinstance(group, dict)]
+        return []
 
     @staticmethod
     def _build_generation_signature(
