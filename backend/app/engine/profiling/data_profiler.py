@@ -2,6 +2,8 @@ import pandas as pd
 from typing import Any, Dict, List
 import numpy as np
 import warnings
+import re
+from collections import Counter
 
 from app.engine.profiling.distribution_learner import DistributionLearner
 from app.engine.profiling.correlation_engine import CorrelationEngine
@@ -32,12 +34,12 @@ class DataProfiler:
         )
 
         # 3. Infer Semantic Rules using Gemini
-        rule_inference_result = infer_semantic_rules(df)
+        rule_inference_result = infer_semantic_rules(df, column_profiles)
         semantic_rules = rule_inference_result.get("rules", [])
 
         row_count = len(df)
         confidence_score = min(1.0, row_count / 200.0) if row_count > 0 else 0.0
-        semantic_groups = self._detect_semantic_groups(list(df.columns))
+        semantic_groups = self._detect_semantic_groups(df, column_profiles)
 
         return {
             "columns": column_profiles,
@@ -150,11 +152,7 @@ class DataProfiler:
         total_valid = len(series)
 
         is_text_like = pd.api.types.is_string_dtype(series) or series.dtype == object
-        if (
-            semantic_type is not None
-            and is_text_like
-            and unique_ratio > SEMANTIC_UNIQUE_RATIO_THRESHOLD
-        ):
+        if semantic_type is not None and is_text_like:
             return "semantic"
 
         if num_unique < 20 or (num_unique / total_valid) < 0.1:
@@ -166,51 +164,127 @@ class DataProfiler:
         if not column_name:
             return None
 
-        normalized = str(column_name).strip().lower()
-        if "email" in normalized or normalized.endswith("mail"):
+        normalized = re.sub(r"[^a-z0-9]+", "_", str(column_name).strip().lower())
+        compact = normalized.replace("_", "")
+
+        def has_any(patterns: List[str]) -> bool:
+            return any(pattern in normalized or pattern in compact for pattern in patterns)
+
+        if has_any(["email", "mail", "e_mail", "emailid"]):
             return "email"
-        if "address" in normalized or "addr" in normalized:
-            return "address"
-        if "name" in normalized:
+        if has_any(
+            [
+                "fullname",
+                "full_name",
+                "display_name",
+                "username",
+                "user_name",
+                "person_name",
+                "employee_name",
+                "name",
+                "person",
+                "employee",
+            ]
+        ):
             return "name"
+        if has_any(["address", "addr", "street", "location"]):
+            return "address"
+        if has_any(["phone", "mobile", "cell", "tel"]):
+            return "phone"
+        if has_any(["url", "website", "web", "link"]):
+            return "url"
+        if has_any(
+            [
+                "company",
+                "org",
+                "organisation",
+                "organization",
+                "employer",
+                "firm",
+            ]
+        ):
+            return "company"
+        if has_any(["city", "town", "municipality"]):
+            return "city"
+        if has_any(["country", "nation", "region"]):
+            return "country"
+        if has_any(["zip", "postal", "postcode", "pincode"]):
+            return "zip"
+        if has_any(["gender", "sex"]):
+            return "gender"
         return None
 
-    def _detect_semantic_groups(self, columns: List[str]) -> List[Dict[str, Any]]:
-        """Detect common cross-column semantic groups for identity-linked generation."""
-        normalized_to_original: Dict[str, str] = {
-            str(column).strip().lower(): column for column in columns
-        }
+    def _detect_semantic_groups(
+        self,
+        df: pd.DataFrame,
+        column_profiles: Dict[str, Any] | None = None,
+    ) -> List[Dict[str, Any]]:
+        """Detect semantic groups dynamically using inferred semantic types and observed data."""
+        if df.empty:
+            return []
+
+        column_type_map: Dict[str, str] = {}
+        for column in df.columns:
+            inferred_type = None
+            if column_profiles and column in column_profiles:
+                inferred_type = column_profiles[column].get("semantic_type")
+            if not inferred_type:
+                inferred_type = self._detect_semantic_type(column)
+            if inferred_type:
+                column_type_map[str(column)] = inferred_type
+
+        name_columns = [
+            column for column, semantic_type in column_type_map.items() if semantic_type == "name"
+        ]
+        email_columns = [
+            column for column, semantic_type in column_type_map.items() if semantic_type == "email"
+        ]
 
         groups: List[Dict[str, Any]] = []
-        if all(
-            key in normalized_to_original
-            for key in ["first_name", "last_name", "email"]
-        ):
+        if name_columns and email_columns:
+            observed_domains, observed_domain_weights = self._extract_email_domains(
+                df,
+                email_columns,
+            )
+            identity_columns = [*name_columns, *email_columns]
             groups.append(
                 {
                     "type": "identity",
-                    "columns": [
-                        normalized_to_original["first_name"],
-                        normalized_to_original["last_name"],
-                        normalized_to_original["email"],
-                    ],
+                    "columns": identity_columns,
+                    "column_type_map": {
+                        column: column_type_map[column] for column in identity_columns
+                    },
+                    "observed_domains": observed_domains,
+                    "observed_domain_weights": observed_domain_weights,
                 }
             )
 
-        if all(key in normalized_to_original for key in ["name", "email"]):
-            email_column = normalized_to_original["email"]
-            overlaps_existing = any(
-                email_column in group.get("columns", []) for group in groups
-            )
-            if not overlaps_existing:
-                groups.append(
-                    {
-                        "type": "identity",
-                        "columns": [
-                            normalized_to_original["name"],
-                            email_column,
-                        ],
-                    }
-                )
-
         return groups
+
+    def _extract_email_domains(
+        self,
+        df: pd.DataFrame,
+        email_columns: List[str],
+    ) -> tuple[List[str], Dict[str, float]]:
+        """Extract observed email domains and normalized frequency weights."""
+        domain_counter: Counter[str] = Counter()
+        pattern = re.compile(r"@([A-Za-z0-9.-]+\.[A-Za-z]{2,})$")
+
+        for column in email_columns:
+            if column not in df.columns:
+                continue
+            for raw_value in df[column].dropna().astype(str):
+                value = raw_value.strip().lower()
+                match = pattern.search(value)
+                if match:
+                    domain_counter[match.group(1)] += 1
+
+        if not domain_counter:
+            return [], {}
+
+        total = float(sum(domain_counter.values()))
+        observed_domains = [domain for domain, _ in domain_counter.most_common()]
+        observed_domain_weights = {
+            domain: count / total for domain, count in domain_counter.items()
+        }
+        return observed_domains, observed_domain_weights

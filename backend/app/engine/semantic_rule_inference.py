@@ -12,6 +12,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from typing import Any
+import re
 
 import pandas as pd
 
@@ -90,15 +91,87 @@ DETECTION GUIDELINES:
   * Cities/states/zips follow geographic patterns
   * Email domains relate to company/org columns
   * First/last names align with gender
+- When a name column and an email column are present and row-level values are clearly correlated,
+  you MUST generate a derivation rule with a template transform and set confidence >= 0.9.
+- When an email value clearly includes first name, last name, or initials from a name value,
+  you MUST assign high confidence >= 0.85.
 - confidence must be [0.0, 1.0] based on pattern strength
 - If no rules detected, return {"rules": []}
 - ONLY include rules you can validate from the provided data
 """
 
 
-def _prepare_sample_data(df: pd.DataFrame, max_rows: int = 20) -> dict[str, Any]:
+def _detect_semantic_type(column_name: str | None) -> str | None:
+    if not column_name:
+        return None
+
+    normalized = re.sub(r"[^a-z0-9]+", "_", str(column_name).strip().lower())
+    compact = normalized.replace("_", "")
+
+    def has_any(patterns: list[str]) -> bool:
+        return any(pattern in normalized or pattern in compact for pattern in patterns)
+
+    if has_any(["email", "mail", "e_mail", "emailid"]):
+        return "email"
+    if has_any(
+        [
+            "fullname",
+            "full_name",
+            "display_name",
+            "username",
+            "user_name",
+            "person_name",
+            "employee_name",
+            "name",
+            "person",
+            "employee",
+        ]
+    ):
+        return "name"
+    return None
+
+
+def _prepare_sample_data(
+    df: pd.DataFrame,
+    column_metadata: dict[str, Any] | None = None,
+    max_rows: int = 20,
+) -> dict[str, Any]:
     """Prepare sample data for Gemini analysis."""
     sample_df = df.head(max_rows) if len(df) > max_rows else df.copy()
+
+    name_columns: list[str] = []
+    email_columns: list[str] = []
+    for column in sample_df.columns:
+        semantic_type = None
+        if column_metadata and column in column_metadata:
+            semantic_type = column_metadata[column].get("semantic_type")
+        if not semantic_type:
+            semantic_type = _detect_semantic_type(column)
+        if semantic_type == "name":
+            name_columns.append(column)
+        elif semantic_type == "email":
+            email_columns.append(column)
+
+    column_relationships: list[dict[str, Any]] = []
+    for name_column in name_columns:
+        for email_column in email_columns:
+            paired_rows = sample_df[[name_column, email_column]].dropna().head(3)
+            if paired_rows.empty:
+                continue
+            examples = [
+                {
+                    "name": str(row[name_column]),
+                    "email": str(row[email_column]),
+                }
+                for _, row in paired_rows.iterrows()
+            ]
+            column_relationships.append(
+                {
+                    "name_column": name_column,
+                    "email_column": email_column,
+                    "examples": examples,
+                }
+            )
 
     return {
         "columns": {
@@ -111,6 +184,7 @@ def _prepare_sample_data(df: pd.DataFrame, max_rows: int = 20) -> dict[str, Any]
             for col in df.columns
         },
         "sample_rows": sample_df.to_dict(orient="records"),
+        "column_relationships": column_relationships,
         "row_count": len(df),
     }
 
@@ -160,7 +234,7 @@ def infer_semantic_rules(
         }
 
     # Prepare payload
-    sample_payload = _prepare_sample_data(df)
+    sample_payload = _prepare_sample_data(df, column_metadata)
     user_message = (
         "Analyze this dataset and detect semantic relationships between columns.\n\n"
         + json.dumps(sample_payload, indent=2, default=str)

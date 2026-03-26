@@ -7,8 +7,15 @@ from app.engine.dataset_generator import DatasetGenerator
 from app.engine.distribution_engine import sample_numeric, sample_weighted_categories
 from app.engine.generators.faker_generator import (
     generate_address,
+    generate_city,
+    generate_company,
+    generate_country,
     generate_email,
+    generate_gender,
     generate_name,
+    generate_phone,
+    generate_url,
+    generate_zip,
 )
 from app.engine.generators.identity_generator import generate_identity_batch
 from app.models.data_profile import DataProfile
@@ -256,8 +263,12 @@ class EnhancedDatasetGenerator(DatasetGenerator):
                 faker=self.faker,
                 rng=self.rng,
                 columns=group_columns,
+                email_domains=group.get("observed_domains"),
+                email_domain_weights=group.get("observed_domain_weights"),
+                column_type_map=group.get("column_type_map"),
             )
             for column in group_columns:
+                # Identity-linked values take priority over independently generated values.
                 frame[column] = pd.Series(identity_data[column], name=column)
                 generated_columns.add(column)
 
@@ -369,6 +380,20 @@ class EnhancedDatasetGenerator(DatasetGenerator):
                 return generate_name(name, row_count, self.faker)
             if semantic_type == "address":
                 return generate_address(name, row_count, self.faker)
+            if semantic_type == "phone":
+                return generate_phone(name, row_count, self.faker)
+            if semantic_type == "url":
+                return generate_url(name, row_count, self.faker)
+            if semantic_type == "company":
+                return generate_company(name, row_count, self.faker)
+            if semantic_type == "city":
+                return generate_city(name, row_count, self.faker)
+            if semantic_type == "country":
+                return generate_country(name, row_count, self.faker)
+            if semantic_type == "zip":
+                return generate_zip(name, row_count, self.faker)
+            if semantic_type == "gender":
+                return generate_gender(name, row_count, self.faker)
             from app.engine.generators.text_generator import generate_text
 
             return generate_text(name, {}, row_count, self.rng, self.faker)

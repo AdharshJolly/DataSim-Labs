@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from scipy import stats
 from typing import Dict, Any
+import re
 
 
 class DistributionLearner:
@@ -38,6 +39,13 @@ class DistributionLearner:
             "email": "faker.email",
             "name": "faker.name",
             "address": "faker.address",
+            "phone": "faker.phone_number",
+            "url": "faker.url",
+            "company": "faker.company",
+            "city": "faker.city",
+            "country": "faker.country",
+            "zip": "faker.zipcode",
+            "gender": "faker.random_element",
         }.get(detected_type, "faker.text")
 
         lengths = (
@@ -55,13 +63,56 @@ class DistributionLearner:
     def _infer_semantic_type_from_name(self, column_name: str | None) -> str | None:
         if not column_name:
             return None
-        name = str(column_name).strip().lower()
-        if "email" in name or name.endswith("mail"):
+        normalized = re.sub(r"[^a-z0-9]+", "_", str(column_name).strip().lower())
+        compact = normalized.replace("_", "")
+
+        def has_any(patterns: list[str]) -> bool:
+            return any(
+                pattern in normalized or pattern in compact for pattern in patterns
+            )
+
+        if has_any(["email", "mail", "e_mail", "emailid"]):
             return "email"
-        if "address" in name or "addr" in name:
-            return "address"
-        if "name" in name:
+        if has_any(
+            [
+                "fullname",
+                "full_name",
+                "display_name",
+                "username",
+                "user_name",
+                "person_name",
+                "employee_name",
+                "name",
+                "person",
+                "employee",
+            ]
+        ):
             return "name"
+        if has_any(["address", "addr", "street", "location"]):
+            return "address"
+        if has_any(["phone", "mobile", "cell", "tel"]):
+            return "phone"
+        if has_any(["url", "website", "web", "link"]):
+            return "url"
+        if has_any(
+            [
+                "company",
+                "org",
+                "organisation",
+                "organization",
+                "employer",
+                "firm",
+            ]
+        ):
+            return "company"
+        if has_any(["city", "town", "municipality"]):
+            return "city"
+        if has_any(["country", "nation", "region"]):
+            return "country"
+        if has_any(["zip", "postal", "postcode", "pincode"]):
+            return "zip"
+        if has_any(["gender", "sex"]):
+            return "gender"
         return None
 
     def _learn_numeric_distribution(self, series: pd.Series) -> Dict[str, Any]:

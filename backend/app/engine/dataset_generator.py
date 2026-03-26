@@ -17,10 +17,20 @@ from app.engine.generators.categorical_generator import generate_categorical
 from app.engine.generators.date_generator import generate_date
 from app.engine.generators.faker_generator import (
     generate_address,
+    generate_city,
+    generate_company,
+    generate_country,
     generate_email,
+    generate_gender,
     generate_name,
+    generate_phone,
+    generate_url,
+    generate_zip,
 )
-from app.engine.generators.identity_generator import generate_identity_batch
+from app.engine.generators.identity_generator import (
+    detect_semantic_type,
+    generate_identity_batch,
+)
 from app.engine.generators.float_generator import generate_float
 from app.engine.generators.integer_generator import generate_integer
 from app.engine.generators.text_generator import generate_text
@@ -345,6 +355,20 @@ class DatasetGenerator:
                 return generate_name(attr.name, row_count, self.faker)
             if semantic_kind == "address":
                 return generate_address(attr.name, row_count, self.faker)
+            if semantic_kind == "phone":
+                return generate_phone(attr.name, row_count, self.faker)
+            if semantic_kind == "url":
+                return generate_url(attr.name, row_count, self.faker)
+            if semantic_kind == "company":
+                return generate_company(attr.name, row_count, self.faker)
+            if semantic_kind == "city":
+                return generate_city(attr.name, row_count, self.faker)
+            if semantic_kind == "country":
+                return generate_country(attr.name, row_count, self.faker)
+            if semantic_kind == "zip":
+                return generate_zip(attr.name, row_count, self.faker)
+            if semantic_kind == "gender":
+                return generate_gender(attr.name, row_count, self.faker)
             return generate_text(
                 attr.name, constraints, row_count, self.rng, self.faker
             )
@@ -526,44 +550,39 @@ class DatasetGenerator:
         self,
         attributes: list[AttributeSpec],
     ) -> list[dict[str, Any]]:
-        """Infer identity groups from configured columns when no profile groups are supplied."""
-        normalized_to_original = {
-            attribute.name.strip().lower(): attribute.name for attribute in attributes
-        }
+        """Infer identity groups from configured attributes using semantic type heuristics."""
+        column_type_map: dict[str, str] = {}
+        for attribute in attributes:
+            inferred_type = detect_semantic_type(attribute.name)
+            if inferred_type:
+                column_type_map[attribute.name] = inferred_type
 
-        groups: list[dict[str, Any]] = []
-        if all(
-            key in normalized_to_original
-            for key in ["first_name", "last_name", "email"]
-        ):
-            groups.append(
-                {
-                    "type": "identity",
-                    "columns": [
-                        normalized_to_original["first_name"],
-                        normalized_to_original["last_name"],
-                        normalized_to_original["email"],
-                    ],
-                }
-            )
+        name_columns = [
+            column
+            for column, semantic_type in column_type_map.items()
+            if semantic_type == "name"
+        ]
+        email_columns = [
+            column
+            for column, semantic_type in column_type_map.items()
+            if semantic_type == "email"
+        ]
 
-        if all(key in normalized_to_original for key in ["name", "email"]):
-            email_column = normalized_to_original["email"]
-            overlaps_existing = any(
-                email_column in group.get("columns", []) for group in groups
-            )
-            if not overlaps_existing:
-                groups.append(
-                    {
-                        "type": "identity",
-                        "columns": [
-                            normalized_to_original["name"],
-                            email_column,
-                        ],
-                    }
-                )
+        if not name_columns or not email_columns:
+            return []
 
-        return groups
+        columns = [*name_columns, *email_columns]
+        return [
+            {
+                "type": "identity",
+                "columns": columns,
+                "column_type_map": {
+                    column: column_type_map[column]
+                    for column in columns
+                    if column in column_type_map
+                },
+            }
+        ]
 
     def _generate_semantic_group_columns(
         self,
@@ -594,6 +613,9 @@ class DatasetGenerator:
                 faker=self.faker,
                 rng=self.rng,
                 columns=requested_columns,
+                email_domains=group.get("observed_domains"),
+                email_domain_weights=group.get("observed_domain_weights"),
+                column_type_map=group.get("column_type_map"),
             )
             for column in requested_columns:
                 grouped_data[column] = batch.get(column, [""] * row_count)
