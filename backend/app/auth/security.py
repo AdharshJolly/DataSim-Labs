@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from uuid import uuid4
 
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -44,12 +45,19 @@ def create_access_token(subject: dict[str, Any]) -> str:
 
 def create_refresh_token(subject: dict[str, Any]) -> str:
     """Create signed JWT refresh token with extended expiration."""
+    session_started_at = datetime.now(timezone.utc)
+    session_expires_at = session_started_at + timedelta(
+        days=settings.jwt_refresh_expiration_days
+    )
     expire_at = datetime.now(timezone.utc) + timedelta(
         days=settings.jwt_refresh_expiration_days
     )
     payload = {
         **subject,
         "type": "refresh",
+        "jti": str(uuid4()),
+        "session_iat": int(session_started_at.timestamp()),
+        "session_exp": int(session_expires_at.timestamp()),
         "exp": expire_at,
     }
     return jwt.encode(

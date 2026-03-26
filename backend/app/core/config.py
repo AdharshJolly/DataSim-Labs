@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     generation_chunk_size: int = 100000
     generation_min_chunk_size: int = 10000
     generation_target_cells_per_chunk: int = 1500000
+    generation_sync_row_limit: int = 50000
+    generation_sync_cell_limit: int = 1000000
+    generation_estimated_output_mb_limit: int = 512
     async_generation_row_threshold: int = 50000
     async_generation_cell_threshold: int = 1000000
     quality_alert_threshold: int = 5
@@ -159,6 +162,12 @@ class Settings(BaseSettings):
             raise ValueError("generation_min_chunk_size must be >= 1")
         if self.generation_target_cells_per_chunk < 1:
             raise ValueError("generation_target_cells_per_chunk must be >= 1")
+        if self.generation_sync_row_limit < 1:
+            raise ValueError("generation_sync_row_limit must be >= 1")
+        if self.generation_sync_cell_limit < 1:
+            raise ValueError("generation_sync_cell_limit must be >= 1")
+        if self.generation_estimated_output_mb_limit < 1:
+            raise ValueError("generation_estimated_output_mb_limit must be >= 1")
         if self.async_generation_row_threshold < 1:
             raise ValueError("async_generation_row_threshold must be >= 1")
         if self.async_generation_cell_threshold < 1:

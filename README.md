@@ -17,8 +17,7 @@ Synthetic Dataset Generation Platform scaffold.
    - `cd backend`
    - `venv\\Scripts\\activate`
    - `pip install -r requirements.txt`
-   - `uvicorn app.main:app --reload --host 0.0.0.0 --port 8000`
-   - In another terminal (same backend venv): `celery -A app.worker.celery_app:celery_app worker --loglevel=info`
+   - `python run_services.py` (starts API + worker with graceful shutdown)
 3. Start frontend in a second terminal:
    - `cd frontend`
    - `npm install`

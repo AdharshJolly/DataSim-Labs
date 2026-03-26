@@ -50,6 +50,7 @@ def generate_dataset_async_task(job_id: str) -> None:
                 if isinstance(running_job.get("drift_profile"), dict)
                 else None
             ),
+            enforce_sync_limits=False,
         )
         DatasetService.mark_job_completed(
             db=database,

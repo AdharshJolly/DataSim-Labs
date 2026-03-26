@@ -20,6 +20,7 @@ import {
   type DatasetSummary,
   type DatasetVersionSummary,
 } from "@/lib/api-client";
+import { useFeedback } from "@/components/ui/feedback-provider";
 
 function formatNumber(value: number | undefined): string {
   if (typeof value !== "number" || Number.isNaN(value)) return "-";
@@ -49,6 +50,7 @@ function getNewestVersion(
 }
 
 export default function ProfileUploadPage() {
+  const { pushToast, showErrorDialog } = useFeedback();
   const [datasets, setDatasets] = useState<DatasetSummary[]>([]);
   const [versions, setVersions] = useState<DatasetVersionSummary[]>([]);
   const [selectedDatasetId, setSelectedDatasetId] = useState("");
@@ -62,15 +64,24 @@ export default function ProfileUploadPage() {
   const [error, setError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
 
+  const notifyError = (title: string, err: unknown, fallback: string) => {
+    const message = err instanceof Error ? err.message : fallback;
+    setError(message);
+    pushToast({ title, message, intent: "error" });
+    showErrorDialog({
+      title,
+      message,
+      details: err instanceof Error ? err.stack : undefined,
+    });
+  };
+
   useEffect(() => {
     const loadDatasets = async () => {
       try {
         const response = await listDatasets();
         setDatasets(response.datasets ?? []);
       } catch (err) {
-        setError(
-          err instanceof Error ? err.message : "Failed to load datasets",
-        );
+        notifyError("Load Datasets Failed", err, "Failed to load datasets");
       } finally {
         setIsLoadingDatasets(false);
       }
@@ -110,10 +121,10 @@ export default function ProfileUploadPage() {
       } catch (err) {
         setVersions([]);
         setSelectedVersionId("");
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Failed to load dataset versions",
+        notifyError(
+          "Load Versions Failed",
+          err,
+          "Failed to load dataset versions",
         );
       } finally {
         setIsLoadingVersions(false);
@@ -179,10 +190,10 @@ export default function ProfileUploadPage() {
       setProfile(response.profile);
       setSuccessMessage("Profile learned successfully.");
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Failed to upload and profile dataset",
+      notifyError(
+        "Profile Upload Failed",
+        err,
+        "Failed to upload and profile dataset",
       );
       setProfile(null);
     } finally {
@@ -359,9 +370,7 @@ export default function ProfileUploadPage() {
 
             {datasets.length === 0 && !isLoadingDatasets && (
               <Button asChild variant="outline">
-                <Link href="/studio">
-                  Create a Dataset First
-                </Link>
+                <Link href="/studio">Create a Dataset First</Link>
               </Button>
             )}
           </div>

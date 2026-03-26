@@ -32,11 +32,13 @@ import {
   type GenerationJobStatus,
   createDataset,
   downloadDatasetFile,
+  generationPreflight,
   generateDataset,
   getDatasetVersions,
   listDatasetFiles,
   previewDataset,
   saveAttributes,
+  type GenerationPreflightResponse,
 } from "@/lib/api-client";
 
 import { ValidationDashboard } from "@/components/studio/validation-dashboard";
@@ -44,6 +46,7 @@ import { AuthGuard } from "@/components/auth/auth-guard";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card } from "@/components/ui/card";
+import { useFeedback } from "@/components/ui/feedback-provider";
 
 const ASYNC_POLL_INTERVAL_MS = 1500;
 const ASYNC_POLL_MAX_ATTEMPTS = 1200;
@@ -213,6 +216,7 @@ function templateRows(kind: "hr" | "ecommerce" | "healthcare"): AttrRow[] {
 }
 
 export default function StudioPage() {
+  const { pushToast, showErrorDialog } = useFeedback();
   const [step, setStep] = useState<Step>(1);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -263,11 +267,37 @@ export default function StudioPage() {
   const [driftEnabled, setDriftEnabled] = useState(false);
   const [driftIntensity, setDriftIntensity] = useState(0.1);
   const [driftColumnsText, setDriftColumnsText] = useState("");
+  const [preflightResult, setPreflightResult] =
+    useState<GenerationPreflightResponse | null>(null);
+  const [preflightBusy, setPreflightBusy] = useState(false);
+  const [allowLowQualityDownloads, setAllowLowQualityDownloads] =
+    useState(false);
 
   const estimatedCells = rowCount * Math.max(1, attrs.length);
   const useAsyncGeneration =
     rowCount >= AUTO_ASYNC_ROW_THRESHOLD ||
     estimatedCells >= AUTO_ASYNC_CELL_THRESHOLD;
+  const shouldUseAsyncGeneration =
+    useAsyncGeneration || Boolean(preflightResult?.requires_async);
+  const guardrailsPassed =
+    qualityGuardrails == null
+      ? true
+      : Boolean((qualityGuardrails as { passed?: boolean }).passed);
+
+  const notifyError = (title: string, err: unknown, fallback: string) => {
+    const message = err instanceof Error ? err.message : fallback;
+    setError(message);
+    pushToast({
+      title,
+      message,
+      intent: "error",
+    });
+    showErrorDialog({
+      title,
+      message,
+      details: err instanceof Error ? err.stack : undefined,
+    });
+  };
 
   // Load existing dataset from query string
   useEffect(() => {
@@ -424,7 +454,7 @@ export default function StudioPage() {
       localStorage.setItem("datasim:dataset_id", res.dataset_id);
       setStep(2);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to create dataset");
+      notifyError("Create Dataset Failed", e, "Failed to create dataset");
     } finally {
       setBusy(false);
     }
@@ -466,7 +496,7 @@ export default function StudioPage() {
       setStep(3);
       await loadPreview(res.version_id);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to save attributes");
+      notifyError("Save Attributes Failed", e, "Failed to save attributes");
     } finally {
       setBusy(false);
     }
@@ -489,7 +519,7 @@ export default function StudioPage() {
       setPreviewRows(res.data);
       setPreviewCols(res.data.length > 0 ? Object.keys(res.data[0]) : []);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Preview failed");
+      notifyError("Preview Failed", e, "Preview failed");
     } finally {
       setIsRefreshing(false);
     }
@@ -539,7 +569,8 @@ export default function StudioPage() {
         },
       };
 
-      if (!useAsyncGeneration) {
+      if (!shouldUseAsyncGeneration) {
+        setAllowLowQualityDownloads(false);
         const res = await generateDataset(payload);
         setGeneratedFiles(res.files);
         setQualityReport(
@@ -552,7 +583,9 @@ export default function StudioPage() {
               "datasim:validation_summary",
               JSON.stringify(res.validation_summary),
             );
-          } catch { /* ignore */ }
+          } catch {
+            /* ignore */
+          }
         }
         setQualityGuardrails(
           (res.quality_guardrails as Record<string, unknown>) ?? null,
@@ -564,6 +597,7 @@ export default function StudioPage() {
       }
 
       const queued = await generateDatasetAsync(payload);
+      setAllowLowQualityDownloads(false);
       setJobId(queued.job_id);
       setJobStatus(queued.status);
       setJobStage("queued");
@@ -598,7 +632,9 @@ export default function StudioPage() {
                 "datasim:validation_summary",
                 JSON.stringify(result.validation_summary),
               );
-            } catch { /* ignore */ }
+            } catch {
+              /* ignore */
+            }
           }
           setQualityGuardrails(
             (result.quality_guardrails as Record<string, unknown>) ?? null,
@@ -626,7 +662,7 @@ export default function StudioPage() {
         }
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Generation failed");
+      notifyError("Generation Failed", e, "Generation failed");
     } finally {
       setBusy(false);
     }
@@ -644,7 +680,7 @@ export default function StudioPage() {
         setJobProgress(100);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to cancel job");
+      notifyError("Cancel Job Failed", e, "Failed to cancel job");
     }
   };
 
@@ -660,9 +696,63 @@ export default function StudioPage() {
       anchor.remove();
       URL.revokeObjectURL(url);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Download failed");
+      notifyError("Download Failed", e, "Download failed");
     }
   };
+
+  useEffect(() => {
+    if (step !== 4 || !datasetId || formats.length === 0) {
+      return;
+    }
+
+    let isCancelled = false;
+    setPreflightBusy(true);
+
+    void generationPreflight({
+      dataset_id: datasetId,
+      dataset_version_id: versionId || undefined,
+      row_count: rowCount,
+      formats,
+      seed: seed.trim() ? Number(seed) : undefined,
+      drift_profile: {
+        enabled: driftEnabled,
+        intensity: driftIntensity,
+        target_columns: driftColumnsText
+          .split(",")
+          .map((value) => value.trim())
+          .filter(Boolean),
+      },
+    })
+      .then((response) => {
+        if (!isCancelled) {
+          setPreflightResult(response);
+        }
+      })
+      .catch(() => {
+        if (!isCancelled) {
+          setPreflightResult(null);
+        }
+      })
+      .finally(() => {
+        if (!isCancelled) {
+          setPreflightBusy(false);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [
+    step,
+    datasetId,
+    versionId,
+    rowCount,
+    formats,
+    seed,
+    driftEnabled,
+    driftIntensity,
+    driftColumnsText,
+  ]);
 
   // ── Attribute helpers ────────────────────────────────────────
   const updateAttr = <K extends keyof AttrRow>(
@@ -879,9 +969,7 @@ export default function StudioPage() {
                   )}
                 </Button>
                 <Button asChild variant="outline">
-                  <Link href="/dashboard">
-                    Cancel
-                  </Link>
+                  <Link href="/dashboard">Cancel</Link>
                 </Button>
               </div>
             </div>
@@ -1307,7 +1395,9 @@ export default function StudioPage() {
                     <div className="space-y-3 rounded-lg border border-border bg-white/5 p-4">
                       <p className="text-sm font-medium text-foreground">
                         Generation mode:{" "}
-                        {useAsyncGeneration ? "Background job" : "Immediate"}
+                        {shouldUseAsyncGeneration
+                          ? "Background job"
+                          : "Immediate"}
                       </p>
                       <p className="text-xs text-muted-foreground">
                         Auto-selected by thresholds (
@@ -1315,6 +1405,33 @@ export default function StudioPage() {
                         {AUTO_ASYNC_CELL_THRESHOLD.toLocaleString()} estimated
                         cells).
                       </p>
+
+                      {(preflightBusy || preflightResult?.issues?.length) && (
+                        <div className="rounded border border-border/60 bg-background/40 p-3 text-xs text-muted-foreground">
+                          {preflightBusy ? (
+                            <p>Running preflight checks...</p>
+                          ) : (
+                            <>
+                              <p className="font-medium text-foreground">
+                                Preflight checks
+                              </p>
+                              {preflightResult?.issues?.length ? (
+                                <ul className="mt-1 space-y-1">
+                                  {preflightResult.issues.map((issue) => (
+                                    <li key={`${issue.code}-${issue.message}`}>
+                                      {issue.message}
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : (
+                                <p className="mt-1">
+                                  No blocking risks detected.
+                                </p>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      )}
 
                       {jobId && (
                         <div className="space-y-2 text-xs text-muted-foreground">
@@ -1415,7 +1532,7 @@ export default function StudioPage() {
                           `Generate ${rowCount.toLocaleString()} Rows`
                         )}
                       </Button>
-                      {useAsyncGeneration && jobId && busy && (
+                      {shouldUseAsyncGeneration && jobId && busy && (
                         <Button
                           type="button"
                           variant="outline"
@@ -1464,6 +1581,9 @@ export default function StudioPage() {
                           variant="secondary"
                           size="sm"
                           className="h-9 px-3 text-xs"
+                          disabled={
+                            !guardrailsPassed && !allowLowQualityDownloads
+                          }
                           onClick={() => void handleDownload(file.format)}
                         >
                           <Download className="mr-1.5 h-3 w-3" />
@@ -1472,6 +1592,28 @@ export default function StudioPage() {
                       </div>
                     ))}
                   </div>
+
+                  {!guardrailsPassed && (
+                    <Alert>
+                      <AlertTriangle className="h-5 w-5" />
+                      <AlertDescription className="space-y-2">
+                        <p>
+                          Quality guardrails reported warnings above threshold.
+                          Review diagnostics before downloading.
+                        </p>
+                        <label className="inline-flex items-center gap-2 text-xs">
+                          <input
+                            type="checkbox"
+                            checked={allowLowQualityDownloads}
+                            onChange={(e) =>
+                              setAllowLowQualityDownloads(e.target.checked)
+                            }
+                          />
+                          I understand the risk and want to download anyway.
+                        </label>
+                      </AlertDescription>
+                    </Alert>
+                  )}
 
                   {validationSummary && (
                     <ValidationDashboard report={validationSummary} />
@@ -1610,9 +1752,7 @@ export default function StudioPage() {
                       Generate Again
                     </Button>
                     <Button asChild variant="default">
-                      <Link href="/dashboard">
-                        Back to Dashboard
-                      </Link>
+                      <Link href="/dashboard">Back to Dashboard</Link>
                     </Button>
                   </div>
                 </div>
