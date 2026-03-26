@@ -1,8 +1,9 @@
 """Universal semantic rule engine for applying cross-column dependencies."""
 
-import random
 import re
 from typing import Any, Dict
+
+import numpy as np
 
 
 CONFIDENCE_THRESHOLD = 0.7
@@ -37,6 +38,11 @@ class SemanticRuleEngine:
         extractors = transform.get("extractors", {})
         domain_pool = transform.get("domain_pool", [])
 
+        name_value = str(row_context.get("name", "") or "").strip()
+        name_parts = [part for part in name_value.split() if part]
+        default_first = name_parts[0].lower() if name_parts else "user"
+        default_last = name_parts[-1].lower() if name_parts else "unknown"
+
         # Build context for template substitution
         context = {}
         for key, expr in extractors.items():
@@ -46,14 +52,27 @@ class SemanticRuleEngine:
                 )
             except Exception:
                 # If expression fails, skip this rule
-                return None
+                context[key] = ""
+
+        if "first" not in context or not str(context.get("first", "")).strip():
+            context["first"] = default_first
+        if "last" not in context or not str(context.get("last", "")).strip():
+            context["last"] = default_last
 
         # Add domain if available
         if domain_pool and "domain" not in context:
-            context["domain"] = random.choice(domain_pool)
+            rng = row_context.get("__rng__")
+            if isinstance(rng, np.random.Generator):
+                context["domain"] = str(rng.choice(domain_pool))
+            else:
+                context["domain"] = str(domain_pool[0])
+        elif "domain" not in context:
+            context["domain"] = "gmail.com"
 
         # Apply template
         try:
+            if not template:
+                return f"{context['first']}.{context['last']}@{context['domain']}"
             value = template.format(**context)
             constraints = rule.get("constraints", {})
             return SemanticRuleEngine._apply_constraints(value, constraints)

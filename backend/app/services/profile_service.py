@@ -57,6 +57,7 @@ class ProfileService:
             "dependency_graph": saved_profile.dependency_graph,
             "correlation_matrices": saved_profile.correlation_matrices,
             "semantic_groups": saved_profile.semantic_groups,
+            "semantic_rules": saved_profile.semantic_rules,
             "row_count": saved_profile.row_count,
             "metadata": saved_profile.metadata,
             "explainability": explainability,

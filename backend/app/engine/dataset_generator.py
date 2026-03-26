@@ -25,6 +25,12 @@ from app.engine.generators.float_generator import generate_float
 from app.engine.generators.integer_generator import generate_integer
 from app.engine.generators.text_generator import generate_text
 from app.engine.null_injector import inject_nulls
+from app.engine.semantic_rule_engine import (
+    CONFIDENCE_THRESHOLD,
+    SemanticRuleEngine,
+    filter_rules_by_confidence,
+    sort_rules_by_priority,
+)
 
 
 @dataclass(slots=True)
@@ -54,6 +60,7 @@ class DatasetGenerator:
         row_count: int,
         realism_rules: list[dict] | None = None,
         semantic_groups: list[dict[str, Any]] | None = None,
+        semantic_rules: list[dict[str, Any]] | None = None,
     ) -> pd.DataFrame:
         """Generate a dataframe for the provided attributes and row count."""
         frame, _ = self._generate_dataframe_with_stats(
@@ -61,6 +68,7 @@ class DatasetGenerator:
             row_count=row_count,
             realism_rules=realism_rules,
             semantic_groups=semantic_groups,
+            semantic_rules=semantic_rules,
         )
         return frame
 
@@ -69,6 +77,7 @@ class DatasetGenerator:
         attributes: list[AttributeSpec],
         realism_rules: list[dict] | None = None,
         semantic_groups: list[dict[str, Any]] | None = None,
+        semantic_rules: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
         """Generate a fixed-size 10-row preview payload."""
         frame = self.generate_dataframe(
@@ -76,6 +85,7 @@ class DatasetGenerator:
             row_count=10,
             realism_rules=realism_rules,
             semantic_groups=semantic_groups,
+            semantic_rules=semantic_rules,
         )
         return frame.to_dict(orient="records")
 
@@ -89,6 +99,7 @@ class DatasetGenerator:
         chunk_size: int = 100_000,
         realism_rules: list[dict] | None = None,
         semantic_groups: list[dict[str, Any]] | None = None,
+        semantic_rules: list[dict[str, Any]] | None = None,
         min_chunk_size: int = 10_000,
         target_cells_per_chunk: int = 1_500_000,
     ) -> dict[str, Any]:
@@ -152,6 +163,7 @@ class DatasetGenerator:
                     row_count=current_chunk_size,
                     realism_rules=realism_rules,
                     semantic_groups=semantic_groups,
+                    semantic_rules=semantic_rules,
                 )
                 self._update_quality_state(quality, frame, chunk_stats)
 
@@ -270,6 +282,7 @@ class DatasetGenerator:
                     row_count=min(2000, row_count),
                     realism_rules=realism_rules,
                     semantic_groups=semantic_groups,
+                    semantic_rules=semantic_rules,
                 )
 
             validator = StatisticalValidator()
@@ -344,9 +357,17 @@ class DatasetGenerator:
         row_count: int,
         realism_rules: list[dict] | None,
         semantic_groups: list[dict[str, Any]] | None,
+        semantic_rules: list[dict[str, Any]] | None,
     ) -> tuple[pd.DataFrame, dict[str, Any]]:
         """Generate one chunk, apply realism, then inject nulls to preserve targets."""
         resolved_groups = semantic_groups or self._detect_semantic_groups(attributes)
+        filtered_semantic_rules = filter_rules_by_confidence(
+            semantic_rules or [], CONFIDENCE_THRESHOLD
+        )
+        sorted_semantic_rules = self._topological_sort_semantic_rules(
+            filtered_semantic_rules
+        )
+        _, dependent_columns = self._extract_dependencies(sorted_semantic_rules)
 
         data: dict[str, pd.Series] = {}
         grouped_columns: set[str] = set()
@@ -362,9 +383,18 @@ class DatasetGenerator:
         for attr in attributes:
             if attr.name in grouped_columns:
                 continue
+            if attr.name in dependent_columns:
+                continue
             data[attr.name] = self._generate_column(attr=attr, row_count=row_count)
 
         frame = pd.DataFrame(data)
+
+        if sorted_semantic_rules:
+            frame = self._apply_semantic_rules(
+                frame=frame,
+                rules=sorted_semantic_rules,
+                attributes=attributes,
+            )
         realism_stats: dict[str, Any] = {
             "rule_impacts": {},
             "total_rows_affected": 0,
@@ -378,6 +408,8 @@ class DatasetGenerator:
             frame, realism_stats = processor.apply_with_stats(frame, realism_rules)
 
         for attr in attributes:
+            if attr.name not in frame.columns:
+                frame[attr.name] = pd.Series([None] * row_count, name=attr.name)
             frame[attr.name] = inject_nulls(
                 series=frame[attr.name],
                 null_percentage=attr.null_percentage,
@@ -385,6 +417,110 @@ class DatasetGenerator:
             )
 
         return frame, realism_stats
+
+    def _extract_dependencies(
+        self,
+        rules: list[dict[str, Any]],
+    ) -> tuple[set[str], set[str]]:
+        dependent_cols: set[str] = set()
+        source_cols: set[str] = set()
+
+        for rule in rules:
+            target = str(rule.get("target", "")).strip()
+            if target:
+                dependent_cols.add(target)
+
+            sources = rule.get("sources", []) or []
+            if isinstance(sources, str):
+                sources = [sources]
+            for src in sources:
+                src_name = str(src).strip()
+                if src_name:
+                    source_cols.add(src_name)
+
+        independent_cols = source_cols - dependent_cols
+        return independent_cols, dependent_cols
+
+    def _topological_sort_semantic_rules(
+        self,
+        rules: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if not rules:
+            return []
+
+        targets = {
+            str(rule.get("target", "")).strip()
+            for rule in rules
+            if str(rule.get("target", "")).strip()
+        }
+
+        unresolved = list(sort_rules_by_priority(rules))
+        sorted_rules: list[dict[str, Any]] = []
+        resolved_targets: set[str] = set()
+
+        while unresolved:
+            progress = False
+            remaining: list[dict[str, Any]] = []
+
+            for rule in unresolved:
+                sources = rule.get("sources", []) or []
+                if isinstance(sources, str):
+                    sources = [sources]
+
+                can_run = all(
+                    str(src) not in targets or str(src) in resolved_targets
+                    for src in sources
+                )
+                if can_run:
+                    sorted_rules.append(rule)
+                    target = str(rule.get("target", "")).strip()
+                    if target:
+                        resolved_targets.add(target)
+                    progress = True
+                else:
+                    remaining.append(rule)
+
+            if not progress:
+                sorted_rules.extend(sort_rules_by_priority(remaining))
+                break
+
+            unresolved = remaining
+
+        return sorted_rules
+
+    def _apply_semantic_rules(
+        self,
+        frame: pd.DataFrame,
+        rules: list[dict[str, Any]],
+        attributes: list[AttributeSpec],
+    ) -> pd.DataFrame:
+        attribute_names = {attr.name for attr in attributes}
+        for rule in rules:
+            target = str(rule.get("target", "")).strip()
+            if target and target not in frame.columns and target in attribute_names:
+                frame[target] = None
+
+        for idx in frame.index:
+            row_context = frame.loc[idx].to_dict()
+            row_context["__rng__"] = self.rng
+            for rule in rules:
+                target = str(rule.get("target", "")).strip()
+                if not target or target not in attribute_names:
+                    continue
+                sources = rule.get("sources", []) or []
+                if isinstance(sources, str):
+                    sources = [sources]
+                if any(str(src) not in row_context for src in sources):
+                    continue
+
+                value = SemanticRuleEngine.apply_rule(rule, row_context)
+                if value is None:
+                    continue
+                frame.at[idx, target] = value
+                row_context[target] = value
+                print(f"[RULE APPLIED] {target} -> {value}")
+
+        return frame
 
     def _detect_semantic_groups(
         self,

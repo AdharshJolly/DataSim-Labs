@@ -33,6 +33,7 @@ class ProfileManager:
             dependency_graph=profile_data.get("dependency_graph", []),
             correlation_matrices=profile_data.get("correlation_matrices", {}),
             semantic_groups=profile_data.get("semantic_groups", []),
+            semantic_rules=profile_data.get("semantic_rules", []),
             row_count=row_count,
             metadata=metadata,
         )

@@ -84,6 +84,17 @@ class EnhancedDatasetGenerator(DatasetGenerator):
 
         ordered_columns = self._topological_sort(all_columns, adj)
 
+        semantic_rules = getattr(profile, "semantic_rules", []) or []
+        filtered_semantic_rules = filter_rules_by_confidence(
+            semantic_rules, CONFIDENCE_THRESHOLD
+        )
+        sorted_semantic_rules = self._topological_sort_semantic_rules(
+            filtered_semantic_rules
+        )
+        _, dependent_semantic_columns = self._extract_dependencies(
+            sorted_semantic_rules
+        )
+
         data: dict[str, pd.Series] = {}
         frame = pd.DataFrame(index=range(row_count))
 
@@ -145,9 +156,13 @@ class EnhancedDatasetGenerator(DatasetGenerator):
                     "Profile dependency graph requires copula sampling, but correlation matrices are missing."
                 )
 
-        # 3. Generate remaining independent columns, and then dependent ones
+        # 3. Generate remaining columns except semantic-rule targets
         for col in ordered_columns:
             if col in semantic_group_columns:
+                continue
+
+            # Semantic-rule targets are generated only via semantic rules.
+            if col in dependent_semantic_columns:
                 continue
 
             col_profile = profile.columns[col]
@@ -179,10 +194,11 @@ class EnhancedDatasetGenerator(DatasetGenerator):
             "errors": [],
         }
         
-        semantic_rules = getattr(profile, "semantic_rules", []) or []
-        if semantic_rules:
+        if sorted_semantic_rules:
             frame, semantic_stats = self._apply_semantic_rules(
-                frame, semantic_rules, ordered_columns
+                frame,
+                sorted_semantic_rules,
+                all_columns,
             )
 
         realism_stats: dict[str, Any] = {
@@ -201,6 +217,8 @@ class EnhancedDatasetGenerator(DatasetGenerator):
         from app.engine.null_injector import inject_nulls
 
         for col in ordered_columns:
+            if col not in frame.columns:
+                frame[col] = pd.Series([None] * row_count, name=col)
             null_pct = profile.columns[col].get("null_percentage", 0.0)
             frame[col] = inject_nulls(
                 series=frame[col],
@@ -467,6 +485,96 @@ class EnhancedDatasetGenerator(DatasetGenerator):
 
         return series
 
+    def _extract_dependencies(
+        self,
+        rules: List[Dict[str, Any]],
+    ) -> tuple[set[str], set[str]]:
+        """Return independent and dependent columns from semantic rules."""
+        dependent_cols: set[str] = set()
+        source_cols: set[str] = set()
+
+        for rule in rules:
+            target = str(rule.get("target", "")).strip()
+            if target:
+                dependent_cols.add(target)
+
+            sources = rule.get("sources", []) or []
+            if isinstance(sources, str):
+                sources = [sources]
+            for src in sources:
+                src_name = str(src).strip()
+                if src_name:
+                    source_cols.add(src_name)
+
+        independent_cols = source_cols - dependent_cols
+        return independent_cols, dependent_cols
+
+    def _build_dependency_graph(self, rules: List[Dict[str, Any]]) -> Dict[str, List[str]]:
+        """Build a source->targets graph from semantic rules."""
+        graph: Dict[str, List[str]] = {}
+        for rule in rules:
+            target = str(rule.get("target", "")).strip()
+            if not target:
+                continue
+            sources = rule.get("sources", []) or []
+            if isinstance(sources, str):
+                sources = [sources]
+
+            for src in sources:
+                src_name = str(src).strip()
+                if not src_name:
+                    continue
+                graph.setdefault(src_name, []).append(target)
+        return graph
+
+    def _topological_sort_semantic_rules(
+        self,
+        rules: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Sort rules so sources are resolved before dependent targets."""
+        if not rules:
+            return []
+
+        targets = {
+            str(rule.get("target", "")).strip()
+            for rule in rules
+            if str(rule.get("target", "")).strip()
+        }
+
+        unresolved = list(sort_rules_by_priority(rules))
+        sorted_rules: List[Dict[str, Any]] = []
+        resolved_targets: set[str] = set()
+
+        while unresolved:
+            progress = False
+            remaining: List[Dict[str, Any]] = []
+
+            for rule in unresolved:
+                sources = rule.get("sources", []) or []
+                if isinstance(sources, str):
+                    sources = [sources]
+
+                can_run = all(
+                    src not in targets or src in resolved_targets for src in sources
+                )
+                if can_run:
+                    sorted_rules.append(rule)
+                    target = str(rule.get("target", "")).strip()
+                    if target:
+                        resolved_targets.add(target)
+                    progress = True
+                else:
+                    remaining.append(rule)
+
+            if not progress:
+                # Cycle or invalid graph: keep deterministic ordering fallback.
+                sorted_rules.extend(sort_rules_by_priority(remaining))
+                break
+
+            unresolved = remaining
+
+        return sorted_rules
+
     def _apply_semantic_rules(
         self,
         frame: pd.DataFrame,
@@ -483,96 +591,77 @@ class EnhancedDatasetGenerator(DatasetGenerator):
         if not semantic_rules:
             return frame, stats
         
-        # Filter by confidence and sort by priority
-        filtered_rules = filter_rules_by_confidence(semantic_rules, CONFIDENCE_THRESHOLD)
-        sorted_rules = sort_rules_by_priority(filtered_rules)
-        
+        sorted_rules = self._topological_sort_semantic_rules(semantic_rules)
         if not sorted_rules:
             return frame, stats
-        
-        # Identify which columns are targets of semantic rules
-        rule_targets = {rule.get("target") for rule in sorted_rules if rule.get("target")}
-        
-        # Remove target columns from frame so they'll be regenerated by rules
-        # Only do this if the rule sources are available
-        columns_to_drop = set()
+
+        targets = [
+            str(rule.get("target", "")).strip()
+            for rule in sorted_rules
+            if str(rule.get("target", "")).strip() in all_columns
+        ]
+        for target in targets:
+            if target not in frame.columns:
+                frame[target] = None
+
+        rule_affected_count: Dict[str, int] = {
+            str(rule.get("id", "unknown")): 0 for rule in sorted_rules
+        }
+
+        for idx in frame.index:
+            row_context = frame.loc[idx].to_dict()
+            row_context["__rng__"] = self.rng
+
+            for rule in sorted_rules:
+                rule_id = str(rule.get("id", "unknown"))
+                target = str(rule.get("target", "")).strip()
+                sources = rule.get("sources", []) or []
+                if isinstance(sources, str):
+                    sources = [sources]
+
+                if not target or target not in all_columns:
+                    continue
+
+                missing_sources = [src for src in sources if src not in row_context]
+                if missing_sources:
+                    stats["errors"].append(
+                        {
+                            "rule_id": rule_id,
+                            "row_index": int(idx),
+                            "error": f"Missing source columns: {missing_sources}",
+                        }
+                    )
+                    continue
+
+                try:
+                    value = SemanticRuleEngine.apply_rule(rule, row_context)
+                    if value is None:
+                        continue
+
+                    frame.at[idx, target] = value
+                    row_context[target] = value
+                    rule_affected_count[rule_id] = rule_affected_count.get(rule_id, 0) + 1
+                    stats["rows_affected"] += 1
+                    print(f"[RULE APPLIED] {target} -> {value}")
+                except Exception as e:
+                    stats["errors"].append(
+                        {
+                            "rule_id": rule_id,
+                            "row_index": int(idx),
+                            "error": str(e),
+                        }
+                    )
+
         for rule in sorted_rules:
-            target = rule.get("target")
-            sources = rule.get("sources", [])
-            
-            if target and all(src in frame.columns for src in sources):
-                if target in frame.columns:
-                    columns_to_drop.add(target)
-        
-        # Drop columns that will be regenerated
-        for col in columns_to_drop:
-            if col in frame.columns:
-                frame = frame.drop(columns=[col])
-        
-        # Apply rules row-by-row
-        for rule in sorted_rules:
-            target = rule.get("target")
-            sources = rule.get("sources", [])
-            confidence = rule.get("confidence", 0.5)
-            
-            if not target or target not in all_columns:
-                continue
-            
-            # Ensure all sources exist
-            if not all(src in frame.columns for src in sources):
-                stats["errors"].append(
-                    {
-                        "rule_id": rule.get("id", "unknown"),
-                        "error": f"Missing source columns: {sources}",
-                    }
-                )
-                continue
-            
-            try:
-                # Initialize the column if it doesn't exist
-                if target not in frame.columns:
-                    frame[target] = None
-                
-                # Apply rule to each row
-                values = []
-                rows_affected = 0
-                
-                for idx, row in frame.iterrows():
-                    row_context = row.to_dict()
-                    try:
-                        value = SemanticRuleEngine.apply_rule(rule, row_context)
-                        if value is not None:
-                            values.append(value)
-                            rows_affected += 1
-                        else:
-                            values.append(None)
-                    except Exception as e:
-                        values.append(None)
-                        stats["errors"].append(
-                            {
-                                "rule_id": rule.get("id", "unknown"),
-                                "row_index": idx,
-                                "error": str(e),
-                            }
-                        )
-                
-                frame[target] = values
-                stats["rules_applied"].append(
-                    {
-                        "rule_id": rule.get("id", "unknown"),
-                        "target": target,
-                        "rows_affected": rows_affected,
-                        "confidence": confidence,
-                    }
-                )
-                stats["rows_affected"] += rows_affected
-                
-            except Exception as e:
-                stats["errors"].append(
-                    {
-                        "rule_id": rule.get("id", "unknown"),
-                        "error": f"Failed to apply rule to column {target}: {str(e)}",
-                    }
-                )
+            rule_id = str(rule.get("id", "unknown"))
+            target = str(rule.get("target", "")).strip()
+            stats["rules_applied"].append(
+                {
+                    "rule_id": rule_id,
+                    "target": target,
+                    "rows_affected": rule_affected_count.get(rule_id, 0),
+                    "confidence": rule.get("confidence", 0.5),
+                }
+            )
         
         return frame, stats
