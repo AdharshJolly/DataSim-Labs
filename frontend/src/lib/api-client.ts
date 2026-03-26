@@ -38,6 +38,21 @@ export interface TokenRefreshResponse {
 
 let refreshPromise: Promise<TokenRefreshResponse | null> | null = null;
 
+function shouldRedirectToExpired(detail: string): boolean {
+  const normalized = detail.toLowerCase();
+  // Missing refresh token means unauthenticated user, not an expired session.
+  if (normalized.includes("refresh token missing")) return false;
+  if (normalized.includes("authentication required")) return false;
+  return true;
+}
+
+function redirectToExpiredIfNeeded(): void {
+  if (typeof window === "undefined") return;
+  const path = window.location.pathname;
+  if (path.startsWith("/login") || path.startsWith("/register")) return;
+  window.location.href = "/login?expired=true";
+}
+
 async function attemptRefresh(): Promise<TokenRefreshResponse | null> {
   if (refreshPromise) return refreshPromise;
 
@@ -52,8 +67,9 @@ async function attemptRefresh(): Promise<TokenRefreshResponse | null> {
       });
 
       if (!response.ok) {
-        if (typeof window !== "undefined") {
-          window.location.href = "/login?expired=true";
+        const detail = await parseApiError(response);
+        if (shouldRedirectToExpired(detail)) {
+          redirectToExpiredIfNeeded();
         }
         return null;
       }
@@ -61,9 +77,7 @@ async function attemptRefresh(): Promise<TokenRefreshResponse | null> {
       const data = (await response.json()) as TokenRefreshResponse;
       return data;
     } catch {
-      if (typeof window !== "undefined") {
-        window.location.href = "/login?expired=true";
-      }
+      redirectToExpiredIfNeeded();
       return null;
     } finally {
       refreshPromise = null;
@@ -234,6 +248,8 @@ export type DatasetStatus = "draft" | "active" | "generating" | "archived";
 
 export interface ValidationSummary {
   realism_score: number | null;
+  score?: number;
+  status?: string;
   confidence: "high" | "medium" | "low" | "unknown";
   passed: boolean;
   warnings: Array<{
@@ -359,33 +375,83 @@ export interface DatasetVersionsResponse {
 
 export interface ProfileColumnDistribution {
   type?: string;
+  semantic_type?: string;
+  generator?: string;
   mean?: number;
+  std?: number;
   min?: number;
   max?: number;
 }
 
 export interface ProfileColumn {
   data_type: string;
+  semantic_type?: string | null;
+  unique_ratio?: number;
+  confidence?: number;
   null_percentage: number;
   distribution?: ProfileColumnDistribution;
 }
 
 export interface ProfileDependency {
-  source: string;
-  target: string;
+  source?: string;
+  target?: string;
+  sources?: string[];
+  columns?: string[];
   type: string;
   correlation?: number;
+  strength?: number;
 }
 
 export interface DatasetProfile {
   row_count: number;
   columns: Record<string, ProfileColumn>;
   dependency_graph?: ProfileDependency[];
+  metadata?: {
+    row_count?: number;
+    confidence_score?: number;
+    low_confidence?: boolean;
+  };
+  explainability?: {
+    columns?: Record<
+      string,
+      {
+        type?: string;
+        distribution?: string;
+        mean?: number;
+        std?: number;
+        min?: number;
+        max?: number;
+        confidence?: number;
+      }
+    >;
+    correlations?: Array<Record<string, unknown>>;
+    meta?: {
+      rows_analyzed?: number;
+      confidence?: string;
+      confidence_score?: number;
+      low_confidence?: boolean;
+    };
+  };
 }
 
 export interface UploadProfileResponse {
   message: string;
   profile: DatasetProfile;
+}
+
+export interface GenerateFromProfileRequest {
+  row_count: number;
+  seed?: number;
+  enable_feedback_loop?: boolean;
+  max_iterations?: number;
+}
+
+export interface GenerateFromProfileResponse {
+  dataset_version_id: string;
+  rows: number;
+  data: Record<string, unknown>[];
+  validation_summary?: ValidationSummary;
+  generation_metadata?: Record<string, unknown>;
 }
 
 export function register(payload: AuthRequest): Promise<AuthResponse> {
@@ -578,6 +644,29 @@ export function getDatasetProfile(
 ): Promise<DatasetProfile> {
   return apiRequest<DatasetProfile>(
     `/api/v1/dataset/${encodeURIComponent(datasetVersionId)}/profile`,
+  );
+}
+
+export function generateDataFromProfile(
+  datasetVersionId: string,
+  payload: GenerateFromProfileRequest,
+): Promise<GenerateFromProfileResponse> {
+  const search = new URLSearchParams();
+  search.set("row_count", String(payload.row_count));
+  if (typeof payload.seed === "number") {
+    search.set("seed", String(payload.seed));
+  }
+  search.set(
+    "enable_feedback_loop",
+    String(payload.enable_feedback_loop ?? true),
+  );
+  search.set("max_iterations", String(payload.max_iterations ?? 3));
+
+  return apiRequest<GenerateFromProfileResponse>(
+    `/api/v1/dataset/${encodeURIComponent(datasetVersionId)}/profile/generate?${search.toString()}`,
+    {
+      method: "POST",
+    },
   );
 }
 

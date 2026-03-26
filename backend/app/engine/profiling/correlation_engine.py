@@ -3,14 +3,25 @@ import numpy as np
 from typing import Dict, Any, List
 from sklearn.linear_model import LinearRegression
 
+
 class CorrelationEngine:
-    def compute_dependencies(self, df: pd.DataFrame, column_profiles: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    def compute_dependencies(
+        self, df: pd.DataFrame, column_profiles: Dict[str, Dict[str, Any]]
+    ) -> Dict[str, Any]:
         """Compute dependencies between columns to form a dependency graph and matrices."""
         dependencies = []
         correlation_matrices = {}
 
-        numeric_cols = [col for col, prof in column_profiles.items() if prof["data_type"] in ["integer", "float"]]
-        categorical_cols = [col for col, prof in column_profiles.items() if prof["data_type"] in ["categorical", "boolean"]]
+        numeric_cols = [
+            col
+            for col, prof in column_profiles.items()
+            if prof["data_type"] in ["integer", "float"]
+        ]
+        categorical_cols = [
+            col
+            for col, prof in column_profiles.items()
+            if prof["data_type"] in ["categorical", "boolean"]
+        ]
 
         # 1. Numeric Correlations (Full Matrix for Gaussian Copula)
         if len(numeric_cols) > 1:
@@ -18,22 +29,46 @@ class CorrelationEngine:
             if len(numeric_df) > 10:
                 try:
                     numeric_df = numeric_df.astype(float)
-                    pearson_corr = numeric_df.corr(method='pearson').fillna(0).to_dict()
-                    spearman_corr = numeric_df.corr(method='spearman').fillna(0).to_dict()
+                    pearson_df = numeric_df.corr(method="pearson").fillna(0)
+                    spearman_df = numeric_df.corr(method="spearman").fillna(0)
+                    pearson_corr = pearson_df.to_dict()
+                    spearman_corr = spearman_df.to_dict()
+
+                    abs_pearson = np.abs(pearson_df.values)
+                    abs_spearman = np.abs(spearman_df.values)
+                    upper_mask = np.triu(np.ones_like(abs_pearson, dtype=bool), k=1)
+                    pair_strengths = np.concatenate(
+                        [
+                            abs_pearson[upper_mask],
+                            abs_spearman[upper_mask],
+                        ]
+                    )
+                    strength = (
+                        float(np.mean(pair_strengths))
+                        if pair_strengths.size > 0
+                        else 0.0
+                    )
 
                     correlation_matrices = {
                         "pearson": pearson_corr,
                         "spearman": spearman_corr,
-                        "columns": numeric_cols
+                        "columns": numeric_cols,
+                        "strength": round(strength, 4),
                     }
 
                     # We add a generic global dependency for all numerics to be handled by Copula
-                    dependencies.append({
-                        "type": "multivariate_copula",
-                        "sources": numeric_cols,
-                        "target": numeric_cols,
-                        "model": {}
-                    })
+                    dependencies.append(
+                        {
+                            "type": "multivariate_copula",
+                            "columns": numeric_cols,
+                            "strength": round(strength, 4),
+                            "sources": numeric_cols,
+                            "target": numeric_cols,
+                            "model": {
+                                "method": "pearson_spearman",
+                            },
+                        }
+                    )
                 except (ValueError, TypeError):
                     pass
 
@@ -62,22 +97,26 @@ class CorrelationEngine:
         # 5. Numeric -> Categorical mapping (e.g. Income -> Premium User)
         for num_col in numeric_cols:
             for cat_col in categorical_cols:
-                num_to_cat_dep = self._check_numeric_to_categorical(df, num_col, cat_col)
+                num_to_cat_dep = self._check_numeric_to_categorical(
+                    df, num_col, cat_col
+                )
                 if num_to_cat_dep:
                     dependencies.append(num_to_cat_dep)
 
         return {
             "dependencies": dependencies,
-            "correlation_matrices": correlation_matrices
+            "correlation_matrices": correlation_matrices,
         }
 
-    def _check_categorical_cpt(self, df: pd.DataFrame, source: str, target: str) -> Dict[str, Any]:
+    def _check_categorical_cpt(
+        self, df: pd.DataFrame, source: str, target: str
+    ) -> Dict[str, Any]:
         """Build Conditional Probability Table (CPT) for target given source."""
         clean_df = df[[source, target]].dropna()
         if len(clean_df) < 20:
             return None
 
-        crosstab = pd.crosstab(clean_df[source], clean_df[target], normalize='index')
+        crosstab = pd.crosstab(clean_df[source], clean_df[target], normalize="index")
         marginal = clean_df[target].value_counts(normalize=True)
 
         divergence_sum = 0
@@ -109,13 +148,13 @@ class CorrelationEngine:
                 "type": "conditional_probability",
                 "sources": [source],
                 "target": target,
-                "model": {
-                    "cpt": cpt
-                }
+                "model": {"cpt": cpt},
             }
         return None
 
-    def _check_conditional_numeric(self, df: pd.DataFrame, source: str, target: str) -> Dict[str, Any]:
+    def _check_conditional_numeric(
+        self, df: pd.DataFrame, source: str, target: str
+    ) -> Dict[str, Any]:
         """Check if numeric target distribution changes based on categorical source."""
         clean_df = df[[source, target]].dropna()
         if len(clean_df) < 20:
@@ -147,9 +186,13 @@ class CorrelationEngine:
 
             conditional_dists[str(val)] = {
                 "mean": float(group_mean),
-                "std": float(group_std) if pd.notna(group_std) and len(group) > 1 and group_std > 0 else float(overall_std),
+                "std": (
+                    float(group_std)
+                    if pd.notna(group_std) and len(group) > 1 and group_std > 0
+                    else float(overall_std)
+                ),
                 "min": float(group.min()),
-                "max": float(group.max())
+                "max": float(group.max()),
             }
 
         if significant_diff and len(conditional_dists) > 0:
@@ -157,14 +200,14 @@ class CorrelationEngine:
                 "type": "conditional_numeric",
                 "sources": [source],
                 "target": target,
-                "model": {
-                    "distributions": conditional_dists
-                }
+                "model": {"distributions": conditional_dists},
             }
 
         return None
 
-    def _check_numeric_to_categorical(self, df: pd.DataFrame, source: str, target: str) -> Dict[str, Any]:
+    def _check_numeric_to_categorical(
+        self, df: pd.DataFrame, source: str, target: str
+    ) -> Dict[str, Any]:
         """Check if categorical target depends on numeric source via quantile binning."""
         clean_df = df[[source, target]].dropna()
         if len(clean_df) < 50:
@@ -177,15 +220,19 @@ class CorrelationEngine:
 
         # Bin numeric source into quintiles
         try:
-            clean_df['source_bins'], bins = pd.qcut(clean_df[source], q=5, retbins=True, duplicates='drop')
+            clean_df["source_bins"], bins = pd.qcut(
+                clean_df[source], q=5, retbins=True, duplicates="drop"
+            )
         except Exception:
             return None
 
-        if len(bins) < 3: # Not enough unique values to split
+        if len(bins) < 3:  # Not enough unique values to split
             return None
 
         # Build CPT for bins -> categorical
-        crosstab = pd.crosstab(clean_df['source_bins'], clean_df[target], normalize='index')
+        crosstab = pd.crosstab(
+            clean_df["source_bins"], clean_df[target], normalize="index"
+        )
         marginal = clean_df[target].value_counts(normalize=True)
 
         divergence_sum = 0
@@ -218,14 +265,13 @@ class CorrelationEngine:
                 "type": "numeric_to_categorical",
                 "sources": [source],
                 "target": target,
-                "model": {
-                    "bins": bins.tolist(),
-                    "cpt": cpt
-                }
+                "model": {"bins": bins.tolist(), "cpt": cpt},
             }
         return None
 
-    def _find_regression_dependencies(self, df: pd.DataFrame, numeric_cols: List[str]) -> List[Dict[str, Any]]:
+    def _find_regression_dependencies(
+        self, df: pd.DataFrame, numeric_cols: List[str]
+    ) -> List[Dict[str, Any]]:
         """Find targets that are strongly predicted by multiple other numeric columns."""
         deps = []
         clean_df = df[numeric_cols].dropna()
@@ -248,20 +294,26 @@ class CorrelationEngine:
 
             if r2 > 0.6:
                 coefficients = dict(zip(sources, model.coef_))
-                sig_sources = [s for s, c in coefficients.items() if abs(c) > 0.05 * abs(y.mean())]
+                sig_sources = [
+                    s for s, c in coefficients.items() if abs(c) > 0.05 * abs(y.mean())
+                ]
                 if not sig_sources:
                     sig_sources = sources
 
-                deps.append({
-                    "type": "linear_regression",
-                    "sources": sig_sources,
-                    "target": target,
-                    "model": {
-                        "coefficients": {s: float(coefficients[s]) for s in sig_sources},
-                        "intercept": float(model.intercept_),
-                        "residual_std": float(y.std() * np.sqrt(1 - r2)),
-                        "r2": float(r2)
+                deps.append(
+                    {
+                        "type": "linear_regression",
+                        "sources": sig_sources,
+                        "target": target,
+                        "model": {
+                            "coefficients": {
+                                s: float(coefficients[s]) for s in sig_sources
+                            },
+                            "intercept": float(model.intercept_),
+                            "residual_std": float(y.std() * np.sqrt(1 - r2)),
+                            "r2": float(r2),
+                        },
                     }
-                })
+                )
 
         return deps

@@ -5,7 +5,13 @@ from scipy import stats
 
 from app.engine.dataset_generator import DatasetGenerator
 from app.engine.distribution_engine import sample_numeric, sample_weighted_categories
+from app.engine.generators.faker_generator import (
+    generate_address,
+    generate_email,
+    generate_name,
+)
 from app.models.data_profile import DataProfile
+
 
 class EnhancedDatasetGenerator(DatasetGenerator):
     """Generates synthetic data using learned statistical profiles, Gaussian Copulas, and CPTs."""
@@ -19,7 +25,9 @@ class EnhancedDatasetGenerator(DatasetGenerator):
         row_count: int,
         realism_rules: list[dict] | None = None,
     ) -> pd.DataFrame:
-        frame, _ = self._generate_from_profile_with_stats(profile, row_count, realism_rules)
+        frame, _ = self._generate_from_profile_with_stats(
+            profile, row_count, realism_rules
+        )
         return frame
 
     def _nearest_psd(self, matrix: np.ndarray, threshold: float = 1e-8) -> np.ndarray:
@@ -49,9 +57,20 @@ class EnhancedDatasetGenerator(DatasetGenerator):
         for dep in dependency_graph:
             if dep.get("type") == "multivariate_copula":
                 copula_cols.update(dep.get("target", []))
-            elif dep.get("type") in ["conditional_probability", "conditional_numeric", "linear_regression", "numeric_to_categorical"]:
-                targets = [dep["target"]] if isinstance(dep["target"], str) else dep["target"]
-                sources = dep["sources"] if isinstance(dep["sources"], list) else [dep["sources"]]
+            elif dep.get("type") in [
+                "conditional_probability",
+                "conditional_numeric",
+                "linear_regression",
+                "numeric_to_categorical",
+            ]:
+                targets = (
+                    [dep["target"]] if isinstance(dep["target"], str) else dep["target"]
+                )
+                sources = (
+                    dep["sources"]
+                    if isinstance(dep["sources"], list)
+                    else [dep["sources"]]
+                )
                 for t in targets:
                     for s in sources:
                         adj[t].append(s)
@@ -62,8 +81,7 @@ class EnhancedDatasetGenerator(DatasetGenerator):
         frame = pd.DataFrame(index=range(row_count))
 
         # 2. Generate Multivariate Copula Data first
-        copula_success = True
-        if copula_cols and hasattr(profile, 'correlation_matrices'):
+        if copula_cols and hasattr(profile, "correlation_matrices"):
             corr_matrices = profile.correlation_matrices
             if corr_matrices and "spearman" in corr_matrices:
                 cols = corr_matrices.get("columns", [])
@@ -71,27 +89,45 @@ class EnhancedDatasetGenerator(DatasetGenerator):
                 cols = [c for c in cols if c in all_columns]
 
                 if len(cols) > 0:
-                    spearman_matrix = pd.DataFrame(corr_matrices["spearman"]).loc[cols, cols].fillna(0).values
+                    spearman_matrix = (
+                        pd.DataFrame(corr_matrices["spearman"])
+                        .loc[cols, cols]
+                        .fillna(0)
+                        .values
+                    )
 
                     cond_number = np.linalg.cond(spearman_matrix)
                     if cond_number > 1e10:
                         import logging
-                        logging.warning(f"Correlation matrix condition number is very high ({cond_number}). Adjusting to PSD.")
+
+                        logging.warning(
+                            f"Correlation matrix condition number is very high ({cond_number}). Adjusting to PSD."
+                        )
 
                     spearman_matrix = self._nearest_psd(spearman_matrix)
 
                     # Generate Z ~ N(0, R)
                     try:
-                        Z = self.rng.multivariate_normal(mean=np.zeros(len(cols)), cov=spearman_matrix, size=row_count)
+                        Z = self.rng.multivariate_normal(
+                            mean=np.zeros(len(cols)),
+                            cov=spearman_matrix,
+                            size=row_count,
+                        )
                         U = stats.norm.cdf(Z)
 
                         for i, col in enumerate(cols):
                             col_prof = profile.columns[col]
-                            frame[col] = self._inverse_transform_sample(U[:, i], col_prof)
+                            frame[col] = self._inverse_transform_sample(
+                                U[:, i], col_prof
+                            )
                     except Exception as e:
-                        import logging
-                        logging.error(f"Multivariate copula generation failed: {e}. Falling back to independent generation.")
-                        copula_success = False
+                        raise ValueError(
+                            f"Multivariate copula generation failed for profiled dependency columns: {e}"
+                        ) from e
+            elif copula_cols:
+                raise ValueError(
+                    "Profile dependency graph requires copula sampling, but correlation matrices are missing."
+                )
 
         # 3. Generate remaining independent columns, and then dependent ones
         for col in ordered_columns:
@@ -102,12 +138,20 @@ class EnhancedDatasetGenerator(DatasetGenerator):
                 frame[col] = self._generate_profile_column(col_profile, row_count)
 
             # Find dependencies where this column is the target (excluding copula)
-            col_deps = [d for d in dependency_graph if d.get("type") != "multivariate_copula" and
-                        ((isinstance(d.get("target"), str) and d.get("target") == col) or
-                         (isinstance(d.get("target"), list) and col in d.get("target")))]
+            col_deps = [
+                d
+                for d in dependency_graph
+                if d.get("type") != "multivariate_copula"
+                and (
+                    (isinstance(d.get("target"), str) and d.get("target") == col)
+                    or (isinstance(d.get("target"), list) and col in d.get("target"))
+                )
+            ]
 
             if col_deps:
-                frame[col] = self._apply_dependencies(frame[col], frame, col_deps, col_profile)
+                frame[col] = self._apply_dependencies(
+                    frame[col], frame, col_deps, col_profile
+                )
 
         realism_stats: dict[str, Any] = {
             "rule_impacts": {},
@@ -117,11 +161,13 @@ class EnhancedDatasetGenerator(DatasetGenerator):
 
         if realism_rules:
             from app.engine.realism_processor import RealismProcessor
+
             processor = RealismProcessor(faker=self.faker, rng=self.rng)
             frame, realism_stats = processor.apply_with_stats(frame, realism_rules)
 
         # Inject Nulls
         from app.engine.null_injector import inject_nulls
+
         for col in ordered_columns:
             null_pct = profile.columns[col].get("null_percentage", 0.0)
             frame[col] = inject_nulls(
@@ -132,7 +178,9 @@ class EnhancedDatasetGenerator(DatasetGenerator):
 
         return frame, realism_stats
 
-    def _inverse_transform_sample(self, u_values: np.ndarray, col_profile: Dict[str, Any]) -> pd.Series:
+    def _inverse_transform_sample(
+        self, u_values: np.ndarray, col_profile: Dict[str, Any]
+    ) -> pd.Series:
         """Sample from quantile data or histogram using inverse CDF (U is uniform [0,1])."""
         data_type = col_profile.get("data_type")
         dist = col_profile.get("distribution", {})
@@ -143,6 +191,10 @@ class EnhancedDatasetGenerator(DatasetGenerator):
             q_levels = np.linspace(0, 1, len(quantiles))
             sampled = np.interp(u_values, q_levels, quantiles)
         else:
+            if not dist:
+                raise ValueError(
+                    f"Missing learned distribution for profile column '{name}'."
+                )
             # Fallback to normal/uniform based on min/max/mean/std
             mean = dist.get("mean", 0.0)
             std = dist.get("std", 1.0)
@@ -160,7 +212,9 @@ class EnhancedDatasetGenerator(DatasetGenerator):
             series = series.round().astype(int)
         return series
 
-    def _topological_sort(self, columns: List[str], adj: Dict[str, List[str]]) -> List[str]:
+    def _topological_sort(
+        self, columns: List[str], adj: Dict[str, List[str]]
+    ) -> List[str]:
         """Sort columns so sources are generated before targets."""
         visited = set()
         temp_mark = set()
@@ -184,7 +238,9 @@ class EnhancedDatasetGenerator(DatasetGenerator):
 
         return order
 
-    def _generate_profile_column(self, col_profile: Dict[str, Any], row_count: int) -> pd.Series:
+    def _generate_profile_column(
+        self, col_profile: Dict[str, Any], row_count: int
+    ) -> pd.Series:
         """Generate a single column independently if copula isn't used."""
         data_type = col_profile.get("data_type")
         dist = col_profile.get("distribution", {})
@@ -200,7 +256,9 @@ class EnhancedDatasetGenerator(DatasetGenerator):
             if not categories:
                 categories = ["N/A"]
                 probabilities = [1.0]
-            values = sample_weighted_categories(categories, probabilities, row_count, self.rng)
+            values = sample_weighted_categories(
+                categories, probabilities, row_count, self.rng
+            )
             return pd.Series(values, name=name)
 
         if data_type == "date":
@@ -213,11 +271,32 @@ class EnhancedDatasetGenerator(DatasetGenerator):
 
         if data_type == "text":
             from app.engine.generators.text_generator import generate_text
+
+            return generate_text(name, {}, row_count, self.rng, self.faker)
+
+        if data_type == "semantic":
+            semantic_type = col_profile.get("semantic_type") or dist.get(
+                "semantic_type"
+            )
+            if semantic_type == "email":
+                return generate_email(name, row_count, self.faker)
+            if semantic_type == "name":
+                return generate_name(name, row_count, self.faker)
+            if semantic_type == "address":
+                return generate_address(name, row_count, self.faker)
+            from app.engine.generators.text_generator import generate_text
+
             return generate_text(name, {}, row_count, self.rng, self.faker)
 
         return pd.Series([None] * row_count, name=name)
 
-    def _apply_dependencies(self, series: pd.Series, frame: pd.DataFrame, deps: List[Dict], col_profile: Dict[str, Any]) -> pd.Series:
+    def _apply_dependencies(
+        self,
+        series: pd.Series,
+        frame: pd.DataFrame,
+        deps: List[Dict],
+        col_profile: Dict[str, Any],
+    ) -> pd.Series:
         """Modify series using advanced conditional models (CPTs, Regression, Conditional Numeric)."""
         for dep in deps:
             sources = dep.get("sources", [])
@@ -249,7 +328,9 @@ class EnhancedDatasetGenerator(DatasetGenerator):
                 series.loc[mask] = new_vals.loc[mask]
 
                 if col_profile.get("data_type") == "boolean":
-                    series = series.astype(str).str.lower().isin(["true", "1", "t", "yes"])
+                    series = (
+                        series.astype(str).str.lower().isin(["true", "1", "t", "yes"])
+                    )
 
             elif dep_type == "conditional_numeric":
                 cond_dists = model.get("distributions", {})
@@ -267,7 +348,9 @@ class EnhancedDatasetGenerator(DatasetGenerator):
                         return float(new_val)
                     return original_val
 
-                series = pd.Series([generate_cond(s, t) for s, t in zip(frame[source_col], series)])
+                series = pd.Series(
+                    [generate_cond(s, t) for s, t in zip(frame[source_col], series)]
+                )
 
             elif dep_type == "numeric_to_categorical":
                 bins = model.get("bins", [])
@@ -279,7 +362,7 @@ class EnhancedDatasetGenerator(DatasetGenerator):
                         return None
                     # Find which bin this value falls into
                     for i in range(len(bins) - 1):
-                        if bins[i] <= val <= bins[i+1]:
+                        if bins[i] <= val <= bins[i + 1]:
                             key = f"{bins[i]},{bins[i+1]}"
                             if key in cpt:
                                 probs = cpt[key]
@@ -293,7 +376,9 @@ class EnhancedDatasetGenerator(DatasetGenerator):
                 series.loc[mask] = new_vals.loc[mask]
 
                 if col_profile.get("data_type") == "boolean":
-                    series = series.astype(str).str.lower().isin(["true", "1", "t", "yes"])
+                    series = (
+                        series.astype(str).str.lower().isin(["true", "1", "t", "yes"])
+                    )
 
             elif dep_type == "linear_regression":
                 coeffs = model.get("coefficients", {})

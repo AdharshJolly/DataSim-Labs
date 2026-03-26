@@ -3,10 +3,12 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict
 
+
 def _parse_datetime(value: Any) -> datetime:
     if isinstance(value, datetime):
         return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
     return datetime.now(timezone.utc)
+
 
 @dataclass(slots=True)
 class DataProfile:
@@ -16,6 +18,7 @@ class DataProfile:
     dependency_graph: list[Dict[str, Any]]
     correlation_matrices: Dict[str, Any]
     row_count: int
+    metadata: Dict[str, Any]
     created_at: datetime
 
     @classmethod
@@ -26,6 +29,7 @@ class DataProfile:
         dependency_graph: list[Dict[str, Any]],
         correlation_matrices: Dict[str, Any],
         row_count: int,
+        metadata: Dict[str, Any] | None = None,
     ) -> "DataProfile":
         return cls(
             id=uuid.uuid4(),
@@ -34,6 +38,7 @@ class DataProfile:
             dependency_graph=dependency_graph,
             correlation_matrices=correlation_matrices,
             row_count=row_count,
+            metadata=metadata or {},
             created_at=datetime.now(timezone.utc),
         )
 
@@ -46,6 +51,7 @@ class DataProfile:
             dependency_graph=document.get("dependency_graph", []),
             correlation_matrices=document.get("correlation_matrices", {}),
             row_count=document.get("row_count", 0),
+            metadata=document.get("metadata", {}),
             created_at=_parse_datetime(document.get("created_at")),
         )
 
@@ -57,5 +63,6 @@ class DataProfile:
             "dependency_graph": self.dependency_graph,
             "correlation_matrices": self.correlation_matrices,
             "row_count": self.row_count,
+            "metadata": self.metadata,
             "created_at": self.created_at,
         }

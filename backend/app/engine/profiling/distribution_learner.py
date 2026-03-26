@@ -3,8 +3,15 @@ import numpy as np
 from scipy import stats
 from typing import Dict, Any
 
+
 class DistributionLearner:
-    def learn_distribution(self, series: pd.Series, data_type: str) -> Dict[str, Any]:
+    def learn_distribution(
+        self,
+        series: pd.Series,
+        data_type: str,
+        column_name: str | None = None,
+        semantic_type: str | None = None,
+    ) -> Dict[str, Any]:
         """Learn statistical distribution for a series based on its data type."""
         if data_type in ["integer", "float"]:
             return self._learn_numeric_distribution(series)
@@ -14,12 +21,60 @@ class DistributionLearner:
             return self._learn_date_distribution(series)
         elif data_type == "text":
             return self._learn_text_distribution(series)
+        elif data_type == "semantic":
+            return self._learn_semantic_distribution(series, column_name, semantic_type)
         return {}
+
+    def _learn_semantic_distribution(
+        self,
+        series: pd.Series,
+        column_name: str | None,
+        semantic_type: str | None,
+    ) -> Dict[str, Any]:
+        detected_type = semantic_type or self._infer_semantic_type_from_name(
+            column_name
+        )
+        faker_generator = {
+            "email": "faker.email",
+            "name": "faker.name",
+            "address": "faker.address",
+        }.get(detected_type, "faker.text")
+
+        lengths = (
+            series.astype(str).str.len() if len(series) > 0 else pd.Series(dtype=float)
+        )
+        return {
+            "type": "semantic",
+            "semantic_type": detected_type or "generic",
+            "generator": faker_generator,
+            "min_length": float(lengths.min()) if len(lengths) else 0.0,
+            "max_length": float(lengths.max()) if len(lengths) else 0.0,
+            "mean_length": float(lengths.mean()) if len(lengths) else 0.0,
+        }
+
+    def _infer_semantic_type_from_name(self, column_name: str | None) -> str | None:
+        if not column_name:
+            return None
+        name = str(column_name).strip().lower()
+        if "email" in name or name.endswith("mail"):
+            return "email"
+        if "address" in name or "addr" in name:
+            return "address"
+        if "name" in name:
+            return "name"
+        return None
 
     def _learn_numeric_distribution(self, series: pd.Series) -> Dict[str, Any]:
         """Learn mean, std, min, max, skewness, and infer distribution type using histograms and quantiles."""
         if len(series) == 0:
-            return {"type": "uniform", "min": 0.0, "max": 1.0, "mean": 0.5, "std": 0.0, "skewness": 0.0}
+            return {
+                "type": "uniform",
+                "min": 0.0,
+                "max": 1.0,
+                "mean": 0.5,
+                "std": 0.0,
+                "skewness": 0.0,
+            }
 
         profile = {
             "min": float(series.min()),
@@ -38,7 +93,7 @@ class DistributionLearner:
 
             # Histogram-based distribution learning
             try:
-                counts, bin_edges = np.histogram(valid_series, bins='auto')
+                counts, bin_edges = np.histogram(valid_series, bins="auto")
                 if len(counts) > 100:
                     counts, bin_edges = np.histogram(valid_series, bins=100)
 
@@ -46,7 +101,7 @@ class DistributionLearner:
                 profile["histogram"] = {
                     "counts": counts.tolist(),
                     "probabilities": probabilities.tolist(),
-                    "bin_edges": bin_edges.tolist()
+                    "bin_edges": bin_edges.tolist(),
                 }
             except Exception:
                 pass
@@ -54,11 +109,17 @@ class DistributionLearner:
         # Infer distribution type (normal, uniform, skewed, histogram)
         if len(valid_series) >= 8:
             if profile["max"] > profile["min"]:
-                _, p_uniform = stats.kstest(valid_series, 'uniform', args=(profile["min"], profile["max"] - profile["min"]))
+                _, p_uniform = stats.kstest(
+                    valid_series,
+                    "uniform",
+                    args=(profile["min"], profile["max"] - profile["min"]),
+                )
             else:
                 p_uniform = 0.0
 
-            sample = valid_series if len(valid_series) <= 5000 else valid_series.sample(5000)
+            sample = (
+                valid_series if len(valid_series) <= 5000 else valid_series.sample(5000)
+            )
             try:
                 _, p_normal = stats.shapiro(sample)
             except ValueError:
@@ -66,7 +127,9 @@ class DistributionLearner:
 
             if abs(profile["skewness"]) > 1.0:
                 profile["type"] = "skewed"
-                profile["skew_direction"] = "right" if profile["skewness"] > 0 else "left"
+                profile["skew_direction"] = (
+                    "right" if profile["skewness"] > 0 else "left"
+                )
             elif p_normal > 0.05:
                 profile["type"] = "normal"
             elif p_uniform > 0.05:
@@ -75,30 +138,40 @@ class DistributionLearner:
                 profile["type"] = "histogram"
 
             from scipy.stats import norm, expon, gamma
+
             # Note: kstest requires scipy's internal distribution string names.
             # "exponential" is NOT valid — scipy uses "expon".
             distributions_to_try = [
-                ("norm",  norm),
+                ("norm", norm),
                 ("gamma", gamma),
                 ("expon", expon),
             ]
             # Human-readable names for storage (separate from scipy string names)
-            dist_display_names = {"norm": "normal", "gamma": "gamma", "expon": "exponential"}
+            dist_display_names = {
+                "norm": "normal",
+                "gamma": "gamma",
+                "expon": "exponential",
+            }
 
             fit_results = {}
             for dist_key, dist_obj in distributions_to_try:
                 try:
                     params = dist_obj.fit(valid_series)
                     ks_stat, ks_p = stats.kstest(valid_series, dist_key, args=params)
-                    fit_results[dist_key] = {"params": list(params), "ks_p": float(ks_p)}
+                    fit_results[dist_key] = {
+                        "params": list(params),
+                        "ks_p": float(ks_p),
+                    }
                 except Exception:
                     pass
 
             # Choose best fit (highest ks_p)
             if fit_results:
                 best_key = max(fit_results, key=lambda d: fit_results[d]["ks_p"])
-                profile["best_fit"] = dist_display_names.get(best_key, best_key)  # human name
-                profile["best_fit_scipy_key"] = best_key                          # scipy name for kstest
+                profile["best_fit"] = dist_display_names.get(
+                    best_key, best_key
+                )  # human name
+                profile["best_fit_scipy_key"] = best_key  # scipy name for kstest
                 profile["fit_params"] = fit_results[best_key]["params"]
                 profile["fit_ks_p"] = fit_results[best_key]["ks_p"]
         else:
@@ -109,14 +182,19 @@ class DistributionLearner:
     def _learn_categorical_distribution(self, series: pd.Series) -> Dict[str, Any]:
         """Learn probabilities of each category."""
         if len(series) == 0:
-            return {"type": "weighted_categorical", "categories": [], "probabilities": [], "unique_count": 0}
+            return {
+                "type": "weighted_categorical",
+                "categories": [],
+                "probabilities": [],
+                "unique_count": 0,
+            }
 
         value_counts = series.value_counts(normalize=True)
         return {
             "type": "weighted_categorical",
             "categories": value_counts.index.tolist(),
             "probabilities": value_counts.values.tolist(),
-            "unique_count": len(value_counts)
+            "unique_count": len(value_counts),
         }
 
     def _learn_date_distribution(self, series: pd.Series) -> Dict[str, Any]:
@@ -124,13 +202,13 @@ class DistributionLearner:
         if len(series) == 0:
             return {}
 
-        dates = pd.to_datetime(series, errors='coerce').dropna()
+        dates = pd.to_datetime(series, errors="coerce").dropna()
         if len(dates) == 0:
             return {}
 
         return {
             "min_date": dates.min().isoformat(),
-            "max_date": dates.max().isoformat()
+            "max_date": dates.max().isoformat(),
         }
 
     def _learn_text_distribution(self, series: pd.Series) -> Dict[str, Any]:
@@ -142,5 +220,5 @@ class DistributionLearner:
         return {
             "min_length": float(lengths.min()),
             "max_length": float(lengths.max()),
-            "mean_length": float(lengths.mean())
+            "mean_length": float(lengths.mean()),
         }

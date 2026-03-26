@@ -1,123 +1,161 @@
 import copy
-import numpy as np
-import pandas as pd
-from typing import Dict, Any, Tuple
+from typing import Any, Dict
 
-from app.models.data_profile import DataProfile
+import pandas as pd
+
 from app.engine.enhanced_generator import EnhancedDatasetGenerator
 from app.engine.profiling.validator import StatisticalValidator
+from app.models.data_profile import DataProfile
+
 
 class RefinementEngine:
+    def __init__(self, learning_rate: float = 0.2) -> None:
+        self.learning_rate = max(0.05, min(0.5, learning_rate))
+
     def refine(
         self,
         profile: DataProfile,
+        row_count: int,
         max_iterations: int = 3,
-        target_realism_score: int = 85
-    ) -> Tuple[DataProfile, Dict[str, Any]]:
-        """Run an adaptive feedback loop to retune distributions based on validation errors."""
+        seed: int | None = None,
+        drift_threshold: float = 0.15,
+    ) -> Dict[str, Any]:
+        """Run profile-guided refinement until drift is acceptable or max iterations are reached."""
         validator = StatisticalValidator()
-        current_profile = copy.deepcopy(profile)
-        final_report = {}
-        best_score = -1
-        best_profile = current_profile
+        working_profile = copy.deepcopy(profile)
+
+        history: list[dict[str, Any]] = []
+        best_score = -1.0
+        best_profile = working_profile
+        best_report: Dict[str, Any] = {}
+        previous_score: float | None = None
 
         for iteration in range(max_iterations):
-            # 1. Generate a sample batch (e.g., 2000 rows)
-            generator = EnhancedDatasetGenerator(seed=42 + iteration)
-            sample_df = generator.generate_from_profile(profile=current_profile, row_count=2000)
+            generator = EnhancedDatasetGenerator(
+                seed=None if seed is None else seed + iteration
+            )
+            generated_df = generator.generate_from_profile(
+                profile=working_profile,
+                row_count=row_count,
+            )
 
-            # 2. Run the validator
             report = validator.validate(
-                generated_df=sample_df,
-                column_profiles=current_profile.columns,
-                correlation_target=getattr(current_profile, 'correlation_matrices', None)
+                generated_df=generated_df,
+                column_profiles=working_profile.columns,
+                correlation_target=working_profile.correlation_matrices,
             )
 
-            current_score = report.get("realism_score", 0)
-            if current_score is not None and current_score > best_score:
-                best_score = current_score
-                best_profile = copy.deepcopy(current_profile)
-                final_report = report
+            score = float(report.get("score", 0.0))
+            if score > best_score:
+                best_score = score
+                best_profile = copy.deepcopy(working_profile)
+                best_report = report
 
-            # 4. Stop early if realism score is high enough or all passed
-            if report.get("passed", False) and current_score is not None and current_score >= target_realism_score:
-                break
+            drift_metrics = self._compute_drift_metrics(report)
+            max_drift = drift_metrics.get("max_drift", 0.0)
+            improvement = (
+                None if previous_score is None else round(score - previous_score, 4)
+            )
+            previous_score = score
 
-            if iteration == max_iterations - 1:
-                break
-
-            # 3. Adjust parameters based on failures
-            new_columns = copy.deepcopy(current_profile.columns)
-            new_correlation_matrices = copy.deepcopy(getattr(current_profile, 'correlation_matrices', {}))
-
-            # Adjust Numeric Columns failing KS Test
-            for col_name, ks_res in report.get("ks_tests", {}).items():
-                if not ks_res.get("passed", True):
-                    dist = new_columns[col_name].get("distribution", {})
-                    if dist:
-                        target_mean = dist.get("mean", 0.0)
-                        target_std = dist.get("std", 1.0) or 1.0
-                        gen_mean = sample_df[col_name].mean()
-                        gen_std = sample_df[col_name].std()
-
-                        # Shift mean down/up by 5% of std
-                        if gen_mean > target_mean:
-                            dist["mean"] = target_mean - (0.05 * target_std)
-                        elif gen_mean < target_mean:
-                            dist["mean"] = target_mean + (0.05 * target_std)
-
-                        # Shrink/Grow std by 10%
-                        if gen_std > target_std * 1.1:
-                            dist["std"] = target_std * 0.9
-                        elif gen_std < target_std * 0.9:
-                            dist["std"] = target_std * 1.1
-
-            # Adjust Categorical Columns failing KL Divergence
-            for col_name, kl_res in report.get("kl_divergence", {}).items():
-                if not kl_res.get("passed", True):
-                    dist = new_columns[col_name].get("distribution", {})
-                    if dist and "categories" in dist and "probabilities" in dist:
-                        target_probs = dist["probabilities"]
-                        categories = dist["categories"]
-                        syn_counts = sample_df[col_name].value_counts(normalize=True)
-
-                        new_probs = []
-                        for cat, current_prob in zip(categories, target_probs):
-                            gen_prob = syn_counts.get(cat, 0.0)
-                            weight_adjustment = 0.3 * (current_prob - gen_prob)
-                            new_weight = max(current_prob + weight_adjustment, 1e-6)
-                            new_probs.append(new_weight)
-
-                        # Re-normalize
-                        total_prob = sum(new_probs)
-                        dist["probabilities"] = [p / total_prob for p in new_probs]
-
-            # Adjust Correlation Error
-            corr_err = report.get("correlation_error", {})
-            if corr_err and not corr_err.get("passed", True):
-                if new_correlation_matrices and "spearman" in new_correlation_matrices:
-                    cols = new_correlation_matrices.get("columns", [])
-                    cols = [c for c in cols if c in sample_df.columns]
-                    if len(cols) > 1:
-                        target_corr = pd.DataFrame(new_correlation_matrices["spearman"]).loc[cols, cols].values
-                        gen_corr = sample_df[cols].astype(float).corr(method='spearman').fillna(0).values
-
-                        # Blended correlation: 0.7 * current_corr + 0.3 * target_corr
-                        blended_corr = 0.7 * gen_corr + 0.3 * target_corr
-                        np.fill_diagonal(blended_corr, 1.0)
-
-                        adjusted_df = pd.DataFrame(blended_corr, index=cols, columns=cols)
-                        orig_spearman_df = pd.DataFrame(new_correlation_matrices["spearman"])
-                        orig_spearman_df.update(adjusted_df)
-                        new_correlation_matrices["spearman"] = orig_spearman_df.to_dict()
-
-            # Update the profile for the next iteration
-            current_profile = DataProfile.new(
-                dataset_version_id=current_profile.dataset_version_id,
-                columns=new_columns,
-                dependency_graph=copy.deepcopy(current_profile.dependency_graph),
-                correlation_matrices=new_correlation_matrices,
-                row_count=current_profile.row_count
+            history.append(
+                {
+                    "iteration": iteration + 1,
+                    "score": round(score, 4),
+                    "status": report.get("status", "unknown"),
+                    "max_drift": round(max_drift, 4),
+                    "improvement": improvement,
+                }
             )
 
-        return best_profile, final_report
+            if max_drift <= drift_threshold and report.get("passed", False):
+                break
+
+            if iteration < max_iterations - 1:
+                working_profile = self._refine_profile_parameters(
+                    profile=working_profile,
+                    report=report,
+                    generated_df=generated_df,
+                )
+
+        return {
+            "profile": best_profile,
+            "validation_report": best_report,
+            "history": history,
+            "iterations_used": len(history),
+        }
+
+    def _compute_drift_metrics(self, report: Dict[str, Any]) -> Dict[str, float]:
+        max_drift = 0.0
+
+        for item in report.get("column_comparisons", {}).values():
+            if item.get("type") == "numeric":
+                max_drift = max(
+                    max_drift,
+                    float(item.get("mean_drift", 0.0)),
+                    float(item.get("std_drift", 0.0)),
+                )
+            if item.get("type") == "categorical":
+                max_drift = max(max_drift, float(item.get("l1_drift", 0.0)))
+
+        corr_err = report.get("correlation_error", {})
+        max_drift = max(max_drift, float(corr_err.get("max_pair_error", 0.0) or 0.0))
+
+        return {"max_drift": max_drift}
+
+    def _refine_profile_parameters(
+        self,
+        profile: DataProfile,
+        report: Dict[str, Any],
+        generated_df: pd.DataFrame,
+    ) -> DataProfile:
+        updated_columns = copy.deepcopy(profile.columns)
+
+        for col_name, comparison in report.get("column_comparisons", {}).items():
+            if col_name not in updated_columns:
+                continue
+
+            distribution = updated_columns[col_name].get("distribution", {})
+            if not isinstance(distribution, dict):
+                continue
+
+            if comparison.get("type") == "numeric":
+                target_mean = float(comparison.get("target_mean", 0.0))
+                generated_mean = float(comparison.get("generated_mean", target_mean))
+                target_std = float(comparison.get("target_std", 1.0) or 1.0)
+                generated_std = float(comparison.get("generated_std", target_std))
+
+                distribution["mean"] = target_mean + self.learning_rate * (
+                    target_mean - generated_mean
+                )
+                distribution["std"] = max(
+                    1e-6,
+                    target_std + self.learning_rate * (target_std - generated_std),
+                )
+
+            if comparison.get("type") == "categorical":
+                categories = distribution.get("categories", [])
+                target_probs = distribution.get("probabilities", [])
+                if categories and target_probs and col_name in generated_df.columns:
+                    observed = generated_df[col_name].value_counts(normalize=True)
+                    adjusted: list[float] = []
+                    for category, current_prob in zip(categories, target_probs):
+                        observed_prob = float(observed.get(category, 0.0))
+                        adjusted_prob = float(current_prob) + self.learning_rate * (
+                            float(current_prob) - observed_prob
+                        )
+                        adjusted.append(max(adjusted_prob, 1e-6))
+
+                    total = sum(adjusted)
+                    distribution["probabilities"] = [
+                        value / total for value in adjusted
+                    ]
+
+        return DataProfile.new(
+            dataset_version_id=profile.dataset_version_id,
+            columns=updated_columns,
+            dependency_graph=copy.deepcopy(profile.dependency_graph),
+            correlation_matrices=copy.deepcopy(profile.correlation_matrices),
+            row_count=profile.row_count,
+            metadata=copy.deepcopy(profile.metadata),
+        )

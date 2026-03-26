@@ -207,12 +207,26 @@ class DatasetGenerator:
             for attr in attributes:
                 dist_profile: dict[str, Any] = {
                     "type": attr.distribution,
-                    "mean": float(attr.constraints.get("mean",
-                                 (float(attr.constraints.get("min", 0)) +
-                                  float(attr.constraints.get("max", 100))) / 2)),
-                    "std": float(attr.constraints.get("std",
-                                (float(attr.constraints.get("max", 100)) -
-                                 float(attr.constraints.get("min", 0))) / 6)),
+                    "mean": float(
+                        attr.constraints.get(
+                            "mean",
+                            (
+                                float(attr.constraints.get("min", 0))
+                                + float(attr.constraints.get("max", 100))
+                            )
+                            / 2,
+                        )
+                    ),
+                    "std": float(
+                        attr.constraints.get(
+                            "std",
+                            (
+                                float(attr.constraints.get("max", 100))
+                                - float(attr.constraints.get("min", 0))
+                            )
+                            / 6,
+                        )
+                    ),
                     "min": float(attr.constraints.get("min", 0)),
                     "max": float(attr.constraints.get("max", 100)),
                 }
@@ -256,10 +270,17 @@ class DatasetGenerator:
             )
         except Exception as _val_exc:
             import logging as _log
-            _log.getLogger(__name__).warning("Validation step failed (non-fatal): %s", _val_exc)
+
+            _log.getLogger(__name__).warning(
+                "Validation step failed (non-fatal): %s", _val_exc
+            )
         # ─────────────────────────────────────────────────────────────────────────────
 
-        return {"files": outputs, "quality_report": quality_report, "validation_summary": validation_summary}
+        return {
+            "files": outputs,
+            "quality_report": quality_report,
+            "validation_summary": validation_summary,
+        }
 
     def _generate_column(self, attr: AttributeSpec, row_count: int) -> pd.Series:
         """Dispatch one attribute to its dedicated generator."""
@@ -293,6 +314,17 @@ class DatasetGenerator:
             return generate_name(attr.name, row_count, self.faker)
         if data_type == "address":
             return generate_address(attr.name, row_count, self.faker)
+        if data_type == "semantic":
+            semantic_kind = str(constraints.get("semantic_type", "")).lower()
+            if semantic_kind == "email":
+                return generate_email(attr.name, row_count, self.faker)
+            if semantic_kind == "name":
+                return generate_name(attr.name, row_count, self.faker)
+            if semantic_kind == "address":
+                return generate_address(attr.name, row_count, self.faker)
+            return generate_text(
+                attr.name, constraints, row_count, self.rng, self.faker
+            )
 
         raise ValueError(f"Unsupported data type: {data_type}")
 
