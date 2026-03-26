@@ -11,15 +11,11 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
-REPO_ROOT = BACKEND_DIR.parent
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=(
-            str(BACKEND_DIR / ".env"),
-            str(REPO_ROOT / ".env"),
-        ),
+        env_file=(str(BACKEND_DIR / ".env"),),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
