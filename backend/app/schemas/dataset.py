@@ -235,8 +235,31 @@ class GenerateRequest(BaseModel):
     formats: list[str] = Field(default_factory=lambda: ["csv"])
     seed: int | None = Field(default=None, ge=0)
     drift_profile: DriftProfile | None = None
-    enable_refinement: bool = Field(default=False, description="Enable adaptive feedback refinement loop")
+    enable_refinement: bool = Field(
+        default=False, description="Enable adaptive feedback refinement loop"
+    )
     max_refinement_iterations: int = Field(default=3, ge=1, le=5)
+
+
+class GenerationPreflightIssue(BaseModel):
+    level: str
+    code: str
+    message: str
+
+
+class GenerationPreflightRequest(BaseModel):
+    dataset_id: UUID
+    dataset_version_id: UUID | None = None
+    row_count: int = Field(..., ge=1, le=10000000)
+    formats: list[str] = Field(default_factory=lambda: ["csv"])
+
+
+class GenerationPreflightResponse(BaseModel):
+    ok: bool
+    requires_async: bool
+    estimated_cells: int
+    estimated_output_bytes: int
+    issues: list[GenerationPreflightIssue]
 
 
 class GeneratedFileInfo(BaseModel):

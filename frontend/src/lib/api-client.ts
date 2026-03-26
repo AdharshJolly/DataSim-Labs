@@ -14,10 +14,27 @@ export function clearAuthToken(): void {
 async function parseApiError(response: Response): Promise<string> {
   try {
     const payload = (await response.json()) as {
+      success?: boolean;
+      error?:
+        | string
+        | {
+            code?: string;
+            message?: string;
+            request_id?: string;
+          };
       detail?: string | { message?: string };
       message?: string;
-      error?: string;
     };
+    if (
+      payload.success === false &&
+      typeof payload.error === "object" &&
+      payload.error?.message
+    ) {
+      const requestId = payload.error.request_id
+        ? ` [request_id=${payload.error.request_id}]`
+        : "";
+      return `${payload.error.message}${requestId}`;
+    }
     if (typeof payload.detail === "string") return payload.detail;
     if (typeof payload.detail === "object" && payload.detail?.message) {
       return payload.detail.message;
@@ -236,6 +253,20 @@ export interface GenerateRequest {
   };
   enable_refinement?: boolean;
   max_refinement_iterations?: number;
+}
+
+export interface GenerationPreflightIssue {
+  level: string;
+  code: string;
+  message: string;
+}
+
+export interface GenerationPreflightResponse {
+  ok: boolean;
+  requires_async: boolean;
+  estimated_cells: number;
+  estimated_output_bytes: number;
+  issues: GenerationPreflightIssue[];
 }
 
 export interface GeneratedFileInfo {
@@ -512,6 +543,20 @@ export function generateDataset(
   return apiRequest<GenerateResponse>("/api/v1/dataset/generate", {
     method: "POST",
     body: JSON.stringify(payload),
+  });
+}
+
+export function generationPreflight(
+  payload: GenerateRequest,
+): Promise<GenerationPreflightResponse> {
+  return apiRequest<GenerationPreflightResponse>("/api/v1/dataset/preflight", {
+    method: "POST",
+    body: JSON.stringify({
+      dataset_id: payload.dataset_id,
+      dataset_version_id: payload.dataset_version_id,
+      row_count: payload.row_count,
+      formats: payload.formats,
+    }),
   });
 }
 

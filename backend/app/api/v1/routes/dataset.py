@@ -29,6 +29,8 @@ from app.schemas.dataset import (
     GenerationJobResponse,
     GenerateRequest,
     GenerateResponse,
+    GenerationPreflightRequest,
+    GenerationPreflightResponse,
     RetryGenerationJobResponse,
     PreviewRequest,
     PreviewResponse,
@@ -36,6 +38,27 @@ from app.schemas.dataset import (
 from app.services.dataset_service import DatasetService
 
 router = APIRouter(prefix="/dataset", tags=["dataset"])
+
+
+@router.post("/preflight", response_model=GenerationPreflightResponse)
+def generation_preflight(
+    payload: GenerationPreflightRequest,
+    db: Database = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> GenerationPreflightResponse:
+    try:
+        preflight = DatasetService.preflight_generation(
+            db=db,
+            user_id=current_user.id,
+            dataset_id=payload.dataset_id,
+            dataset_version_id=payload.dataset_version_id,
+            row_count=payload.row_count,
+            formats=payload.formats,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return GenerationPreflightResponse.model_validate(preflight)
 
 
 @router.post("/create")
@@ -306,7 +329,14 @@ def download_dataset(
         )
         if file_path is None:
             raise HTTPException(status_code=404, detail="Generated file not found")
-        return FileResponse(path=file_path, filename=file_path.name)
+
+        dataset_dir = (output_root / str(dataset_id)).resolve()
+        resolved_file = file_path.resolve()
+        if resolved_file.parent != dataset_dir:
+            raise HTTPException(status_code=400, detail="Unsafe file path")
+
+        safe_name = DatasetService.sanitize_download_filename(file_path.name)
+        return FileResponse(path=resolved_file, filename=safe_name)
 
     files = DatasetService.list_generated_files(
         dataset_id=dataset_id, output_root=output_root
@@ -454,8 +484,10 @@ def update_dataset_status(
         updated_at=dataset.updated_at.isoformat(),
     )
 
+
 from fastapi import File, UploadFile
 from app.services.profile_service import ProfileService
+
 
 @router.post("/{dataset_version_id}/profile/upload")
 def upload_dataset_profile(
@@ -466,13 +498,12 @@ def upload_dataset_profile(
 ):
     try:
         profile = ProfileService.process_and_save_profile(
-            db=db,
-            dataset_version_id=dataset_version_id,
-            file=file
+            db=db, dataset_version_id=dataset_version_id, file=file
         )
         return {"message": "Profile learned successfully", "profile": profile}
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
 
 @router.get("/{dataset_version_id}/profile")
 def get_dataset_profile(
@@ -482,12 +513,12 @@ def get_dataset_profile(
 ):
     try:
         profile = ProfileService.get_profile(
-            db=db,
-            dataset_version_id=dataset_version_id
+            db=db, dataset_version_id=dataset_version_id
         )
         return profile
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
 
 @router.post("/{dataset_version_id}/profile/generate")
 def generate_from_profile(
@@ -506,18 +537,21 @@ def generate_from_profile(
             row_count=row_count,
             seed=seed,
             enable_feedback_loop=enable_feedback_loop,
-            max_iterations=max_iterations
+            max_iterations=max_iterations,
         )
         return response_data
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+
 from pydantic import BaseModel
 from app.services.template_service import TemplateService
 from app.services.copilot_service import CoPilotService
 
+
 class CopilotRequest(BaseModel):
     prompt: str
+
 
 @router.get("/templates")
 def get_templates(
@@ -525,8 +559,9 @@ def get_templates(
 ):
     return {
         "templates": TemplateService.get_all_templates(),
-        "personas": TemplateService.get_all_personas()
+        "personas": TemplateService.get_all_personas(),
     }
+
 
 @router.post("/copilot/generate-profile")
 def copilot_generate_profile(

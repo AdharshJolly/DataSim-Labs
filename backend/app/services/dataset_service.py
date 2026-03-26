@@ -174,6 +174,7 @@ class DatasetService:
         dataset_version_id: uuid.UUID | None = None,
         retention_hours: int = 24,
         drift_profile: dict[str, Any] | None = None,
+        enforce_sync_limits: bool = True,
     ) -> dict[str, Any]:
         """Generate and export full datasets for a dataset's latest version."""
         dataset_doc = db["datasets"].find_one(
@@ -197,6 +198,19 @@ class DatasetService:
         attributes = DatasetService._load_version_attributes(db, target_version_id)
         if not attributes:
             raise ValueError("Dataset version has no attributes")
+
+        preflight = DatasetService.preflight_generation(
+            db=db,
+            user_id=user_id,
+            dataset_id=dataset_id,
+            dataset_version_id=target_version_id,
+            row_count=row_count,
+            formats=formats,
+        )
+        if enforce_sync_limits and preflight.get("requires_async"):
+            raise ValueError(
+                "Requested generation is too large for sync mode. Use /generate-async for this payload."
+            )
 
         realism_config = owned_version.config_json.get("realism")
         if isinstance(realism_config, dict) and isinstance(
@@ -282,6 +296,87 @@ class DatasetService:
         generation_result["quality_guardrails"] = quality_guardrails
         generation_result["drift_simulation"] = drift_profile or {"enabled": False}
         return generation_result
+
+    @staticmethod
+    def preflight_generation(
+        db: Database,
+        user_id: uuid.UUID,
+        dataset_id: uuid.UUID,
+        row_count: int,
+        formats: list[str],
+        dataset_version_id: uuid.UUID | None = None,
+    ) -> dict[str, Any]:
+        dataset = DatasetService.get_dataset(
+            db=db, user_id=user_id, dataset_id=dataset_id
+        )
+
+        target_version_id = dataset_version_id or dataset.latest_version_id
+        if target_version_id is None:
+            raise ValueError("Dataset has no attribute configuration")
+
+        version_doc = db["dataset_versions"].find_one(
+            {"_id": str(target_version_id), "dataset_id": str(dataset.id)}
+        )
+        if version_doc is None:
+            raise ValueError("Dataset version not found")
+
+        attributes = DatasetService._load_version_attributes(db, target_version_id)
+        if not attributes:
+            raise ValueError("Dataset version has no attributes")
+
+        estimated_cells = int(max(1, row_count) * max(1, len(attributes)))
+        estimated_output_bytes = DatasetService._estimate_dataset_size_bytes(
+            row_count=row_count,
+            attributes=attributes,
+            formats=formats,
+        )
+
+        issues: list[dict[str, str]] = []
+        if row_count > settings.generation_sync_row_limit:
+            issues.append(
+                {
+                    "level": "warning",
+                    "code": "row_limit",
+                    "message": (
+                        f"Row count {row_count} exceeds sync limit "
+                        f"{settings.generation_sync_row_limit}."
+                    ),
+                }
+            )
+
+        if estimated_cells > settings.generation_sync_cell_limit:
+            issues.append(
+                {
+                    "level": "warning",
+                    "code": "cell_limit",
+                    "message": (
+                        f"Estimated cell count {estimated_cells} exceeds sync limit "
+                        f"{settings.generation_sync_cell_limit}."
+                    ),
+                }
+            )
+
+        max_bytes = settings.generation_estimated_output_mb_limit * 1024 * 1024
+        if estimated_output_bytes > max_bytes:
+            issues.append(
+                {
+                    "level": "warning",
+                    "code": "estimated_output_size",
+                    "message": (
+                        "Estimated output size exceeds configured sync safety limit "
+                        f"({settings.generation_estimated_output_mb_limit} MB)."
+                    ),
+                }
+            )
+
+        requires_async = bool(issues)
+        return {
+            "ok": not requires_async,
+            "requires_async": requires_async,
+            "estimated_cells": estimated_cells,
+            "estimated_output_bytes": estimated_output_bytes,
+            "issues": issues,
+        }
 
     @staticmethod
     def create_generation_job(
@@ -663,6 +758,14 @@ class DatasetService:
         return candidates[0] if candidates else None
 
     @staticmethod
+    def sanitize_download_filename(file_name: str) -> str:
+        """Sanitize user-facing download name to avoid unsafe path characters."""
+        safe = "".join(ch for ch in file_name if ch.isalnum() or ch in {"-", "_", "."})
+        if not safe or safe.startswith("."):
+            return "dataset_export"
+        return safe
+
+    @staticmethod
     def list_datasets(db: Database, user_id: uuid.UUID) -> list[Dataset]:
         """List all datasets owned by a user."""
         rows = (
@@ -901,6 +1004,46 @@ class DatasetService:
         }
         canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _estimate_dataset_size_bytes(
+        row_count: int,
+        attributes: list[AttributeSpec],
+        formats: list[str],
+    ) -> int:
+        """Rough output-size estimate used for generation preflight checks."""
+        per_type_bytes = {
+            "integer": 12,
+            "float": 16,
+            "categorical": 18,
+            "boolean": 6,
+            "date": 16,
+            "text": 28,
+            "email": 26,
+            "name": 22,
+            "address": 48,
+        }
+        bytes_per_row = 0
+        for attr in attributes:
+            bytes_per_row += per_type_bytes.get(attr.data_type, 20)
+
+        # Include rough separators/metadata overhead.
+        bytes_per_row += max(8, len(attributes) * 2)
+
+        format_multiplier = 0.0
+        clean_formats = {str(fmt).lower() for fmt in formats}
+        if "csv" in clean_formats:
+            format_multiplier += 1.0
+        if "json" in clean_formats:
+            format_multiplier += 1.25
+        if "jsonl" in clean_formats:
+            format_multiplier += 1.2
+        if "excel" in clean_formats:
+            format_multiplier += 1.35
+        if format_multiplier == 0:
+            format_multiplier = 1.0
+
+        return int(max(1, row_count) * bytes_per_row * format_multiplier)
 
     @staticmethod
     def _record_generation_run(db: Database, run_payload: dict[str, Any]) -> str:

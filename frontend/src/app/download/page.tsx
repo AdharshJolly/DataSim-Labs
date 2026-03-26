@@ -23,16 +23,33 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { useFeedback } from "@/components/ui/feedback-provider";
 
 export default function DownloadPage() {
+  const { pushToast, showErrorDialog } = useFeedback();
   const [datasetId, setDatasetId] = useState("");
   const [files, setFiles] = useState<GeneratedFileInfo[]>([]);
   const [status, setStatus] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
-  const [validationSummary, setValidationSummary] = useState<ValidationSummary | null>(null);
+  const [validationSummary, setValidationSummary] =
+    useState<ValidationSummary | null>(null);
+  const [allowLowQualityDownloads, setAllowLowQualityDownloads] =
+    useState(false);
 
   const hasFiles = useMemo(() => files.length > 0, [files.length]);
+  const validationPassed = validationSummary?.passed ?? true;
+
+  const notifyError = (title: string, err: unknown, fallback: string) => {
+    const message = err instanceof Error ? err.message : fallback;
+    setError(message);
+    pushToast({ title, message, intent: "error" });
+    showErrorDialog({
+      title,
+      message,
+      details: err instanceof Error ? err.stack : undefined,
+    });
+  };
 
   const loadFiles = async () => {
     if (!datasetId.trim()) {
@@ -49,11 +66,7 @@ export default function DownloadPage() {
         setStatus("No files generated for this dataset yet.");
       }
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Failed to fetch generated files",
-      );
+      notifyError("Load Files Failed", err, "Failed to fetch generated files");
     } finally {
       setIsLoading(false);
     }
@@ -74,7 +87,7 @@ export default function DownloadPage() {
       anchor.remove();
       URL.revokeObjectURL(url);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Download failed");
+      notifyError("Download Failed", err, "Download failed");
     }
   };
 
@@ -92,7 +105,9 @@ export default function DownloadPage() {
 
     // Load cached validation summary if present
     try {
-      const storedValidation = localStorage.getItem("datasim:validation_summary");
+      const storedValidation = localStorage.getItem(
+        "datasim:validation_summary",
+      );
       if (storedValidation) {
         setValidationSummary(JSON.parse(storedValidation));
       }
@@ -198,7 +213,10 @@ export default function DownloadPage() {
                   className="transition-colors hover:bg-white/5"
                 >
                   <td className="px-6 py-4">
-                    <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary uppercase tracking-tighter">
+                    <Badge
+                      variant="outline"
+                      className="border-primary/30 bg-primary/10 text-primary uppercase tracking-tighter"
+                    >
                       {file.format}
                     </Badge>
                   </td>
@@ -217,6 +235,7 @@ export default function DownloadPage() {
                       variant="cyber"
                       size="sm"
                       className="h-9 px-4 text-xs"
+                      disabled={!validationPassed && !allowLowQualityDownloads}
                       onClick={() => void onDownload(file.format)}
                     >
                       <Download className="mr-1.5 h-3 w-3" />
@@ -228,7 +247,27 @@ export default function DownloadPage() {
             </tbody>
           </table>
         </Card>
-      ) : datasetId.trim() && !isLoading ? (
+      ) : null}
+
+      {!validationPassed ? (
+        <Alert>
+          <AlertTriangle className="h-5 w-5" />
+          <AlertDescription className="space-y-2">
+            <p>
+              Validation checks flagged this dataset as low-confidence. Review
+              the dashboard before downloading.
+            </p>
+            <label className="inline-flex items-center gap-2 text-xs">
+              <input
+                type="checkbox"
+                checked={allowLowQualityDownloads}
+                onChange={(e) => setAllowLowQualityDownloads(e.target.checked)}
+              />
+              I understand the quality risk and want to continue.
+            </label>
+          </AlertDescription>
+        </Alert>
+      ) : datasetId.trim() && !isLoading && !hasFiles ? (
         <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-dashed border-border py-20 text-center">
           <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted/20 text-muted-foreground">
             <FileText className="h-6 w-6" />
@@ -237,17 +276,13 @@ export default function DownloadPage() {
             No files found for this dataset. Generate some first.
           </p>
           <Button asChild variant="cyber" className="h-10">
-            <Link href={`/studio?datasetId=${datasetId}`}>
-              Go to Studio
-            </Link>
+            <Link href={`/studio?datasetId=${datasetId}`}>Go to Studio</Link>
           </Button>
         </div>
       ) : null}
 
       {/* Validation Dashboard */}
-      {validationSummary && (
-        <ValidationDashboard report={validationSummary} />
-      )}
+      {validationSummary && <ValidationDashboard report={validationSummary} />}
     </div>
   );
 }

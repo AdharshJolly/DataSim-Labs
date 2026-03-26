@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pymongo.database import Database
 from pymongo.errors import PyMongoError
@@ -16,6 +18,12 @@ from app.auth.schemas import (
     RefreshTokenRequest,
     TokenRefreshResponse,
 )
+from app.auth.rate_limit import (
+    LOGIN_POLICY,
+    REFRESH_POLICY,
+    REGISTER_POLICY,
+    rate_limiter,
+)
 from app.auth.security import (
     create_access_token,
     create_refresh_token,
@@ -24,9 +32,17 @@ from app.auth.security import (
     verify_password,
     InvalidTokenError,
 )
+from app.core.config import settings
 from app.db.session import get_db
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+def _client_key(request: Request, route_name: str, identity: str = "") -> str:
+    forwarded_for = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+    client_ip = forwarded_for or (request.client.host if request.client else "unknown")
+    ident = identity.strip().lower() if identity else "anonymous"
+    return f"{route_name}:{client_ip}:{ident}"
 
 
 def _set_auth_cookies(
@@ -80,11 +96,17 @@ def _raise_database_unavailable() -> None:
 @router.post("/register", response_model=AuthResponse)
 def register_user(
     payload: RegisterRequest,
+    request: Request,
     response: Response,
     db: Database = Depends(get_db),
 ) -> AuthResponse:
     """Register a new user account and return JWT token."""
     normalized_email = payload.email.strip().lower()
+    rate_limiter.check(
+        _client_key(request, "register", normalized_email),
+        REGISTER_POLICY,
+    )
+
     try:
         existing_user = db["users"].find_one({"email": normalized_email})
     except PyMongoError:
@@ -104,6 +126,26 @@ def register_user(
 
     token = create_access_token({"user_id": str(user.id), "email": user.email})
     refresh_token = create_refresh_token({"user_id": str(user.id), "email": user.email})
+    decoded_refresh = decode_refresh_token(refresh_token)
+    refresh_jti = str(decoded_refresh.get("jti", ""))
+    session_exp_epoch = int(decoded_refresh.get("session_exp", 0))
+
+    try:
+        db["users"].update_one(
+            {"_id": str(user.id)},
+            {
+                "$set": {
+                    "refresh_jti": refresh_jti,
+                    "session_expires_at": datetime.fromtimestamp(
+                        session_exp_epoch,
+                        tz=timezone.utc,
+                    ),
+                }
+            },
+        )
+    except PyMongoError:
+        _raise_database_unavailable()
+
     _set_auth_cookies(response, token, refresh_token)
     return AuthResponse(
         access_token=token,
@@ -116,11 +158,17 @@ def register_user(
 @router.post("/login", response_model=AuthResponse)
 def login_user(
     payload: LoginRequest,
+    request: Request,
     response: Response,
     db: Database = Depends(get_db),
 ) -> AuthResponse:
     """Authenticate an existing user and return JWT token."""
     normalized_email = payload.email.strip().lower()
+    rate_limiter.check(
+        _client_key(request, "login", normalized_email),
+        LOGIN_POLICY,
+    )
+
     try:
         user_doc = db["users"].find_one({"email": normalized_email})
     except PyMongoError:
@@ -133,6 +181,26 @@ def login_user(
 
     token = create_access_token({"user_id": str(user.id), "email": user.email})
     refresh_token = create_refresh_token({"user_id": str(user.id), "email": user.email})
+    decoded_refresh = decode_refresh_token(refresh_token)
+    refresh_jti = str(decoded_refresh.get("jti", ""))
+    session_exp_epoch = int(decoded_refresh.get("session_exp", 0))
+
+    try:
+        db["users"].update_one(
+            {"_id": str(user.id)},
+            {
+                "$set": {
+                    "refresh_jti": refresh_jti,
+                    "session_expires_at": datetime.fromtimestamp(
+                        session_exp_epoch,
+                        tz=timezone.utc,
+                    ),
+                }
+            },
+        )
+    except PyMongoError:
+        _raise_database_unavailable()
+
     _set_auth_cookies(response, token, refresh_token)
     return AuthResponse(
         access_token=token,
@@ -150,6 +218,8 @@ def refresh_token(
     db: Database = Depends(get_db),
 ) -> TokenRefreshResponse:
     """Issue a new access token and refresh token."""
+    rate_limiter.check(_client_key(request, "refresh"), REFRESH_POLICY)
+
     raw_refresh_token = (
         payload.refresh_token if payload else None
     ) or request.cookies.get(settings.auth_refresh_cookie_name)
@@ -167,10 +237,22 @@ def refresh_token(
         ) from exc
 
     user_id = decoded.get("user_id")
+    token_jti = str(decoded.get("jti", ""))
+    session_exp_epoch = int(decoded.get("session_exp", 0))
     if not user_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token missing user identifier",
+        )
+    if not token_jti:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token",
+        )
+    if session_exp_epoch <= int(datetime.now(timezone.utc).timestamp()):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired",
         )
 
     try:
@@ -183,6 +265,22 @@ def refresh_token(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
         )
 
+    stored_refresh_jti = str(user_doc.get("refresh_jti", ""))
+    if not stored_refresh_jti or stored_refresh_jti != token_jti:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token has been rotated",
+        )
+
+    session_expires_at = user_doc.get("session_expires_at")
+    if isinstance(session_expires_at, datetime) and session_expires_at <= datetime.now(
+        timezone.utc
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired",
+        )
+
     user = User.from_document(user_doc)
     new_access_token = create_access_token(
         {"user_id": str(user.id), "email": user.email}
@@ -190,6 +288,32 @@ def refresh_token(
     new_refresh_token = create_refresh_token(
         {"user_id": str(user.id), "email": user.email}
     )
+    decoded_new = decode_refresh_token(new_refresh_token)
+    new_jti = str(decoded_new.get("jti", ""))
+    new_session_exp_epoch = int(decoded_new.get("session_exp", 0))
+
+    try:
+        update_result = db["users"].update_one(
+            {"_id": str(user.id), "refresh_jti": token_jti},
+            {
+                "$set": {
+                    "refresh_jti": new_jti,
+                    "session_expires_at": datetime.fromtimestamp(
+                        new_session_exp_epoch,
+                        tz=timezone.utc,
+                    ),
+                }
+            },
+        )
+    except PyMongoError:
+        _raise_database_unavailable()
+
+    if update_result.modified_count != 1:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token has been rotated",
+        )
+
     _set_auth_cookies(response, new_access_token, new_refresh_token)
 
     return TokenRefreshResponse(
