@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.routes.dataset import router as dataset_router
 from app.api.v1.routes.health import router as health_router
+from app.api.v1.routes.semantic_rules import router as semantic_rules_router
 from app.api.errors import register_exception_handlers
 from app.auth.routes import router as auth_router
 from app.core.config import settings
@@ -23,6 +24,7 @@ app.add_middleware(
 app.include_router(health_router)
 app.include_router(auth_router, prefix=settings.api_prefix)
 app.include_router(dataset_router, prefix=settings.api_prefix)
+app.include_router(semantic_rules_router, prefix=settings.api_prefix)
 
 
 @app.on_event("startup")

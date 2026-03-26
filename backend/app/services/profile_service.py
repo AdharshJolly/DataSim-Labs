@@ -84,6 +84,7 @@ class ProfileService:
             "dependency_graph": profile.dependency_graph,
             "correlation_matrices": profile.correlation_matrices,
             "semantic_groups": profile.semantic_groups,
+            "semantic_rules": profile.semantic_rules,
             "row_count": profile.row_count,
             "metadata": profile.metadata,
             "explainability": explainability,
@@ -138,6 +139,16 @@ class ProfileService:
             generated_df,
             base_profile.columns,
         )
+        
+        # Validate semantic rules
+        semantic_validation_report = None
+        if base_profile.semantic_rules:
+            from app.engine.semantic_rule_validator import SemanticRuleValidator
+            
+            semantic_validator = SemanticRuleValidator()
+            semantic_validation_report = semantic_validator.validate_rules(
+                generated_df, base_profile.semantic_rules
+            )
 
         return {
             "dataset_version_id": dataset_version_id,
@@ -161,6 +172,9 @@ class ProfileService:
                 ),
                 "low_confidence": base_profile.metadata.get("low_confidence", False),
                 "semantic_groups": base_profile.semantic_groups,
+                "semantic_rules": base_profile.semantic_rules,
+                "semantic_rules_count": len(base_profile.semantic_rules),
+                "semantic_validation_report": semantic_validation_report,
                 "validation_report": validation_report,
             },
             # Backward-compatible fields preserved for existing consumers.

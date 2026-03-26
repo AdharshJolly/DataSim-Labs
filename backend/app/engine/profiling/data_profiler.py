@@ -5,6 +5,7 @@ import warnings
 
 from app.engine.profiling.distribution_learner import DistributionLearner
 from app.engine.profiling.correlation_engine import CorrelationEngine
+from app.engine.semantic_rule_inference import infer_semantic_rules
 
 
 SEMANTIC_UNIQUE_RATIO_THRESHOLD = 0.95
@@ -30,6 +31,10 @@ class DataProfiler:
             df, column_profiles
         )
 
+        # 3. Infer Semantic Rules using Gemini
+        rule_inference_result = infer_semantic_rules(df)
+        semantic_rules = rule_inference_result.get("rules", [])
+
         row_count = len(df)
         confidence_score = min(1.0, row_count / 200.0) if row_count > 0 else 0.0
         semantic_groups = self._detect_semantic_groups(list(df.columns))
@@ -39,11 +44,13 @@ class DataProfiler:
             "dependency_graph": correlation_results.get("dependencies", []),
             "correlation_matrices": correlation_results.get("correlation_matrices", {}),
             "semantic_groups": semantic_groups,
+            "semantic_rules": semantic_rules,
             "row_count": row_count,
             "metadata": {
                 "row_count": row_count,
                 "confidence_score": round(confidence_score, 3),
                 "low_confidence": row_count < 50,
+                "rule_inference_metadata": rule_inference_result.get("metadata", {}),
             },
         }
 
