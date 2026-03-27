@@ -13,6 +13,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 import re
+import hashlib
 
 import pandas as pd
 
@@ -23,84 +24,85 @@ logger = logging.getLogger(__name__)
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 FALLBACK_GEMINI_MODELS = ["gemini-2.5-flash-lite", "gemini-1.5-flash"]
 
+# In-memory cache: schema_hash -> (rules, timestamp)
+_SEMANTIC_RULES_CACHE: dict[str, tuple[dict[str, Any], float]] = {}
+_CACHE_TTL_SECONDS = 86400  # 24 hours
+
 _SEMANTIC_RULES_SYSTEM_PROMPT = """\
-You are an expert data analyst specializing in detecting semantic relationships in datasets.
-Your task is to analyze structured data and identify cross-column dependencies that define data quality rules.
+Detect semantic relationships in datasets. Return JSON: {"rules": [rule1, rule2, ...]}.
 
-Return ONLY a valid JSON object - no markdown fences, no prose, no explanation.
+Each rule: {"id":"str","type":"derivation|mapping|conditional|function","priority":int,"target":"col","sources":["col1","col2"],"transform":{...},"confidence":0.0-1.0}
 
-The response must have exactly one key: "rules", which is an array of rule objects.
+Transform types:
+- template: "{col1}.{col2}" with extractors
+- mapping: column→value lookup
+- conditional: if X then Y
+- function: uppercase/lowercase/capitalize/hash/prefix/suffix
 
-Each rule MUST follow this exact structure:
-{
-    "id": "unique_string_identifier",
-    "type": "derivation|mapping|conditional|function",
-    "priority": <integer_lower_is_higher>,
-    "target": "column_name",
-    "sources": ["source_col1", "source_col2"],
-    "transform": {
-        "type": "template|mapping|conditional|function",
-        "template": "string_template_with_placeholders",
-        "extractors": {"key": "extraction_expression"},
-        "domain_pool": ["value1", "value2"],
-        "mapping_table": {"input": "output"},
-        "conditions": [{"if": "condition_expr", "then": "value_expr"}],
-        "function_name": "function_name",
-        "prefix": "prefix_string",
-        "suffix": "suffix_string"
-    },
-    "constraints": {
-        "lowercase": false,
-        "uppercase": false,
-        "no_spaces": false,
-        "no_special_chars": false,
-        "max_length": 50
-    },
-    "confidence": 0.85
-}
-
-RULE TYPES:
-- derivation: Column value is derived from other columns (e.g., email from name)
-- mapping: Column value maps from another column using a lookup table
-- conditional: Column value depends on conditions in other columns
-- function: Apply a function to transform one column into another
-
-TRANSFORM TYPES:
-1. template:
-   - Use when combining or formatting values from other columns
-   - Example: email "{first}.{last}@{domain}" where extractors parse source columns
-   - Extractors support: split(col)[index], lower(col), upper(col), substring(col,start,end)
-
-2. mapping:
-   - Use when values in one column directly map to another
-   - mapping_table: Dict of source_value -> target_value
-
-3. conditional:
-   - Use when column values depend on conditions
-   - conditions: List of if-then rules
-   - Support conditions: column == "value", column != "value", column in ["v1","v2"]
-
-4. function:
-   - Apply standard functions: uppercase, lowercase, capitalize, hash, prefix, suffix
-
-DETECTION GUIDELINES:
-- column names in target and sources MUST be exact matches from the schema
-- Analyze sample data for patterns:
-  * Email addresses often contain parts of name columns
-  * Phone numbers have country-specific prefixes
-  * Cities/states/zips follow geographic patterns
-  * Email domains relate to company/org columns
-  * First/last names align with gender
-- When a name column and an email column are present and row-level values are clearly correlated,
-  you MUST generate a derivation rule with a template transform and set confidence >= 0.9.
-- When an email value clearly includes first name, last name, or initials from a name value,
-  you MUST assign high confidence >= 0.85.
-- The `column_relationships` key in the payload explicitly lists row-matched pairs.
-    You MUST use this evidence to infer derivation rules.
-- confidence must be [0.0, 1.0] based on pattern strength
-- If no rules detected, return {"rules": []}
-- ONLY include rules you can validate from the provided data
+Detection rules:
+- Email often derived from name: confidence >= 0.85
+- Use column_relationships examples as evidence
+- Return [] if no relationships found
+- Use exact column names
 """
+
+
+def _compute_schema_hash(df: pd.DataFrame, column_metadata: dict[str, Any] | None = None) -> str:
+    """Compute hash of dataset schema to use as cache key."""
+    schema_info = {
+        "cols": sorted(df.columns.tolist()),
+        "dtypes": {col: str(df[col].dtype) for col in df.columns},
+    }
+    if column_metadata:
+        schema_info["metadata"] = {k: v.get("semantic_type", "") for k, v in column_metadata.items()}
+    
+    schema_json = json.dumps(schema_info, sort_keys=True)
+    return hashlib.md5(schema_json.encode()).hexdigest()
+
+
+def _should_skip_inference(df: pd.DataFrame, column_metadata: dict[str, Any] | None = None) -> bool:
+    """Skip Gemini call if dataset is too small or has no semantic columns."""
+    if len(df) < 5:
+        logger.info("Skipping semantic inference: dataset < 5 rows")
+        return True
+    
+    # Check if dataset has name or email columns (main targets for derivation rules)
+    has_semantic_cols = False
+    for col in df.columns:
+        semantic_type = None
+        if column_metadata and col in column_metadata:
+            semantic_type = column_metadata[col].get("semantic_type")
+        if not semantic_type:
+            semantic_type = _detect_semantic_type(col)
+        if semantic_type in ("name", "email"):
+            has_semantic_cols = True
+            break
+    
+    if not has_semantic_cols:
+        logger.info("Skipping semantic inference: no semantic columns detected")
+        return True
+    
+    return False
+
+
+def _get_cached_rules(schema_hash: str) -> dict[str, Any] | None:
+    """Retrieve rules from cache if valid."""
+    if schema_hash not in _SEMANTIC_RULES_CACHE:
+        return None
+    
+    rules, timestamp = _SEMANTIC_RULES_CACHE[schema_hash]
+    age_seconds = datetime.now(timezone.utc).timestamp() - timestamp
+    
+    if age_seconds > _CACHE_TTL_SECONDS:
+        del _SEMANTIC_RULES_CACHE[schema_hash]
+        return None
+    
+    return rules
+
+
+def _cache_rules(schema_hash: str, rules: dict[str, Any]) -> None:
+    """Store rules in cache."""
+    _SEMANTIC_RULES_CACHE[schema_hash] = (rules, datetime.now(timezone.utc).timestamp())
 
 
 def _detect_semantic_type(column_name: str | None) -> str | None:
@@ -136,7 +138,7 @@ def _detect_semantic_type(column_name: str | None) -> str | None:
 def _prepare_sample_data(
     df: pd.DataFrame,
     column_metadata: dict[str, Any] | None = None,
-    max_rows: int = 20,
+    max_rows: int = 5,
 ) -> dict[str, Any]:
     """Prepare sample data for Gemini analysis."""
     sample_df = df.head(max_rows) if len(df) > max_rows else df.copy()
@@ -157,7 +159,7 @@ def _prepare_sample_data(
     column_relationships: list[dict[str, Any]] = []
     for name_column in name_columns:
         for email_column in email_columns:
-            paired_rows = sample_df[[name_column, email_column]].dropna().head(3)
+            paired_rows = sample_df[[name_column, email_column]].dropna().head(1)
             if paired_rows.empty:
                 continue
             examples = [
@@ -175,18 +177,17 @@ def _prepare_sample_data(
             )
 
     return {
-        "columns": {
+        "cols": {
             col: {
                 "type": str(df[col].dtype),
-                "null_count": int(df[col].isna().sum()),
-                "unique_count": int(df[col].nunique()),
-                "sample_values": df[col].dropna().head(5).tolist(),
+                "nulls": int(df[col].isna().sum()),
+                "uniq": int(df[col].nunique()),
             }
             for col in df.columns
         },
-        "sample_rows": sample_df.to_dict(orient="records"),
-        "column_relationships": column_relationships,
-        "row_count": len(df),
+        "rows": sample_df.to_dict(orient="records"),
+        "rels": column_relationships,
+        "total": len(df),
     }
 
 
@@ -231,6 +232,36 @@ def infer_semantic_rules(
                 "source": "none",
                 "rule_count": 0,
                 "error": "API key not configured",
+            },
+        }
+
+    # Compute schema hash for caching
+    schema_hash = _compute_schema_hash(df, column_metadata)
+    
+    # Check cache first
+    cached_result = _get_cached_rules(schema_hash)
+    if cached_result is not None:
+        logger.info(f"Using cached rules for schema {schema_hash[:8]}")
+        return {
+            "rules": cached_result.get("rules", []),
+            "metadata": {
+                "generated_at": generated_at,
+                "source": "cache",
+                "rule_count": len(cached_result.get("rules", [])),
+                "cache_hit": True,
+            },
+        }
+    
+    # Check if inference should be skipped
+    if _should_skip_inference(df, column_metadata):
+        logger.info("Skipping semantic inference for this dataset")
+        return {
+            "rules": [],
+            "metadata": {
+                "generated_at": generated_at,
+                "source": "skip",
+                "rule_count": 0,
+                "skipped": True,
             },
         }
 
@@ -377,7 +408,7 @@ def infer_semantic_rules(
         rule["id"] = f"rule_{idx}_{int(datetime.now(timezone.utc).timestamp())}"
         valid_rules.append(rule)
 
-    return {
+    result = {
         "rules": valid_rules,
         "metadata": {
             "generated_at": generated_at,
@@ -387,3 +418,9 @@ def infer_semantic_rules(
             "raw_rule_count": len(raw_rules),
         },
     }
+    
+    # Cache the result
+    _cache_rules(schema_hash, result)
+    logger.info(f"Cached rules for schema {schema_hash[:8]} ({len(valid_rules)} rules)")
+    
+    return result
