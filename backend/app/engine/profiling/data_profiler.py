@@ -93,6 +93,7 @@ class DataProfiler:
             "data_type": data_type,
             "semantic_type": semantic_type if data_type == "semantic" else None,
             "unique_ratio": unique_ratio,
+            "unique_count": int(valid_series.nunique()) if len(valid_series) > 0 else 0,
             "null_percentage": float(null_percentage),
             "distribution": distribution_profile,
             "confidence": round(float(confidence), 3),
@@ -242,22 +243,25 @@ class DataProfiler:
 
         groups: List[Dict[str, Any]] = []
         if name_columns and email_columns:
-            observed_domains, observed_domain_weights = self._extract_email_domains(
-                df,
-                email_columns,
-            )
-            identity_columns = [*name_columns, *email_columns]
-            groups.append(
-                {
-                    "type": "identity",
-                    "columns": identity_columns,
-                    "column_type_map": {
-                        column: column_type_map[column] for column in identity_columns
-                    },
-                    "observed_domains": observed_domains,
-                    "observed_domain_weights": observed_domain_weights,
-                }
-            )
+            for name_column in name_columns:
+                for email_column in email_columns:
+                    observed_domains, observed_domain_weights = self._extract_email_domains(
+                        df,
+                        [email_column],
+                    )
+                    identity_columns = [name_column, email_column]
+                    groups.append(
+                        {
+                            "type": "identity",
+                            "columns": identity_columns,
+                            "column_type_map": {
+                                name_column: column_type_map[name_column],
+                                email_column: column_type_map[email_column],
+                            },
+                            "observed_domains": observed_domains,
+                            "observed_domain_weights": observed_domain_weights,
+                        }
+                    )
 
         return groups
 

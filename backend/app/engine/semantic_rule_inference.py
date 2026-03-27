@@ -95,6 +95,8 @@ DETECTION GUIDELINES:
   you MUST generate a derivation rule with a template transform and set confidence >= 0.9.
 - When an email value clearly includes first name, last name, or initials from a name value,
   you MUST assign high confidence >= 0.85.
+- The `column_relationships` key in the payload explicitly lists row-matched pairs.
+    You MUST use this evidence to infer derivation rules.
 - confidence must be [0.0, 1.0] based on pattern strength
 - If no rules detected, return {"rules": []}
 - ONLY include rules you can validate from the provided data
@@ -167,8 +169,7 @@ def _prepare_sample_data(
             ]
             column_relationships.append(
                 {
-                    "name_column": name_column,
-                    "email_column": email_column,
+                    "columns": [name_column, email_column],
                     "examples": examples,
                 }
             )

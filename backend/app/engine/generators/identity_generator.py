@@ -72,6 +72,7 @@ def _build_email(
     rng: np.random.Generator,
     email_domains: list[str],
     email_domain_weights: dict[str, float] | None,
+    suffix: int = 0,
 ) -> str:
     first = _normalize_token(first_name) or "user"
     last = _normalize_token(last_name) or "profile"
@@ -89,14 +90,21 @@ def _build_email(
     else:
         domain = email_domains[int(rng.integers(0, len(email_domains)))]
 
-    pattern_index = int(rng.integers(0, 3))
+    pattern_index = int(rng.integers(0, 5))
 
     if pattern_index == 0:
         username = f"{first}.{last}"
     elif pattern_index == 1:
         username = f"{first}{last}"
-    else:
+    elif pattern_index == 2:
         username = f"{first[0]}_{last}"
+    elif pattern_index == 3:
+        username = f"{first}_{last[0]}"
+    else:
+        username = f"{last}.{first}"
+
+    if suffix > 0:
+        username = f"{username}{suffix}"
 
     return f"{username}@{domain}"
 
@@ -109,6 +117,7 @@ def generate_identity_batch(
     email_domains: list[str] | None = None,
     email_domain_weights: dict[str, float] | None = None,
     column_type_map: dict[str, str] | None = None,
+    unique: bool = True,
 ) -> dict[str, list[str]]:
     """Generate linked identity values for a column group.
 
@@ -126,16 +135,57 @@ def generate_identity_batch(
         if semantic_type
     }
 
+    seen_names: set[str] = set()
+    seen_emails: set[str] = set()
+    seen_pairs: set[tuple[str, str]] = set()
+
     for _ in range(row_count):
-        full_name = faker.name()
-        first_name, last_name = _split_name(full_name)
-        email = _build_email(
-            first_name,
-            last_name,
-            rng,
-            email_domains=resolved_domains,
-            email_domain_weights=email_domain_weights,
-        )
+        max_attempts = 500 if unique else 1
+        full_name = ""
+        first_name = ""
+        last_name = ""
+        email = ""
+
+        for attempt in range(max_attempts):
+            full_name = faker.name()
+            first_name, last_name = _split_name(full_name)
+            email = _build_email(
+                first_name,
+                last_name,
+                rng,
+                email_domains=resolved_domains,
+                email_domain_weights=email_domain_weights,
+                suffix=attempt,
+            )
+
+            if not unique:
+                break
+
+            normalized_name = full_name.strip().lower()
+            normalized_email = email.strip().lower()
+            pair = (normalized_name, normalized_email)
+
+            if (
+                normalized_name not in seen_names
+                and normalized_email not in seen_emails
+                and pair not in seen_pairs
+            ):
+                seen_names.add(normalized_name)
+                seen_emails.add(normalized_email)
+                seen_pairs.add(pair)
+                break
+        else:
+            # Hard fallback to guarantee progress in high collision scenarios.
+            fallback_suffix = int(rng.integers(10_000, 999_999))
+            full_name = f"{full_name} {fallback_suffix}"
+            email = _build_email(
+                first_name,
+                last_name,
+                rng,
+                email_domains=resolved_domains,
+                email_domain_weights=email_domain_weights,
+                suffix=fallback_suffix,
+            )
 
         for column in columns:
             semantic_type = normalized_type_map.get(column) or detect_semantic_type(column)

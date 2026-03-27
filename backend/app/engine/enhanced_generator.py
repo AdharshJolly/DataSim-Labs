@@ -17,7 +17,10 @@ from app.engine.generators.faker_generator import (
     generate_url,
     generate_zip,
 )
-from app.engine.generators.identity_generator import generate_identity_batch
+from app.engine.generators.identity_generator import (
+    detect_semantic_type,
+    generate_identity_batch,
+)
 from app.models.data_profile import DataProfile
 from app.engine.semantic_rule_engine import (
     SemanticRuleEngine,
@@ -128,6 +131,15 @@ class EnhancedDatasetGenerator(DatasetGenerator):
                         .values
                     )
 
+                    low_confidence = bool(profile.metadata.get("low_confidence", False)) or int(profile.row_count) < 50
+                    if low_confidence:
+                        shrinkage_factor = max(0.3, min(1.0, float(profile.row_count) / 100.0))
+                        identity = np.eye(len(cols))
+                        spearman_matrix = (
+                            shrinkage_factor * spearman_matrix
+                            + (1.0 - shrinkage_factor) * identity
+                        )
+
                     cond_number = np.linalg.cond(spearman_matrix)
                     if cond_number > 1e10:
                         import logging
@@ -201,10 +213,16 @@ class EnhancedDatasetGenerator(DatasetGenerator):
             "errors": [],
         }
         
-        if sorted_semantic_rules:
+        semantic_rules_to_apply = [
+            rule
+            for rule in sorted_semantic_rules
+            if str(rule.get("target", "")).strip() not in semantic_group_columns
+        ]
+
+        if semantic_rules_to_apply:
             frame, semantic_stats = self._apply_semantic_rules(
                 frame,
-                sorted_semantic_rules,
+                semantic_rules_to_apply,
                 all_columns,
             )
 
@@ -266,6 +284,7 @@ class EnhancedDatasetGenerator(DatasetGenerator):
                 email_domains=group.get("observed_domains"),
                 email_domain_weights=group.get("observed_domain_weights"),
                 column_type_map=group.get("column_type_map"),
+                unique=True,
             )
             for column in group_columns:
                 # Identity-linked values take priority over independently generated values.
@@ -281,6 +300,11 @@ class EnhancedDatasetGenerator(DatasetGenerator):
         data_type = col_profile.get("data_type")
         dist = col_profile.get("distribution", {})
         name = col_profile.get("name")
+        semantic_type = (
+            col_profile.get("semantic_type")
+            or dist.get("semantic_type")
+            or detect_semantic_type(name)
+        )
 
         if "quantiles" in dist:
             quantiles = np.array(dist["quantiles"])
@@ -341,12 +365,21 @@ class EnhancedDatasetGenerator(DatasetGenerator):
         data_type = col_profile.get("data_type")
         dist = col_profile.get("distribution", {})
         name = col_profile.get("name")
+        semantic_type = (
+            col_profile.get("semantic_type")
+            or dist.get("semantic_type")
+            or detect_semantic_type(name)
+        )
 
         if data_type in ["integer", "float"]:
             u_values = self.rng.uniform(0, 1, size=row_count)
             return self._inverse_transform_sample(u_values, col_profile)
 
         if data_type in ["categorical", "boolean"]:
+            if semantic_type == "name":
+                return generate_name(name, row_count, self.faker)
+            if semantic_type == "email":
+                return generate_email(name, row_count, self.faker)
             categories = dist.get("categories", ["N/A"])
             probabilities = dist.get("probabilities", None)
             if not categories:
@@ -371,9 +404,6 @@ class EnhancedDatasetGenerator(DatasetGenerator):
             return generate_text(name, {}, row_count, self.rng, self.faker)
 
         if data_type == "semantic":
-            semantic_type = col_profile.get("semantic_type") or dist.get(
-                "semantic_type"
-            )
             if semantic_type == "email":
                 return generate_email(name, row_count, self.faker)
             if semantic_type == "name":
