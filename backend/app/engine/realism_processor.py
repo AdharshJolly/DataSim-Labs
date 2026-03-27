@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import re
 import string
+import unicodedata
 from typing import Any
 
 import numpy as np
@@ -25,6 +26,7 @@ _MALE_ALIASES = frozenset({"male", "m", "man", "männlich", "masculino"})
 _FEMALE_ALIASES = frozenset({"female", "f", "woman", "weiblich", "femenino"})
 
 _RULE_PHASES: dict[str, int] = {
+    "name_email_alignment": 1,
     "name_gender_alignment": 1,
     "age_gate": 2,
     "mutual_exclusion": 2,
@@ -34,6 +36,13 @@ _RULE_PHASES: dict[str, int] = {
     "email_domain_match": 3,
     "salary_band": 3,
 }
+
+_DEPARTMENT_KEYWORDS = frozenset({
+    "tech", "hr", "human resources", "marketing", "sales",
+    "engineering", "finance", "legal", "operations", "support",
+    "design", "product", "research", "it", "admin",
+    "management", "accounting", "logistics", "customer service",
+})
 
 
 class RealismProcessor:
@@ -70,6 +79,8 @@ class RealismProcessor:
                 affected_rows = 0
                 if rule_type == "name_gender_alignment":
                     affected_rows = self._apply_name_gender_alignment(df, rule)
+                elif rule_type == "name_email_alignment":
+                    affected_rows = self._apply_name_email_alignment(df, rule)
                 elif rule_type == "age_gate":
                     affected_rows = self._apply_age_gate(df, rule)
                 elif rule_type == "mutual_exclusion":
@@ -137,6 +148,74 @@ class RealismProcessor:
             if new_name is not None:
                 df.at[idx, name_col] = new_name
                 updates += 1
+        return updates
+
+    def _apply_name_email_alignment(self, df: pd.DataFrame, rule: dict) -> int:
+        """Ensure each email's local part is derived from the corresponding name."""
+        name_col = rule["name_column"]
+        email_col = rule["email_column"]
+
+        if name_col not in df.columns or email_col not in df.columns:
+            logger.warning(
+                "name_email_alignment: column '%s' or '%s' not in DataFrame — skipping",
+                name_col,
+                email_col,
+            )
+            return 0
+
+        def _normalize(value: str) -> str:
+            ascii_val = (
+                unicodedata.normalize("NFKD", value)
+                .encode("ascii", "ignore")
+                .decode("ascii")
+                .lower()
+            )
+            return re.sub(r"[^a-z0-9]+", "", ascii_val)
+
+        def _name_tokens(full_name: str) -> list[str]:
+            parts = re.findall(r"[A-Za-z]+", full_name)
+            return [_normalize(p) for p in parts if len(p) >= 2]
+
+        def _build_local_part(first: str, last: str) -> str:
+            f = _normalize(first) or "user"
+            l = _normalize(last) or "profile"
+            idx = int(self.rng.integers(0, 5))
+            if idx == 0:
+                return f"{f}.{l}"
+            if idx == 1:
+                return f"{f}{l}"
+            if idx == 2:
+                return f"{f[0]}_{l}"
+            if idx == 3:
+                return f"{f}_{l[0]}"
+            return f"{l}.{f}"
+
+        updates = 0
+        both_present = df[name_col].notna() & df[email_col].notna()
+
+        for row_idx in df[both_present].index:
+            name_val = str(df.at[row_idx, name_col])
+            email_val = str(df.at[row_idx, email_col])
+
+            if "@" not in email_val:
+                continue
+
+            local_part, domain = email_val.rsplit("@", 1)
+            tokens = _name_tokens(name_val)
+
+            # Check if local part already contains at least one name token.
+            local_lower = local_part.lower()
+            if any(tok in local_lower for tok in tokens if tok):
+                continue
+
+            # Regenerate local part from name.
+            parts = re.findall(r"[A-Za-z]+", name_val)
+            first = parts[0] if parts else "user"
+            last = parts[-1] if len(parts) > 1 else "profile"
+            new_local = _build_local_part(first, last)
+            df.at[row_idx, email_col] = f"{new_local}@{domain}"
+            updates += 1
+
         return updates
 
     def _apply_age_gate(self, df: pd.DataFrame, rule: dict) -> int:
@@ -336,6 +415,21 @@ class RealismProcessor:
                 org_col,
             )
             return 0
+
+        # Validate that org_col is actually an organization-type column, not a
+        # department / team / categorical field with a handful of distinct values.
+        org_values = df[org_col].dropna().astype(str).str.strip().str.lower()
+        unique_org_values = set(org_values.unique())
+        if len(unique_org_values) <= 15:
+            dept_overlap = unique_org_values & _DEPARTMENT_KEYWORDS
+            if dept_overlap:
+                logger.warning(
+                    "email_domain_match: org column '%s' appears to be a department "
+                    "(matched keywords: %s), not a company name — skipping rule.",
+                    org_col,
+                    dept_overlap,
+                )
+                return 0
 
         both_present = df[email_col].notna() & df[org_col].notna()
 

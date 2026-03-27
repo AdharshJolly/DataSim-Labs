@@ -293,6 +293,11 @@ export interface ValidationSummary {
   kl_divergence?: Record<string, any> | null;
   correlation_error?: Record<string, any> | null;
   null_fidelity?: Record<string, any> | null;
+  coherence_checks?: {
+    name_email_coherence_score?: number;
+    rows_checked?: number;
+    rows_matched?: number;
+  } | null;
 }
 
 export interface GenerateResponse {
@@ -482,6 +487,8 @@ export interface GenerateFromProfileResponse {
   rows: number;
   data: Record<string, unknown>[];
   validation_summary?: ValidationSummary;
+  validation_report?: Record<string, unknown>;
+  generation_warnings?: string[];
   generation_metadata?: Record<string, unknown>;
 }
 

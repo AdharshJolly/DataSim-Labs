@@ -31,6 +31,7 @@ VALID_RULE_TYPES = {
     "country_postal_format",
     "email_domain_match",
     "salary_band",
+    "name_email_alignment",
 }
 
 REQUIRED_KEYS: dict[str, set[str]] = {
@@ -54,6 +55,7 @@ REQUIRED_KEYS: dict[str, set[str]] = {
     "country_postal_format": {"country_column", "postal_column"},
     "email_domain_match": {"email_column", "org_column"},
     "salary_band": {"job_column", "salary_column", "bands"},
+    "name_email_alignment": {"name_column", "email_column"},
 }
 
 PLANNER_VERSION = "2.1.0"
@@ -131,6 +133,9 @@ Supported rule types and their exact schemas:
 
 7. email_domain_match
    Use when an email column and a company/organisation column are both present.
+   Do NOT use this rule if the only available org-like column is a department,
+   team, or categorical field with few distinct values — departments are not
+   company names and produce unrealistic domains.
    { "type": "email_domain_match", "email_column": "...", "org_column": "..." }
 
 8. salary_band
@@ -146,6 +151,13 @@ Supported rule types and their exact schemas:
        "default": [30000, 60000]
      }
    }
+
+9. name_email_alignment
+   Use when a name column and an email column are both present.
+   Ensures the local part of the email address is derived from the person's
+   name so that "Alice Johnson" gets an email like alice.johnson@domain.com
+   instead of a random email.
+   { "type": "name_email_alignment", "name_column": "...", "email_column": "..." }
 
 Rules to follow:
 - Only emit a rule if you can clearly identify both columns in the schema.
@@ -362,12 +374,36 @@ def _build_fallback_rules(attributes: list[Any]) -> list[dict[str, Any]]:
         keywords={"company", "organization", "organisation", "org", "employer"},
         allowed_types={"categorical", "text"},
     )
-    if email_col and org_col:
+
+    # Detect if the only available org-like column is actually a department.
+    dept_col = _find_first_column(
+        attributes,
+        keywords={"department", "dept", "team", "division"},
+        allowed_types={"categorical", "text"},
+    )
+    org_is_department = org_col is not None and org_col == dept_col
+
+    if email_col and org_col and not org_is_department:
         rules.append(
             {
                 "type": "email_domain_match",
                 "email_column": email_col,
                 "org_column": org_col,
+            }
+        )
+
+    # name_email_alignment — always emit when both name + email exist.
+    name_col_for_email = _find_first_column(
+        attributes,
+        keywords={"name", "full_name", "first_name", "last_name"},
+        allowed_types={"name", "text", "categorical"},
+    )
+    if name_col_for_email and email_col:
+        rules.append(
+            {
+                "type": "name_email_alignment",
+                "name_column": name_col_for_email,
+                "email_column": email_col,
             }
         )
 
@@ -573,6 +609,7 @@ def _build_rule_explanations(
         "country_postal_format": "Country field implies locale-specific postal code formatting.",
         "email_domain_match": "Email and organization fields imply domain consistency.",
         "salary_band": "Role-related field implies realistic salary range constraints.",
+        "name_email_alignment": "Email local-part must be derived from the person's name for row-level realism.",
     }
 
     for index, rule in enumerate(rules):

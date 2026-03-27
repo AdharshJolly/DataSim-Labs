@@ -2,6 +2,7 @@ import pandas as pd
 from typing import Any, Dict, List
 import numpy as np
 import warnings
+import logging
 import re
 from collections import Counter
 
@@ -9,8 +10,23 @@ from app.engine.profiling.distribution_learner import DistributionLearner
 from app.engine.profiling.correlation_engine import CorrelationEngine
 from app.engine.semantic_rule_inference import infer_semantic_rules
 
+logger = logging.getLogger(__name__)
 
 SEMANTIC_UNIQUE_RATIO_THRESHOLD = 0.95
+
+# ---------------------------------------------------------------------------
+# Config-driven identity group definitions
+# ---------------------------------------------------------------------------
+
+# Each entry maps a group type to a dict of "slot_name → set of qualifying
+# semantic types".  A group is formed when at least one column is available for
+# every required slot.
+_IDENTITY_GROUP_SLOTS: dict[str, dict[str, set[str]]] = {
+    "identity": {
+        "name": {"name", "first_name", "last_name"},
+        "email": {"email"},
+    },
+}
 
 
 class DataProfiler:
@@ -91,7 +107,9 @@ class DataProfiler:
         return {
             "name": series.name,
             "data_type": data_type,
-            "semantic_type": semantic_type if data_type == "semantic" else None,
+            # Always store semantic_type so that group detection and generators
+            # can rely on it regardless of data_type classification.
+            "semantic_type": semantic_type,
             "unique_ratio": unique_ratio,
             "unique_count": int(valid_series.nunique()) if len(valid_series) > 0 else 0,
             "null_percentage": float(null_percentage),
@@ -148,13 +166,14 @@ class DataProfiler:
         except (ValueError, TypeError):
             pass
 
-        # Differentiate between categorical and text
-        num_unique = series.nunique()
-        total_valid = len(series)
-
+        # Semantic type detection takes PRIORITY over categorical detection.
         is_text_like = pd.api.types.is_string_dtype(series) or series.dtype == object
         if semantic_type is not None and is_text_like:
             return "semantic"
+
+        # Differentiate between categorical and text
+        num_unique = series.nunique()
+        total_valid = len(series)
 
         if num_unique < 20 or (num_unique / total_valid) < 0.1:
             return "categorical"
@@ -173,6 +192,11 @@ class DataProfiler:
 
         if has_any(["email", "mail", "e_mail", "emailid"]):
             return "email"
+        # first_name / last_name detection BEFORE generic "name"
+        if has_any(["first_name", "firstname", "given_name", "givenname"]):
+            return "first_name"
+        if has_any(["last_name", "lastname", "surname", "family_name", "familyname"]):
+            return "last_name"
         if has_any(
             [
                 "fullname",
@@ -220,48 +244,104 @@ class DataProfiler:
         df: pd.DataFrame,
         column_profiles: Dict[str, Any] | None = None,
     ) -> List[Dict[str, Any]]:
-        """Detect semantic groups dynamically using inferred semantic types and observed data."""
+        """Detect semantic groups dynamically using inferred semantic types and observed data.
+
+        Uses a config-driven approach: ``_IDENTITY_GROUP_SLOTS`` defines which
+        semantic-type slots must be filled for a group to exist.  All qualifying
+        name-type columns (``name``, ``first_name``, ``last_name``) are merged
+        into a single identity group together with email columns.
+        """
         if df.empty:
             return []
 
+        # Step 1: build semantic_type → [columns] map for every column.
         column_type_map: Dict[str, str] = {}
+        type_to_columns: Dict[str, List[str]] = {}
+
         for column in df.columns:
             inferred_type = None
             if column_profiles and column in column_profiles:
                 inferred_type = column_profiles[column].get("semantic_type")
+            # Always re-run name-based detection as a fallback.
             if not inferred_type:
                 inferred_type = self._detect_semantic_type(column)
             if inferred_type:
                 column_type_map[str(column)] = inferred_type
+                type_to_columns.setdefault(inferred_type, []).append(str(column))
 
-        name_columns = [
-            column for column, semantic_type in column_type_map.items() if semantic_type == "name"
-        ]
-        email_columns = [
-            column for column, semantic_type in column_type_map.items() if semantic_type == "email"
-        ]
+        # Step 2: infer email domain context from dataset schema.
+        email_context = "personal"
+        has_company = bool(type_to_columns.get("company"))
+        has_department = any(
+            "department" in str(col).lower() or "dept" in str(col).lower()
+            for col in df.columns
+        )
+        if has_company:
+            email_context = "corporate"
+        elif has_department:
+            email_context = "corporate"
 
+        # Step 3: assemble groups using config-driven slot matching.
         groups: List[Dict[str, Any]] = []
-        if name_columns and email_columns:
-            for name_column in name_columns:
-                for email_column in email_columns:
-                    observed_domains, observed_domain_weights = self._extract_email_domains(
-                        df,
-                        [email_column],
-                    )
-                    identity_columns = [name_column, email_column]
-                    groups.append(
-                        {
-                            "type": "identity",
-                            "columns": identity_columns,
-                            "column_type_map": {
-                                name_column: column_type_map[name_column],
-                                email_column: column_type_map[email_column],
-                            },
-                            "observed_domains": observed_domains,
-                            "observed_domain_weights": observed_domain_weights,
-                        }
-                    )
+
+        for group_type, slots in _IDENTITY_GROUP_SLOTS.items():
+            # Collect all columns that satisfy each slot.
+            slot_columns: dict[str, List[str]] = {}
+            all_satisfied = True
+            for slot_name, qualifying_types in slots.items():
+                matched: List[str] = []
+                for qtype in qualifying_types:
+                    matched.extend(type_to_columns.get(qtype, []))
+                if not matched:
+                    all_satisfied = False
+                    break
+                slot_columns[slot_name] = matched
+
+            if not all_satisfied:
+                continue
+
+            # Merge ALL qualifying columns into a single group
+            # (avoids creating duplicate pairs for first_name + last_name + email).
+            identity_columns: List[str] = []
+            seen: set[str] = set()
+            for cols_in_slot in slot_columns.values():
+                for col in cols_in_slot:
+                    if col not in seen:
+                        identity_columns.append(col)
+                        seen.add(col)
+
+            # Extract observed email domains for all email columns in the group.
+            email_cols_in_group = [
+                c for c in identity_columns if column_type_map.get(c) == "email"
+            ]
+            observed_domains, observed_domain_weights = self._extract_email_domains(
+                df,
+                email_cols_in_group,
+            )
+
+            groups.append(
+                {
+                    "type": group_type,
+                    "columns": identity_columns,
+                    "column_type_map": {
+                        col: column_type_map[col]
+                        for col in identity_columns
+                        if col in column_type_map
+                    },
+                    "observed_domains": observed_domains,
+                    "observed_domain_weights": observed_domain_weights,
+                    "email_context": email_context,
+                }
+            )
+
+        logger.debug(
+            "_detect_semantic_groups: detected %d group(s): %s",
+            len(groups),
+            [
+                {"type": g["type"], "columns": g["columns"]}
+                for g in groups
+            ],
+        )
 
         return groups
 

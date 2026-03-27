@@ -2,13 +2,41 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import unicodedata
 from typing import Any
 
 import numpy as np
 
-EMAIL_DOMAINS = ["gmail.com", "yahoo.com", "outlook.com"]
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Context-aware email domain defaults
+# ---------------------------------------------------------------------------
+
+_DOMAIN_PRESETS: dict[str, list[str]] = {
+    "personal": ["gmail.com", "yahoo.com", "outlook.com", "hotmail.com"],
+    "corporate": ["company.com", "corp.net", "enterprise.org"],
+    "mixed": [
+        "gmail.com",
+        "yahoo.com",
+        "outlook.com",
+        "hotmail.com",
+        "company.com",
+        "corp.net",
+        "enterprise.org",
+    ],
+}
+
+
+def get_default_email_domains(context: str = "personal") -> list[str]:
+    """Return default email domains appropriate for *context*.
+
+    Supported contexts: ``"personal"``, ``"corporate"``, ``"mixed"``.
+    Falls back to ``"personal"`` for unknown values.
+    """
+    return list(_DOMAIN_PRESETS.get(context, _DOMAIN_PRESETS["personal"]))
 
 
 def detect_semantic_type(column_name: str | None) -> str | None:
@@ -117,6 +145,7 @@ def generate_identity_batch(
     email_domains: list[str] | None = None,
     email_domain_weights: dict[str, float] | None = None,
     column_type_map: dict[str, str] | None = None,
+    email_context: str = "personal",
     unique: bool = True,
 ) -> dict[str, list[str]]:
     """Generate linked identity values for a column group.
@@ -127,13 +156,21 @@ def generate_identity_batch(
 
     resolved_domains = [str(domain).strip().lower() for domain in (email_domains or []) if str(domain).strip()]
     if not resolved_domains:
-        resolved_domains = list(EMAIL_DOMAINS)
+        resolved_domains = get_default_email_domains(email_context)
 
-    normalized_type_map = {
-        str(column): str(semantic_type).strip().lower()
-        for column, semantic_type in (column_type_map or {}).items()
-        if semantic_type
-    }
+    # Normalize column_type_map keys (strip + lowercase comparison) to prevent key mismatches.
+    normalized_type_map: dict[str, str] = {}
+    for column, semantic_type in (column_type_map or {}).items():
+        if semantic_type:
+            norm_key = str(column).strip()
+            normalized_type_map[norm_key] = str(semantic_type).strip().lower()
+
+    logger.debug(
+        "generate_identity_batch: columns=%s, resolved_type_map=%s, domains=%s",
+        columns,
+        normalized_type_map,
+        resolved_domains,
+    )
 
     seen_names: set[str] = set()
     seen_emails: set[str] = set()
@@ -188,7 +225,8 @@ def generate_identity_batch(
             )
 
         for column in columns:
-            semantic_type = normalized_type_map.get(column) or detect_semantic_type(column)
+            col_key = str(column).strip()
+            semantic_type = normalized_type_map.get(col_key) or detect_semantic_type(col_key)
             if semantic_type == "name":
                 output[column].append(full_name)
             elif semantic_type == "first_name":
@@ -198,6 +236,11 @@ def generate_identity_batch(
             elif semantic_type == "email":
                 output[column].append(email)
             else:
+                logger.warning(
+                    "Column '%s' has unresolved semantic type in identity batch — "
+                    "falling back to full_name. Pass column_type_map to fix this.",
+                    column,
+                )
                 output[column].append(full_name)
 
     return output

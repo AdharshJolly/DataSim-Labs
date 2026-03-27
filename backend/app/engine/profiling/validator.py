@@ -1,3 +1,6 @@
+import re
+import unicodedata
+
 import numpy as np
 import pandas as pd
 from scipy.stats import ks_2samp, kstest
@@ -226,6 +229,59 @@ class StatisticalValidator:
                 }
                 if not passed:
                     report["realism_score"] -= 10
+
+        # ── Row-level coherence checks (Problem 10) ────────────────────────────
+        coherence_checks: dict[str, Any] = {}
+
+        # Identify name & email columns from semantic types in the profile.
+        name_cols = [
+            col for col, prof in column_profiles.items()
+            if prof.get("semantic_type") in ("name", "first_name", "last_name")
+            and col in sample_df.columns
+        ]
+        email_cols = [
+            col for col, prof in column_profiles.items()
+            if prof.get("semantic_type") == "email"
+            and col in sample_df.columns
+        ]
+
+        if name_cols and email_cols:
+            nc = name_cols[0]
+            ec = email_cols[0]
+            both_present = sample_df[nc].notna() & sample_df[ec].notna()
+            match_count = 0
+            total_checked = 0
+
+            for idx in sample_df[both_present].index:
+                name_val = str(sample_df.at[idx, nc])
+                email_val = str(sample_df.at[idx, ec])
+                if "@" not in email_val:
+                    continue
+                local_part = email_val.rsplit("@", 1)[0].lower()
+                tokens = [
+                    re.sub(r"[^a-z0-9]+", "",
+                           unicodedata.normalize("NFKD", tok)
+                           .encode("ascii", "ignore").decode("ascii").lower())
+                    for tok in re.findall(r"[A-Za-z]+", name_val)
+                    if len(tok) >= 2
+                ]
+                total_checked += 1
+                if any(tok in local_part for tok in tokens if tok):
+                    match_count += 1
+
+            coherence_score = (
+                round(match_count / total_checked, 3) if total_checked > 0 else 1.0
+            )
+            coherence_checks["name_email_coherence_score"] = coherence_score
+            coherence_checks["rows_checked"] = total_checked
+            coherence_checks["rows_matched"] = match_count
+
+            # Penalise realism score proportionally.
+            if coherence_score < 0.5:
+                penalty = int((0.5 - coherence_score) * 30)
+                report["realism_score"] -= penalty
+
+        report["coherence_checks"] = coherence_checks
 
         report["realism_score"] = max(min(int(report["realism_score"]), 100), 0)
         report["score"] = round(report["realism_score"] / 100.0, 3)

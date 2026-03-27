@@ -26,6 +26,58 @@ import {
 } from "@/lib/api-client";
 import { useFeedback } from "@/components/ui/feedback-provider";
 
+type CoherenceMetrics = {
+  score: number | null;
+  rowsChecked: number | null;
+  rowsMatched: number | null;
+};
+
+function getCoherenceMetricsFromResponse(response: {
+  validation_summary?: unknown;
+  validation_report?: unknown;
+}): CoherenceMetrics {
+  const validationSummary =
+    typeof response.validation_summary === "object" &&
+    response.validation_summary !== null
+      ? (response.validation_summary as Record<string, unknown>)
+      : null;
+  const summaryCoherence =
+    validationSummary &&
+    typeof validationSummary.coherence_checks === "object" &&
+    validationSummary.coherence_checks !== null
+      ? (validationSummary.coherence_checks as Record<string, unknown>)
+      : null;
+
+  const validationReport =
+    typeof response.validation_report === "object" &&
+    response.validation_report !== null
+      ? (response.validation_report as Record<string, unknown>)
+      : null;
+  const reportCoherence =
+    validationReport &&
+    typeof validationReport.coherence_checks === "object" &&
+    validationReport.coherence_checks !== null
+      ? (validationReport.coherence_checks as Record<string, unknown>)
+      : null;
+
+  const coherence = summaryCoherence ?? reportCoherence;
+
+  return {
+    score:
+      coherence && typeof coherence.name_email_coherence_score === "number"
+        ? coherence.name_email_coherence_score
+        : null,
+    rowsChecked:
+      coherence && typeof coherence.rows_checked === "number"
+        ? coherence.rows_checked
+        : null,
+    rowsMatched:
+      coherence && typeof coherence.rows_matched === "number"
+        ? coherence.rows_matched
+        : null,
+  };
+}
+
 function formatNumber(value: number | undefined): string {
   if (typeof value !== "number" || Number.isNaN(value)) return "-";
   return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -63,16 +115,14 @@ function getValidationStatusConfig(status: string | undefined): {
   if (status === "good") {
     return {
       label: "Good",
-      classes:
-        "border-green-500/40 bg-green-500/10 text-green-300",
+      classes: "border-green-500/40 bg-green-500/10 text-green-300",
     };
   }
 
   if (status === "acceptable") {
     return {
       label: "Acceptable",
-      classes:
-        "border-amber-500/40 bg-amber-500/10 text-amber-300",
+      classes: "border-amber-500/40 bg-amber-500/10 text-amber-300",
     };
   }
 
@@ -119,6 +169,12 @@ export default function ProfileUploadPage() {
   );
   const [validationSummary, setValidationSummary] =
     useState<ValidationSummary | null>(null);
+  const [generationWarnings, setGenerationWarnings] = useState<string[]>([]);
+  const [coherenceMetrics, setCoherenceMetrics] = useState<CoherenceMetrics>({
+    score: null,
+    rowsChecked: null,
+    rowsMatched: null,
+  });
 
   const notifyError = (title: string, err: unknown, fallback: string) => {
     const message = err instanceof Error ? err.message : fallback;
@@ -247,6 +303,12 @@ export default function ProfileUploadPage() {
       setSuccessMessage("Profile learned successfully.");
       setGeneratedData([]);
       setValidationSummary(null);
+      setGenerationWarnings([]);
+      setCoherenceMetrics({
+        score: null,
+        rowsChecked: null,
+        rowsMatched: null,
+      });
     } catch (err) {
       notifyError(
         "Profile Upload Failed",
@@ -281,6 +343,8 @@ export default function ProfileUploadPage() {
       });
       setGeneratedData(response.data ?? []);
       setValidationSummary(response.validation_summary ?? null);
+      setGenerationWarnings(response.generation_warnings ?? []);
+      setCoherenceMetrics(getCoherenceMetricsFromResponse(response));
       pushToast({
         title: "Profile Generation Complete",
         message: `Generated ${response.rows} rows from learned profile.`,
@@ -777,6 +841,38 @@ export default function ProfileUploadPage() {
                     </Button>
                   </div>
                 </div>
+
+                {generationWarnings.length > 0 && (
+                  <div className="rounded-lg border border-amber-400/40 bg-amber-400/10 p-3 text-sm text-amber-200">
+                    <p className="font-semibold text-amber-100">
+                      Generation warnings
+                    </p>
+                    <ul className="mt-2 list-disc space-y-1 pl-5">
+                      {generationWarnings.map((warning, index) => (
+                        <li key={`generation-warning-${index}`}>{warning}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {coherenceMetrics.score !== null && (
+                  <div className="flex flex-wrap items-center gap-2 rounded-lg border border-cyan-400/30 bg-cyan-400/10 p-3 text-sm">
+                    <span className="font-semibold text-cyan-100">
+                      Name-email coherence:{" "}
+                      {(coherenceMetrics.score * 100).toFixed(1)}%
+                    </span>
+                    {coherenceMetrics.rowsChecked !== null && (
+                      <span className="text-cyan-200/90">
+                        Rows checked: {coherenceMetrics.rowsChecked}
+                      </span>
+                    )}
+                    {coherenceMetrics.rowsMatched !== null && (
+                      <span className="text-cyan-200/90">
+                        Rows matched: {coherenceMetrics.rowsMatched}
+                      </span>
+                    )}
+                  </div>
+                )}
 
                 <div className="overflow-x-auto rounded-xl border border-border">
                   <table className="min-w-full divide-y divide-border text-left text-sm">

@@ -21,6 +21,16 @@ class RefinementEngine:
         drift_threshold: float = 0.15,
     ) -> Dict[str, Any]:
         """Run profile-guided refinement until drift is acceptable or max iterations are reached."""
+
+        # Dynamic iteration scaling based on profile confidence (Problem 7).
+        profile_row_count = int(profile.row_count) if profile.row_count else row_count
+        low_confidence = bool(profile.metadata.get("low_confidence", False)) or profile_row_count < 50
+
+        if low_confidence:
+            max_iterations = min(max_iterations, 1)
+        elif profile_row_count < 200:
+            max_iterations = min(max_iterations, 2)
+
         validator = StatisticalValidator()
         working_profile = copy.deepcopy(profile)
 

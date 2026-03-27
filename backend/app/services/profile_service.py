@@ -151,12 +151,29 @@ class ProfileService:
                 generated_df, base_profile.semantic_rules
             )
 
+        # Build user-facing generation warnings.
+        generation_warnings: list[str] = []
+        profile_row_count = base_profile.row_count or 0
+        if profile_row_count < 50:
+            generation_warnings.append(
+                f"Low sample size (N={profile_row_count}). Generation quality may be "
+                "reduced. Upload 100+ rows for reliable profiles."
+            )
+        coherence = validation_report.get("coherence_checks", {})
+        coherence_score = coherence.get("name_email_coherence_score")
+        if coherence_score is not None and coherence_score < 0.5:
+            generation_warnings.append(
+                f"Low name-email coherence ({coherence_score:.0%}). "
+                "Email addresses may not match person names."
+            )
+
         return {
             "dataset_version_id": dataset_version_id,
             "rows": row_count,
             "data": generated_df.to_dict(orient="records"),
             "semantic_groups": base_profile.semantic_groups,
             "validation_summary": validation_summary,
+            "generation_warnings": generation_warnings,
             "generation_metadata": {
                 "used_profile_id": str(used_profile.id),
                 "base_profile_id": str(base_profile.id),
