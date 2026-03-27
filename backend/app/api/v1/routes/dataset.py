@@ -36,8 +36,21 @@ from app.schemas.dataset import (
     PreviewResponse,
 )
 from app.services.dataset_service import DatasetService
+from app.services.template_service import TemplateService
 
 router = APIRouter(prefix="/dataset", tags=["dataset"])
+
+
+@router.get("/templates", response_model=dict)
+def get_templates() -> dict:
+    """Get all available dataset templates."""
+    try:
+        templates = TemplateService.get_all_templates()
+        return {"success": True, "templates": templates}
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to fetch templates: {str(exc)}"
+        ) from exc
 
 
 @router.post("/preflight", response_model=GenerationPreflightResponse)

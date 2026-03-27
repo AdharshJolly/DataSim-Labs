@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   me,
   listDatasets,
@@ -26,6 +27,7 @@ import {
   Archive,
   RefreshCw,
   Clock3,
+  ChevronDown,
 } from "lucide-react";
 
 import { AuthGuard } from "@/components/auth/auth-guard";
@@ -33,9 +35,105 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { TemplateGrid } from "@/components/studio/template-grid";
 import { useErrorNotifier } from "@/lib/use-error-notifier";
 
+interface CreateDatasetChooserProps {
+  buttonLabel: string;
+  onChooseTemplate: () => void;
+  fullWidth?: boolean;
+}
+
+function CreateDatasetChooser({
+  buttonLabel,
+  onChooseTemplate,
+  fullWidth = false,
+}: CreateDatasetChooserProps) {
+  const router = useRouter();
+  const [isOpen, setIsOpen] = useState(false);
+  const chooserRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!chooserRef.current) return;
+      if (!chooserRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isOpen]);
+
+  const chooseBlank = () => {
+    setIsOpen(false);
+    router.push("/studio?new=true");
+  };
+
+  const chooseTemplate = () => {
+    setIsOpen(false);
+    onChooseTemplate();
+  };
+
+  return (
+    <div
+      ref={chooserRef}
+      className={fullWidth ? "relative w-full" : "relative"}
+    >
+      <Button
+        type="button"
+        variant="cyber"
+        className={fullWidth ? "h-12 w-full" : "!h-11"}
+        onClick={() => setIsOpen((prev) => !prev)}
+      >
+        <Plus className="mr-2 h-4 w-4" />
+        {buttonLabel}
+      </Button>
+
+      {isOpen && (
+        <Card className="absolute right-0 z-40 mt-2 w-72 border-border bg-background p-2 shadow-2xl">
+          <button
+            type="button"
+            onClick={chooseBlank}
+            className="flex w-full items-start gap-2 rounded-md px-3 py-2 text-left transition-colors hover:bg-white/5"
+          >
+            <Plus className="mt-0.5 h-4 w-4 text-primary" />
+            <span>
+              <span className="block text-sm font-medium text-foreground">
+                Blank Dataset
+              </span>
+              <span className="block text-xs text-muted-foreground">
+                Start from scratch in Studio
+              </span>
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={chooseTemplate}
+            className="flex w-full items-start gap-2 rounded-md px-3 py-2 text-left transition-colors hover:bg-white/5"
+          >
+            <Database className="mt-0.5 h-4 w-4 text-primary" />
+            <span>
+              <span className="block text-sm font-medium text-foreground">
+                Choose From Template
+              </span>
+              <span className="block text-xs text-muted-foreground">
+                Pick a domain template first
+              </span>
+            </span>
+          </button>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 export default function DashboardPage() {
+  const router = useRouter();
   const [datasets, setDatasets] = useState<DatasetSummary[]>([]);
   const [jobs, setJobs] = useState<GenerationJobResponse[]>([]);
   const [showJobsPanel, setShowJobsPanel] = useState(false);
@@ -44,6 +142,7 @@ export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const { notifyError } = useErrorNotifier(setError);
 
   const loadData = async () => {
@@ -185,12 +284,10 @@ export default function DashboardPage() {
                 {jobs.length}
               </Badge>
             </Button>
-            <Button asChild variant="cyber" className="!h-11">
-              <Link href="/studio?new=true">
-                <Plus className="mr-2 h-4 w-4" />
-                New Dataset
-              </Link>
-            </Button>
+            <CreateDatasetChooser
+              buttonLabel="Create Dataset"
+              onChooseTemplate={() => setShowTemplatePicker(true)}
+            />
             <Button
               type="button"
               variant="outline"
@@ -234,12 +331,13 @@ export default function DashboardPage() {
                 Create your first synthetic dataset to get started.
               </p>
             </div>
-            <Button asChild variant="cyber" className="!h-12">
-              <Link href="/studio?new=true">
-                <Plus className="mr-2 h-4 w-4" />
-                Create Your First Dataset
-              </Link>
-            </Button>
+            <div className="w-full max-w-sm">
+              <CreateDatasetChooser
+                buttonLabel="Create Your First Dataset"
+                onChooseTemplate={() => setShowTemplatePicker(true)}
+                fullWidth
+              />
+            </div>
           </div>
         ) : (
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
@@ -324,6 +422,46 @@ export default function DashboardPage() {
           </div>
         )}
       </section>
+      {showTemplatePicker && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Choose a dataset template"
+        >
+          <Card className="max-h-[85vh] w-full max-w-5xl overflow-y-auto border-border bg-background p-6">
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <h2 className="font-display text-2xl font-bold text-foreground">
+                  Choose a Template
+                </h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Select a schema and continue in Studio.
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={() => setShowTemplatePicker(false)}
+                aria-label="Close template picker"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+
+            <TemplateGrid
+              showCreateLink={false}
+              onSelectTemplate={async (template) => {
+                setShowTemplatePicker(false);
+                router.push(
+                  `/studio?new=true&template=${encodeURIComponent(template.id)}`,
+                );
+              }}
+            />
+          </Card>
+        </div>
+      )}
 
       {datasets.length !== 0 && (
         <>

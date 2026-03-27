@@ -35,6 +35,7 @@ import {
   generationPreflight,
   generateDataset,
   getDatasetVersions,
+  listDatasetTemplates,
   listDatasetFiles,
   previewDataset,
   saveAttributes,
@@ -54,167 +55,70 @@ const ASYNC_POLL_MAX_ATTEMPTS = 1200;
 const AUTO_ASYNC_ROW_THRESHOLD = 50000;
 const AUTO_ASYNC_CELL_THRESHOLD = 1000000;
 
-// ─── Main Component ───────────────────────────────────────────────────────────
+// ─── Helper Functions ─────────────────────────────────────────────────────
 
-function templateRows(kind: "hr" | "ecommerce" | "healthcare"): AttrRow[] {
-  const makeRow = (overrides: Partial<AttrRow>): AttrRow => ({
-    _id: uid(),
-    name: "field",
-    description: "",
-    type: "integer",
-    distribution: "uniform",
-    allow_nulls: false,
-    null_percentage: 10,
-    min: "0",
-    max: "100",
-    categories: "",
-    weights: "",
-    start_date: "",
-    end_date: "",
-    precision: "2",
-    max_length: "64",
-    true_probability: "0.5",
-    skew_direction: "right",
-    skew_intensity: "2",
-    ...overrides,
-  });
-
-  if (kind === "hr") {
-    return [
-      makeRow({
-        name: "full_name",
-        description: "Employee full name",
-        type: "name",
-      }),
-      makeRow({
-        name: "age",
-        description: "Age in years",
-        type: "integer",
-        min: "18",
-        max: "65",
-      }),
-      makeRow({
-        name: "department",
-        description: "Department assignment",
-        type: "categorical",
-        distribution: "weighted_categorical",
-        categories: "Engineering, Sales, Marketing, HR, Finance",
-        weights: "35, 20, 15, 10, 20",
-      }),
-      makeRow({
-        name: "job_role",
-        description: "Employee role",
-        type: "categorical",
-        distribution: "weighted_categorical",
-        categories: "Intern, Analyst, Engineer, Manager, Director",
-        weights: "10, 20, 40, 20, 10",
-      }),
-      makeRow({
-        name: "salary",
-        description: "Annual salary",
-        type: "float",
-        min: "0",
-        max: "250000",
-        precision: "2",
-      }),
-      makeRow({
-        name: "email",
-        description: "Work email",
-        type: "email",
-      }),
-      makeRow({
-        name: "company",
-        description: "Employer company",
-        type: "categorical",
-        categories: "Acme Labs, Nova Health, Orbit Systems",
-      }),
-    ];
-  }
-
-  if (kind === "ecommerce") {
-    return [
-      makeRow({
-        name: "customer_name",
-        description: "Customer name",
-        type: "name",
-      }),
-      makeRow({
-        name: "customer_email",
-        description: "Customer email",
-        type: "email",
-      }),
-      makeRow({
-        name: "country",
-        description: "Shipping country",
-        type: "categorical",
-        distribution: "weighted_categorical",
-        categories: "India, United States, Canada, Australia, United Kingdom",
-        weights: "30, 25, 15, 15, 15",
-      }),
-      makeRow({
-        name: "state",
-        description: "Shipping state/province",
-        type: "categorical",
-        categories:
-          "Maharashtra, California, Texas, Ontario, Victoria, England",
-      }),
-      makeRow({
-        name: "postal_code",
-        description: "Postal code",
-        type: "text",
-        max_length: "10",
-      }),
-      makeRow({
-        name: "order_value",
-        description: "Order value",
-        type: "float",
-        min: "10",
-        max: "2500",
-      }),
-    ];
-  }
-
-  return [
-    makeRow({
-      name: "patient_name",
-      description: "Patient full name",
-      type: "name",
-    }),
-    makeRow({
-      name: "gender",
-      description: "Biological sex/gender",
-      type: "categorical",
-      categories: "male, female, non-binary",
-    }),
-    makeRow({
-      name: "age",
-      description: "Age in years",
+function templateColumnsToAttrRows(columns: Record<string, any>): AttrRow[] {
+  return Object.entries(columns).map(([name, colConfig]) => {
+    const dist = colConfig.distribution || {};
+    const makeRow = (overrides: Partial<AttrRow>): AttrRow => ({
+      _id: uid(),
+      name: "field",
+      description: "",
       type: "integer",
+      distribution: "uniform",
+      allow_nulls: false,
+      null_percentage: 10,
       min: "0",
-      max: "95",
-    }),
-    makeRow({
-      name: "diagnosis_group",
-      description: "Primary diagnosis category",
-      type: "categorical",
-      categories: "Cardiac, Respiratory, Endocrine, Neuro, Ortho",
-    }),
-    makeRow({
-      name: "admission_date",
-      description: "Date of admission",
-      type: "date",
-      start_date: "2020-01-01",
-      end_date: "2026-12-31",
-    }),
-    makeRow({
-      name: "length_of_stay",
-      description: "Length of stay (days)",
-      type: "integer",
-      min: "1",
-      max: "45",
-    }),
-  ];
+      max: "100",
+      categories: "",
+      weights: "",
+      start_date: "",
+      end_date: "",
+      precision: "2",
+      max_length: "64",
+      true_probability: "0.5",
+      skew_direction: "right",
+      skew_intensity: "2",
+      ...overrides,
+    });
+
+    // Map data_type to field type
+    let fieldType: AttrRow["type"] = "text";
+    if (colConfig.data_type === "integer") fieldType = "integer";
+    else if (colConfig.data_type === "float") fieldType = "float";
+    else if (colConfig.data_type === "boolean") fieldType = "boolean";
+    else if (colConfig.data_type === "date") fieldType = "date";
+    else if (colConfig.data_type === "email") fieldType = "email";
+    else if (colConfig.data_type === "categorical") fieldType = "categorical";
+    else if (colConfig.data_type === "text") fieldType = "text";
+
+    const row: AttrRow = makeRow({
+      name,
+      type: fieldType,
+    });
+
+    // Apply distribution settings
+    if (dist.max_length) row.max_length = String(dist.max_length);
+    if (dist.min !== undefined) row.min = String(dist.min);
+    if (dist.max !== undefined) row.max = String(dist.max);
+    if (dist.start_date) row.start_date = dist.start_date;
+    if (dist.end_date) row.end_date = dist.end_date;
+    if (dist.precision) row.precision = String(dist.precision);
+
+    // Handle categorical
+    if (dist.categories && Array.isArray(dist.categories)) {
+      row.categories = dist.categories.join(", ");
+      row.distribution = "weighted_categorical";
+      if (dist.probabilities && Array.isArray(dist.probabilities)) {
+        row.weights = dist.probabilities.join(", ");
+      }
+    }
+
+    return row;
+  });
 }
+
+// ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function StudioPage() {
   const { pushToast } = useFeedback();
@@ -294,6 +198,27 @@ export default function StudioPage() {
       localStorage.removeItem("datasim:dataset_id");
       localStorage.removeItem("datasim:dataset_version_id");
       localStorage.removeItem("datasim:validation_summary");
+
+      setDatasetId("");
+      setVersionId("");
+      setGeneratedFiles([]);
+      setAttrs([newAttr(0)]);
+
+      const selectedTemplateId = params.get("template");
+      if (selectedTemplateId) {
+        void listDatasetTemplates()
+          .then((response) => {
+            const selectedTemplate = response.templates.find(
+              (template) => template.id === selectedTemplateId,
+            );
+            if (selectedTemplate?.columns) {
+              setAttrs(templateColumnsToAttrRows(selectedTemplate.columns));
+            }
+          })
+          .catch(() => {
+            setError("Failed to load selected template.");
+          });
+      }
 
       const newUrl = window.location.pathname;
       window.history.replaceState({}, document.title, newUrl);
@@ -394,12 +319,6 @@ export default function StudioPage() {
       })
       .catch(() => setStep(2));
   }, []);
-
-  const applyTemplate = (kind: "hr" | "ecommerce" | "healthcare") => {
-    const templated = templateRows(kind);
-    setAttrs(templated);
-    setError("");
-  };
 
   const parseCorrelationRules = () => {
     if (!correlationRulesText.trim()) {
@@ -991,41 +910,6 @@ export default function StudioPage() {
                   )}
                 </Button>
               </header>
-
-              <Card className="mb-8 p-4 bg-white/5 border-border">
-                <p className="text-sm font-semibold text-foreground">
-                  Start from a template
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Load a domain starter schema and customize from there.
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => applyTemplate("hr")}
-                  >
-                    HR Template
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => applyTemplate("ecommerce")}
-                  >
-                    Ecommerce Template
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => applyTemplate("healthcare")}
-                  >
-                    Healthcare Template
-                  </Button>
-                </div>
-              </Card>
 
               <Card className="mb-8 p-4 bg-white/5 border-border">
                 <p className="text-sm font-semibold text-foreground">

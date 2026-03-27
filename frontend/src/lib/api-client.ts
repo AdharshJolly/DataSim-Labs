@@ -475,6 +475,19 @@ export interface UploadProfileResponse {
   profile: DatasetProfile;
 }
 
+export interface DatasetTemplate {
+  id: string;
+  name: string;
+  description: string;
+  columns?: Record<string, unknown>;
+  dependency_graph?: unknown[];
+}
+
+export interface DatasetTemplatesResponse {
+  success: boolean;
+  templates: DatasetTemplate[];
+}
+
 export interface GenerateFromProfileRequest {
   row_count: number;
   seed?: number;
@@ -653,6 +666,10 @@ export async function downloadDatasetFile(
 
 export function listDatasets(): Promise<DatasetListResponse> {
   return apiRequest<DatasetListResponse>("/api/v1/dataset/list");
+}
+
+export function listDatasetTemplates(): Promise<DatasetTemplatesResponse> {
+  return apiRequest<DatasetTemplatesResponse>("/api/v1/dataset/templates");
 }
 
 export function getDataset(datasetId: string): Promise<DatasetDetailResponse> {
