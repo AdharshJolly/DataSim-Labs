@@ -5,31 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
-
-class DataType(str, Enum):
-    integer = "integer"
-    float = "float"
-    categorical = "categorical"
-    boolean = "boolean"
-    date = "date"
-    text = "text"
-    email = "email"
-    name = "name"
-    address = "address"
-
-
-class DistributionType(str, Enum):
-    uniform = "uniform"
-    normal = "normal"
-    skewed = "skewed"
-    weighted_categorical = "weighted_categorical"
-
-
-class DatasetStatus(str, Enum):
-    draft = "draft"
-    active = "active"
-    generating = "generating"
-    archived = "archived"
+from app.core.enums import DataType, DatasetStatus, DistributionType
 
 
 class GenerationJobStatus(str, Enum):

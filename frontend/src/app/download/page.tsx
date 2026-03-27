@@ -23,10 +23,9 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { useFeedback } from "@/components/ui/feedback-provider";
+import { useErrorNotifier } from "@/lib/use-error-notifier";
 
 export default function DownloadPage() {
-  const { pushToast, showErrorDialog } = useFeedback();
   const [datasetId, setDatasetId] = useState("");
   const [files, setFiles] = useState<GeneratedFileInfo[]>([]);
   const [status, setStatus] = useState("");
@@ -36,20 +35,10 @@ export default function DownloadPage() {
     useState<ValidationSummary | null>(null);
   const [allowLowQualityDownloads, setAllowLowQualityDownloads] =
     useState(false);
+  const { notifyError } = useErrorNotifier(setError);
 
   const hasFiles = useMemo(() => files.length > 0, [files.length]);
   const validationPassed = validationSummary?.passed ?? true;
-
-  const notifyError = (title: string, err: unknown, fallback: string) => {
-    const message = err instanceof Error ? err.message : fallback;
-    setError(message);
-    pushToast({ title, message, intent: "error" });
-    showErrorDialog({
-      title,
-      message,
-      details: err instanceof Error ? err.stack : undefined,
-    });
-  };
 
   const loadFiles = async () => {
     if (!datasetId.trim()) {

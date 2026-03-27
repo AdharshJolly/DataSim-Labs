@@ -17,7 +17,6 @@ from pymongo.database import Database
 from app.core.config import settings
 from app.engine.dataset_generator import AttributeSpec, DatasetGenerator
 from app.engine.realism_planner import RealismPlanner
-from app.models.dataset import Dataset, DatasetVersion
 from app.services.dataset_repository import DatasetRepository
 
 
@@ -33,7 +32,7 @@ class GenerationOrchestrator:
     ) -> list[dict[str, Any]]:
         """Generate a 10-row preview from persisted attribute configuration."""
         version = DatasetRepository.get_dataset_version(db, dataset_version_id)
-        dataset = DatasetRepository.get_dataset(
+        DatasetRepository.get_dataset(
             db=db, user_id=user_id, dataset_id=version.dataset_id
         )
 

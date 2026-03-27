@@ -105,7 +105,7 @@ class JobManager:
             dataset_version_id=(
                 uuid.UUID(str(job["dataset_version_id"]))
                 if job.get("dataset_version_id")
-                else job["dataset_id"]
+                else uuid.UUID(str(job["dataset_id"]))
             ),
             row_count=int(job["row_count"]),
             formats=[str(item) for item in job.get("formats", ["csv"])],

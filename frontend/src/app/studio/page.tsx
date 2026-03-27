@@ -47,6 +47,7 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card } from "@/components/ui/card";
 import { useFeedback } from "@/components/ui/feedback-provider";
+import { useErrorNotifier } from "@/lib/use-error-notifier";
 
 const ASYNC_POLL_INTERVAL_MS = 1500;
 const ASYNC_POLL_MAX_ATTEMPTS = 1200;
@@ -216,7 +217,7 @@ function templateRows(kind: "hr" | "ecommerce" | "healthcare"): AttrRow[] {
 }
 
 export default function StudioPage() {
-  const { pushToast, showErrorDialog } = useFeedback();
+  const { pushToast } = useFeedback();
   const [step, setStep] = useState<Step>(1);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -272,6 +273,7 @@ export default function StudioPage() {
   const [preflightBusy, setPreflightBusy] = useState(false);
   const [allowLowQualityDownloads, setAllowLowQualityDownloads] =
     useState(false);
+  const { notifyError } = useErrorNotifier(setError);
 
   const estimatedCells = rowCount * Math.max(1, attrs.length);
   const useAsyncGeneration =
@@ -283,21 +285,6 @@ export default function StudioPage() {
     qualityGuardrails == null
       ? true
       : Boolean((qualityGuardrails as { passed?: boolean }).passed);
-
-  const notifyError = (title: string, err: unknown, fallback: string) => {
-    const message = err instanceof Error ? err.message : fallback;
-    setError(message);
-    pushToast({
-      title,
-      message,
-      intent: "error",
-    });
-    showErrorDialog({
-      title,
-      message,
-      details: err instanceof Error ? err.stack : undefined,
-    });
-  };
 
   // Load existing dataset from query string
   useEffect(() => {

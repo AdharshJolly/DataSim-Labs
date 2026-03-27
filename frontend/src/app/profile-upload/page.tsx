@@ -25,6 +25,7 @@ import {
   type ValidationSummary,
 } from "@/lib/api-client";
 import { useFeedback } from "@/components/ui/feedback-provider";
+import { useErrorNotifier } from "@/lib/use-error-notifier";
 
 type CoherenceMetrics = {
   score: number | null;
@@ -146,7 +147,7 @@ function getCorrelationStrengthLabel(strength: number | undefined): string {
 }
 
 export default function ProfileUploadPage() {
-  const { pushToast, showErrorDialog } = useFeedback();
+  const { pushToast } = useFeedback();
   const [datasets, setDatasets] = useState<DatasetSummary[]>([]);
   const [versions, setVersions] = useState<DatasetVersionSummary[]>([]);
   const [selectedDatasetId, setSelectedDatasetId] = useState("");
@@ -175,17 +176,7 @@ export default function ProfileUploadPage() {
     rowsChecked: null,
     rowsMatched: null,
   });
-
-  const notifyError = (title: string, err: unknown, fallback: string) => {
-    const message = err instanceof Error ? err.message : fallback;
-    setError(message);
-    pushToast({ title, message, intent: "error" });
-    showErrorDialog({
-      title,
-      message,
-      details: err instanceof Error ? err.stack : undefined,
-    });
-  };
+  const { notifyError } = useErrorNotifier(setError);
 
   useEffect(() => {
     const loadDatasets = async () => {

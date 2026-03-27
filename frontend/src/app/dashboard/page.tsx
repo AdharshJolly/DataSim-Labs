@@ -33,10 +33,9 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { useFeedback } from "@/components/ui/feedback-provider";
+import { useErrorNotifier } from "@/lib/use-error-notifier";
 
 export default function DashboardPage() {
-  const { pushToast, showErrorDialog } = useFeedback();
   const [datasets, setDatasets] = useState<DatasetSummary[]>([]);
   const [jobs, setJobs] = useState<GenerationJobResponse[]>([]);
   const [showJobsPanel, setShowJobsPanel] = useState(false);
@@ -45,17 +44,7 @@ export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
-
-  const notifyError = (title: string, err: unknown, fallback: string) => {
-    const message = err instanceof Error ? err.message : fallback;
-    setError(message);
-    pushToast({ title, message, intent: "error" });
-    showErrorDialog({
-      title,
-      message,
-      details: err instanceof Error ? err.stack : undefined,
-    });
-  };
+  const { notifyError } = useErrorNotifier(setError);
 
   const loadData = async () => {
     try {
