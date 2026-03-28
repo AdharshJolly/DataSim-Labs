@@ -30,6 +30,7 @@ import {
   getGenerationJob,
   type GeneratedFileInfo,
   type GenerationJobStatus,
+  type PreviewColumnComparison,
   createDataset,
   downloadDatasetFile,
   generationPreflight,
@@ -139,6 +140,10 @@ export default function StudioPage() {
   // Step 3
   const [previewRows, setPreviewRows] = useState<Record<string, unknown>[]>([]);
   const [previewCols, setPreviewCols] = useState<string[]>([]);
+  const [previewComparisonCols, setPreviewComparisonCols] = useState<
+    PreviewColumnComparison[]
+  >([]);
+  const [selectedComparisonCol, setSelectedComparisonCol] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Step 4
@@ -150,6 +155,18 @@ export default function StudioPage() {
     string,
     unknown
   > | null>(null);
+  const [qualityDashboard, setQualityDashboard] = useState<{
+    overall_score: number;
+    metrics: {
+      distribution_fidelity: number;
+      relationship_integrity: number;
+      null_pattern_match: number;
+      uniqueness: number;
+      freshness: number;
+    };
+    warnings: string[];
+    recommendations: string[];
+  } | null>(null);
   const [generationSignature, setGenerationSignature] = useState("");
   const [generationRunId, setGenerationRunId] = useState("");
   const [runComparison, setRunComparison] = useState<Record<
@@ -189,6 +206,14 @@ export default function StudioPage() {
     qualityGuardrails == null
       ? true
       : Boolean((qualityGuardrails as { passed?: boolean }).passed);
+
+  const selectedPreviewComparison =
+    previewComparisonCols.find(
+      (item) => item.column === selectedComparisonCol,
+    ) ??
+    previewComparisonCols[0] ??
+    null;
+  const selectedNumericComparison = selectedPreviewComparison?.numeric ?? null;
 
   // Load existing dataset from query string
   useEffect(() => {
@@ -424,6 +449,19 @@ export default function StudioPage() {
       );
       setPreviewRows(res.data);
       setPreviewCols(res.data.length > 0 ? Object.keys(res.data[0]) : []);
+
+      const nextComparisonCols = res.comparison?.columns ?? [];
+      setPreviewComparisonCols(nextComparisonCols);
+      if (nextComparisonCols.length === 0) {
+        setSelectedComparisonCol("");
+      } else {
+        const selectedStillExists = nextComparisonCols.some(
+          (item) => item.column === selectedComparisonCol,
+        );
+        if (!selectedStillExists) {
+          setSelectedComparisonCol(nextComparisonCols[0].column);
+        }
+      }
     } catch (e) {
       notifyError("Preview Failed", e, "Preview failed");
     } finally {
@@ -482,6 +520,7 @@ export default function StudioPage() {
         setQualityReport(
           (res.quality_report as Record<string, unknown>) ?? null,
         );
+        setQualityDashboard(res.quality_dashboard ?? null);
         setValidationSummary(res.validation_summary ?? null);
         if (res.validation_summary) {
           try {
@@ -531,6 +570,7 @@ export default function StudioPage() {
           setQualityReport(
             (result.quality_report as Record<string, unknown>) ?? null,
           );
+          setQualityDashboard(result.quality_dashboard ?? null);
           setValidationSummary(result.validation_summary ?? null);
           if (result.validation_summary) {
             try {
@@ -1083,6 +1123,227 @@ export default function StudioPage() {
                 </Card>
               )}
 
+              {previewComparisonCols.length > 0 && (
+                <Card className="mb-6 border-border bg-white/5 p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h3 className="text-sm font-semibold text-foreground">
+                        Statistical Comparison
+                      </h3>
+                      <p className="text-xs text-muted-foreground">
+                        Expected distribution versus synthetic preview sample.
+                      </p>
+                    </div>
+                    <select
+                      className="h-9 min-w-48 rounded-md border border-border bg-background px-3 text-sm"
+                      value={selectedPreviewComparison?.column ?? ""}
+                      onChange={(e) => setSelectedComparisonCol(e.target.value)}
+                    >
+                      {previewComparisonCols.map((column) => (
+                        <option key={column.column} value={column.column}>
+                          {column.column}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {selectedNumericComparison ? (
+                    <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                      <div className="rounded-lg border border-border/60 bg-background/60 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Summary
+                        </p>
+                        <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                          <div>
+                            <span className="text-muted-foreground">
+                              Expected range:
+                            </span>{" "}
+                            {selectedNumericComparison.expected_min?.toFixed(
+                              2,
+                            ) ?? "n/a"}{" "}
+                            -{" "}
+                            {selectedNumericComparison.expected_max?.toFixed(
+                              2,
+                            ) ?? "n/a"}
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">
+                              Synthetic range:
+                            </span>{" "}
+                            {selectedNumericComparison.synthetic_min?.toFixed(
+                              2,
+                            ) ?? "n/a"}{" "}
+                            -{" "}
+                            {selectedNumericComparison.synthetic_max?.toFixed(
+                              2,
+                            ) ?? "n/a"}
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">
+                              Expected mean:
+                            </span>{" "}
+                            {selectedNumericComparison.expected_mean?.toFixed(
+                              3,
+                            ) ?? "n/a"}
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">
+                              Synthetic mean:
+                            </span>{" "}
+                            {selectedNumericComparison.synthetic_mean?.toFixed(
+                              3,
+                            ) ?? "n/a"}
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">
+                              Expected skew:
+                            </span>{" "}
+                            {selectedNumericComparison.expected_skewness?.toFixed(
+                              3,
+                            ) ?? "n/a"}
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">
+                              Synthetic skew:
+                            </span>{" "}
+                            {selectedNumericComparison.synthetic_skewness?.toFixed(
+                              3,
+                            ) ?? "n/a"}
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">
+                              Expected kurtosis:
+                            </span>{" "}
+                            {selectedNumericComparison.expected_kurtosis?.toFixed(
+                              3,
+                            ) ?? "n/a"}
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">
+                              Synthetic kurtosis:
+                            </span>{" "}
+                            {selectedNumericComparison.synthetic_kurtosis?.toFixed(
+                              3,
+                            ) ?? "n/a"}
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">
+                              Expected null %:
+                            </span>{" "}
+                            {selectedNumericComparison.expected_missing_pct.toFixed(
+                              2,
+                            )}
+                          </div>
+                          <div>
+                            <span className="text-muted-foreground">
+                              Synthetic null %:
+                            </span>{" "}
+                            {selectedNumericComparison.synthetic_missing_pct.toFixed(
+                              2,
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                          <span
+                            className={`rounded-full px-2 py-1 ${
+                              selectedNumericComparison.ks_passed
+                                ? "bg-emerald-500/15 text-emerald-300"
+                                : "bg-amber-500/15 text-amber-200"
+                            }`}
+                          >
+                            KS:{" "}
+                            {selectedNumericComparison.ks_p_value?.toFixed(3) ??
+                              "n/a"}
+                          </span>
+                          <span
+                            className={`rounded-full px-2 py-1 ${
+                              selectedNumericComparison.ad_passed
+                                ? "bg-emerald-500/15 text-emerald-300"
+                                : "bg-amber-500/15 text-amber-200"
+                            }`}
+                          >
+                            AD:{" "}
+                            {selectedNumericComparison.ad_significance_level?.toFixed(
+                              2,
+                            ) ?? "n/a"}
+                            %
+                          </span>
+                          {selectedNumericComparison.low_variance && (
+                            <span className="rounded-full bg-amber-500/15 px-2 py-1 text-amber-200">
+                              Low variance detected
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="rounded-lg border border-border/60 bg-background/60 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Histogram Overlay
+                        </p>
+                        <div className="mt-3 space-y-2">
+                          {selectedNumericComparison.histogram_bins.length >
+                          0 ? (
+                            selectedNumericComparison.histogram_bins.map(
+                              (bin, index, all) => {
+                                const maxCount = Math.max(
+                                  1,
+                                  ...all.map((entry) =>
+                                    Math.max(
+                                      entry.expected_count,
+                                      entry.synthetic_count,
+                                    ),
+                                  ),
+                                );
+                                const expectedWidth =
+                                  (bin.expected_count / maxCount) * 100;
+                                const syntheticWidth =
+                                  (bin.synthetic_count / maxCount) * 100;
+                                return (
+                                  <div
+                                    key={`${bin.bin_start}-${bin.bin_end}-${index}`}
+                                  >
+                                    <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
+                                      <span>
+                                        {bin.bin_start.toFixed(1)} -{" "}
+                                        {bin.bin_end.toFixed(1)}
+                                      </span>
+                                      <span>
+                                        E {bin.expected_count.toFixed(0)} / S{" "}
+                                        {bin.synthetic_count.toFixed(0)}
+                                      </span>
+                                    </div>
+                                    <div className="relative h-3 rounded bg-border/40">
+                                      <div
+                                        className="absolute left-0 top-0 h-3 rounded bg-cyan-400/50"
+                                        style={{ width: `${expectedWidth}%` }}
+                                      />
+                                      <div
+                                        className="absolute left-0 top-0 h-2 rounded bg-amber-300/70"
+                                        style={{ width: `${syntheticWidth}%` }}
+                                      />
+                                    </div>
+                                  </div>
+                                );
+                              },
+                            )
+                          ) : (
+                            <p className="text-xs text-muted-foreground">
+                              Not enough data to render histogram bins.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="mt-3 text-xs text-muted-foreground">
+                      Detailed statistical comparison is currently available for
+                      numeric columns.
+                    </p>
+                  )}
+                </Card>
+              )}
+
               {/* Preview table */}
               {isRefreshing ? (
                 <div className="flex h-60 flex-col items-center justify-center gap-3 rounded-lg border border-border bg-background/70">
@@ -1486,6 +1747,110 @@ export default function StudioPage() {
                     </Alert>
                   )}
 
+                  {qualityDashboard && (
+                    <Card className="border-border bg-white/5 p-4">
+                      <h3 className="font-semibold text-foreground">
+                        Data Quality Score Dashboard
+                      </h3>
+                      <div className="mt-3 grid gap-4 lg:grid-cols-[220px_1fr]">
+                        <div className="rounded-lg border border-border/60 bg-background/40 p-4 text-center">
+                          <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                            Overall Score
+                          </p>
+                          <p className="mt-2 text-4xl font-bold text-foreground">
+                            {qualityDashboard.overall_score}
+                            <span className="text-lg text-muted-foreground">
+                              /100
+                            </span>
+                          </p>
+                          <div className="mt-3 h-2 w-full rounded bg-border/50">
+                            <div
+                              className="h-2 rounded bg-emerald-400"
+                              style={{
+                                width: `${Math.max(0, Math.min(100, qualityDashboard.overall_score))}%`,
+                              }}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="space-y-3">
+                          {[
+                            [
+                              "Distribution Fidelity",
+                              qualityDashboard.metrics.distribution_fidelity,
+                            ],
+                            [
+                              "Relationship Integrity",
+                              qualityDashboard.metrics.relationship_integrity,
+                            ],
+                            [
+                              "Null Pattern Match",
+                              qualityDashboard.metrics.null_pattern_match,
+                            ],
+                            ["Uniqueness", qualityDashboard.metrics.uniqueness],
+                            ["Freshness", qualityDashboard.metrics.freshness],
+                          ].map(([label, value]) => (
+                            <div key={String(label)}>
+                              <div className="mb-1 flex items-center justify-between text-xs">
+                                <span className="text-muted-foreground">
+                                  {String(label)}
+                                </span>
+                                <span className="font-medium text-foreground">
+                                  {Number(value)}/100
+                                </span>
+                              </div>
+                              <div className="h-2 rounded bg-border/50">
+                                <div
+                                  className="h-2 rounded bg-cyan-400"
+                                  style={{
+                                    width: `${Math.max(0, Math.min(100, Number(value)))}%`,
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {(qualityDashboard.warnings.length > 0 ||
+                        qualityDashboard.recommendations.length > 0) && (
+                        <div className="mt-4 grid gap-3 md:grid-cols-2">
+                          <div className="rounded border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-100">
+                            <p className="font-semibold">Warnings</p>
+                            {qualityDashboard.warnings.length > 0 ? (
+                              <ul className="mt-2 space-y-1">
+                                {qualityDashboard.warnings.map(
+                                  (warning, index) => (
+                                    <li key={`warn-${index}`}>- {warning}</li>
+                                  ),
+                                )}
+                              </ul>
+                            ) : (
+                              <p className="mt-2">No warnings reported.</p>
+                            )}
+                          </div>
+
+                          <div className="rounded border border-cyan-500/40 bg-cyan-500/10 p-3 text-xs text-cyan-100">
+                            <p className="font-semibold">Recommendations</p>
+                            {qualityDashboard.recommendations.length > 0 ? (
+                              <ul className="mt-2 space-y-1">
+                                {qualityDashboard.recommendations.map(
+                                  (recommendation, index) => (
+                                    <li key={`rec-${index}`}>
+                                      - {recommendation}
+                                    </li>
+                                  ),
+                                )}
+                              </ul>
+                            ) : (
+                              <p className="mt-2">No action needed.</p>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </Card>
+                  )}
+
                   {validationSummary && (
                     <ValidationDashboard report={validationSummary} />
                   )}
@@ -1607,6 +1972,7 @@ export default function StudioPage() {
                       onClick={() => {
                         setGeneratedFiles([]);
                         setQualityReport(null);
+                        setQualityDashboard(null);
                         setQualityGuardrails(null);
                         setValidationSummary(null);
                         setGenerationSignature("");

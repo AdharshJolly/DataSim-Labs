@@ -3,7 +3,7 @@ import unicodedata
 
 import numpy as np
 import pandas as pd
-from scipy.stats import ks_2samp, kstest
+from scipy.stats import ks_2samp, kstest, wasserstein_distance
 from typing import Any, Dict
 
 
@@ -22,6 +22,8 @@ class StatisticalValidator:
             "ks_tests": {},
             "kl_divergence": {},
             "column_comparisons": {},
+            "uniqueness": {},
+            "freshness": {},
             "correlation_error": {
                 "frobenius_norm": None,
                 "max_pair_error": None,
@@ -77,6 +79,15 @@ class StatisticalValidator:
             real_dist = prof.get("distribution", {})
             data_type = prof.get("data_type")
 
+            unique_ratio = float(
+                valid_syn_series.nunique() / max(len(valid_syn_series), 1)
+            )
+            report["uniqueness"][col_name] = {
+                "unique_ratio": unique_ratio,
+                "sample_size": int(len(valid_syn_series)),
+                "passed": unique_ratio >= 0.8,
+            }
+
             target_ratio = float(prof.get("null_percentage", 0.0) / 100.0)
             actual_ratio = float(syn_series.isna().sum() / max(len(syn_series), 1))
             null_drift = abs(target_ratio - actual_ratio)
@@ -96,6 +107,8 @@ class StatisticalValidator:
             if data_type in ["integer", "float"]:
                 stat = 1.0
                 p_val = 0.0
+                emd = 0.0
+                ref_sample = None
 
                 if "quantiles" in real_dist:
                     quantiles = np.array(real_dist["quantiles"])
@@ -118,6 +131,23 @@ class StatisticalValidator:
                     mean = float(real_dist.get("mean", 0.0))
                     std = float(real_dist.get("std", 1.0)) or 1.0
                     stat, p_val = kstest(valid_syn_series, "norm", args=(mean, std))
+
+                if ref_sample is None:
+                    mean = float(real_dist.get("mean", float(valid_syn_series.mean())))
+                    std = float(
+                        real_dist.get("std", float(valid_syn_series.std() or 1.0))
+                    )
+                    std = max(std, 1e-6)
+                    ref_sample = np.random.default_rng(42).normal(
+                        loc=mean,
+                        scale=std,
+                        size=max(len(valid_syn_series), 1000),
+                    )
+
+                try:
+                    emd = float(wasserstein_distance(valid_syn_series, ref_sample))
+                except Exception:
+                    emd = 0.0
 
                 generated_mean = float(valid_syn_series.mean())
                 generated_std = (
@@ -148,6 +178,7 @@ class StatisticalValidator:
                     "target_std": target_std,
                     "generated_std": generated_std,
                     "std_drift": std_drift,
+                    "emd": emd,
                 }
                 if not passed:
                     report["realism_score"] -= 5
@@ -196,6 +227,35 @@ class StatisticalValidator:
                         "note": "No categorical baseline available; validated via null and metadata checks.",
                     }
 
+            elif data_type in ["date"]:
+                syn_dates = pd.to_datetime(valid_syn_series, errors="coerce").dropna()
+                start_date = pd.to_datetime(
+                    real_dist.get("start_date"), errors="coerce"
+                )
+                end_date = pd.to_datetime(real_dist.get("end_date"), errors="coerce")
+
+                if (
+                    len(syn_dates) > 0
+                    and not pd.isna(start_date)
+                    and not pd.isna(end_date)
+                ):
+                    in_range = (
+                        (syn_dates >= start_date) & (syn_dates <= end_date)
+                    ).sum()
+                    ratio = float(in_range / max(len(syn_dates), 1))
+                    report["freshness"][col_name] = {
+                        "in_range_ratio": ratio,
+                        "expected_start": str(start_date.date()),
+                        "expected_end": str(end_date.date()),
+                        "passed": ratio >= 0.95,
+                    }
+                    report["column_comparisons"][col_name] = {
+                        "type": "date",
+                        "freshness_ratio": ratio,
+                    }
+                    if ratio < 0.95:
+                        report["realism_score"] -= 4
+
         if correlation_target and "spearman" in correlation_target:
             cols = [
                 c
@@ -235,14 +295,15 @@ class StatisticalValidator:
 
         # Identify name & email columns from semantic types in the profile.
         name_cols = [
-            col for col, prof in column_profiles.items()
+            col
+            for col, prof in column_profiles.items()
             if prof.get("semantic_type") in ("name", "first_name", "last_name")
             and col in sample_df.columns
         ]
         email_cols = [
-            col for col, prof in column_profiles.items()
-            if prof.get("semantic_type") == "email"
-            and col in sample_df.columns
+            col
+            for col, prof in column_profiles.items()
+            if prof.get("semantic_type") == "email" and col in sample_df.columns
         ]
 
         if name_cols and email_cols:
@@ -259,9 +320,14 @@ class StatisticalValidator:
                     continue
                 local_part = email_val.rsplit("@", 1)[0].lower()
                 tokens = [
-                    re.sub(r"[^a-z0-9]+", "",
-                           unicodedata.normalize("NFKD", tok)
-                           .encode("ascii", "ignore").decode("ascii").lower())
+                    re.sub(
+                        r"[^a-z0-9]+",
+                        "",
+                        unicodedata.normalize("NFKD", tok)
+                        .encode("ascii", "ignore")
+                        .decode("ascii")
+                        .lower(),
+                    )
                     for tok in re.findall(r"[A-Za-z]+", name_val)
                     if len(tok) >= 2
                 ]

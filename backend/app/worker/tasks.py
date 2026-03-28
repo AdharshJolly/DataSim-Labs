@@ -61,6 +61,8 @@ def generate_dataset_async_task(job_id: str) -> None:
                 "row_count": int(running_job["row_count"]),
                 "files": result.get("files", []),
                 "quality_report": result.get("quality_report"),
+                "quality_dashboard": result.get("quality_dashboard"),
+                "validation_summary": result.get("validation_summary"),
                 "quality_guardrails": result.get("quality_guardrails"),
                 "drift_simulation": result.get("drift_simulation"),
                 "generation_signature": result.get("generation_signature"),

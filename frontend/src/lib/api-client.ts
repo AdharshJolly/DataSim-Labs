@@ -238,6 +238,46 @@ export interface PreviewResponse {
   dataset_version_id: string;
   rows: number;
   data: Record<string, unknown>[];
+  comparison?: {
+    columns: PreviewColumnComparison[];
+  } | null;
+}
+
+export interface PreviewHistogramBin {
+  bin_start: number;
+  bin_end: number;
+  expected_count: number;
+  synthetic_count: number;
+}
+
+export interface PreviewNumericComparison {
+  expected_min?: number | null;
+  expected_max?: number | null;
+  expected_mean?: number | null;
+  synthetic_min?: number | null;
+  synthetic_max?: number | null;
+  synthetic_mean?: number | null;
+  expected_skewness?: number | null;
+  synthetic_skewness?: number | null;
+  expected_kurtosis?: number | null;
+  synthetic_kurtosis?: number | null;
+  ks_statistic?: number | null;
+  ks_p_value?: number | null;
+  ks_passed?: boolean | null;
+  ad_statistic?: number | null;
+  ad_significance_level?: number | null;
+  ad_passed?: boolean | null;
+  expected_missing_pct: number;
+  synthetic_missing_pct: number;
+  low_variance: boolean;
+  histogram_bins: PreviewHistogramBin[];
+}
+
+export interface PreviewColumnComparison {
+  column: string;
+  data_type: string;
+  distribution: string;
+  numeric?: PreviewNumericComparison | null;
 }
 
 export interface GenerateRequest {
@@ -306,6 +346,18 @@ export interface GenerateResponse {
   row_count: number;
   files: GeneratedFileInfo[];
   quality_report?: Record<string, unknown> | null;
+  quality_dashboard?: {
+    overall_score: number;
+    metrics: {
+      distribution_fidelity: number;
+      relationship_integrity: number;
+      null_pattern_match: number;
+      uniqueness: number;
+      freshness: number;
+    };
+    warnings: string[];
+    recommendations: string[];
+  } | null;
   validation_summary?: ValidationSummary | null;
   quality_guardrails?: {
     passed: boolean;

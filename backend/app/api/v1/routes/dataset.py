@@ -140,8 +140,9 @@ def preview_dataset(
 
     return {
         "dataset_version_id": payload.dataset_version_id,
-        "rows": 10,
-        "data": preview_data,
+        "rows": len(preview_data.get("data", [])),
+        "data": preview_data.get("data", []),
+        "comparison": preview_data.get("comparison"),
     }
 
 
@@ -179,6 +180,7 @@ def generate_dataset(
         "row_count": payload.row_count,
         "files": generation_result.get("files", []),
         "quality_report": generation_result.get("quality_report"),
+        "quality_dashboard": generation_result.get("quality_dashboard"),
         "validation_summary": generation_result.get("validation_summary"),
         "quality_guardrails": generation_result.get("quality_guardrails"),
         "drift_simulation": generation_result.get("drift_simulation"),

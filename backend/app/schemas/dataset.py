@@ -193,10 +193,52 @@ class PreviewRequest(BaseModel):
     seed: int | None = Field(default=None, ge=0)
 
 
+class PreviewHistogramBin(BaseModel):
+    bin_start: float
+    bin_end: float
+    expected_count: float
+    synthetic_count: float
+
+
+class PreviewNumericComparison(BaseModel):
+    expected_min: float | None = None
+    expected_max: float | None = None
+    expected_mean: float | None = None
+    synthetic_min: float | None = None
+    synthetic_max: float | None = None
+    synthetic_mean: float | None = None
+    expected_skewness: float | None = None
+    synthetic_skewness: float | None = None
+    expected_kurtosis: float | None = None
+    synthetic_kurtosis: float | None = None
+    ks_statistic: float | None = None
+    ks_p_value: float | None = None
+    ks_passed: bool | None = None
+    ad_statistic: float | None = None
+    ad_significance_level: float | None = None
+    ad_passed: bool | None = None
+    expected_missing_pct: float
+    synthetic_missing_pct: float
+    low_variance: bool
+    histogram_bins: list[PreviewHistogramBin] = Field(default_factory=list)
+
+
+class PreviewColumnComparison(BaseModel):
+    column: str
+    data_type: str
+    distribution: str
+    numeric: PreviewNumericComparison | None = None
+
+
+class PreviewComparisonPayload(BaseModel):
+    columns: list[PreviewColumnComparison] = Field(default_factory=list)
+
+
 class PreviewResponse(BaseModel):
     dataset_version_id: UUID
     rows: int
     data: list[dict[str, Any]]
+    comparison: PreviewComparisonPayload | None = None
 
 
 class GenerateRequest(BaseModel):
@@ -261,6 +303,7 @@ class GenerateResponse(BaseModel):
     row_count: int
     files: list[GeneratedFileInfo]
     quality_report: dict[str, Any] | None = None
+    quality_dashboard: dict[str, Any] | None = None
     validation_summary: ValidationSummary | None = None
     quality_guardrails: dict[str, Any] | None = None
     drift_simulation: dict[str, Any] | None = None

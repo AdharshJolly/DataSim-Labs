@@ -102,11 +102,15 @@ class DatasetService:
             for attribute in attributes
         ]
 
-        realism_plan = GenerationOrchestrator.plan_realism_rules(attributes=planner_specs)
+        realism_plan = GenerationOrchestrator.plan_realism_rules(
+            attributes=planner_specs
+        )
         realism_rules = realism_plan.get("rules", [])
 
         config_json = {
-            "attributes": [attribute.model_dump(mode="json") for attribute in attributes],
+            "attributes": [
+                attribute.model_dump(mode="json") for attribute in attributes
+            ],
             "seed": seed,
             "correlations": correlations or [],
             "realism_rules": realism_rules,
@@ -142,7 +146,7 @@ class DatasetService:
         user_id: uuid.UUID,
         dataset_version_id: uuid.UUID,
         seed: int | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> dict[str, Any]:
         return GenerationOrchestrator.generate_preview(
             db=db,
             user_id=user_id,
@@ -287,7 +291,9 @@ class DatasetService:
         job_id: str,
         result_payload: dict[str, Any],
     ) -> None:
-        JobManager.mark_job_completed(db=db, job_id=job_id, result_payload=result_payload)
+        JobManager.mark_job_completed(
+            db=db, job_id=job_id, result_payload=result_payload
+        )
 
     @staticmethod
     def mark_job_failed(db: Database, job_id: str, message: str) -> None:

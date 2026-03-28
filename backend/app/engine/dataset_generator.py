@@ -261,6 +261,12 @@ class DatasetGenerator:
                     "min": float(attr.constraints.get("min", 0)),
                     "max": float(attr.constraints.get("max", 100)),
                 }
+                if attr.data_type == "date":
+                    dist_profile = {
+                        "type": "date",
+                        "start_date": attr.constraints.get("start_date"),
+                        "end_date": attr.constraints.get("end_date"),
+                    }
                 if attr.data_type in ("categorical", "boolean"):
                     cats = attr.constraints.get("categories", [])
                     weights = attr.constraints.get("weights")
@@ -279,6 +285,7 @@ class DatasetGenerator:
                 column_profiles[attr.name] = {
                     "name": attr.name,
                     "data_type": attr.data_type,
+                    "semantic_type": attr.constraints.get("semantic_type"),
                     "null_percentage": float(attr.null_percentage),
                     "distribution": dist_profile,
                 }
