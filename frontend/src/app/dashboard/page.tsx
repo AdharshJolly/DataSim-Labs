@@ -30,20 +30,9 @@ import {
   ChevronDown,
   HelpCircle,
   Menu,
-  Settings,
-  Command,
   Search,
   Keyboard,
 } from "lucide-react";
-import {
-  Command as CommandComponent,
-  CommandDialog,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
 
 import { AuthGuard } from "@/components/auth/auth-guard";
 import { Button } from "@/components/ui/button";
@@ -52,6 +41,12 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { TemplateGrid } from "@/components/studio/template-grid";
 import { useErrorNotifier } from "@/lib/use-error-notifier";
+import { KeyboardShortcutsModal } from "@/components/keyboard-shortcuts-modal";
+import {
+  StudioCommandPalette,
+  StudioCommandGroup,
+  StudioCommandItem,
+} from "@/components/studio-command-palette";
 
 interface CreateDatasetChooserProps {
   buttonLabel: string;
@@ -185,6 +180,15 @@ export default function DashboardPage() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const isModifier = event.metaKey || event.ctrlKey;
+      const isAltShortcut =
+        event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
+      const target = event.target as HTMLElement | null;
+      const isTypingTarget =
+        target != null &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable);
       const key = event.key.toLowerCase();
 
       // Escape key - close all overlays
@@ -204,15 +208,15 @@ export default function DashboardPage() {
         return;
       }
 
-      // Cmd/Ctrl+N - Create new dataset
-      if (isModifier && key === "n") {
+      // Alt+N - Create new dataset (Ctrl/Cmd+N is browser-reserved)
+      if (isAltShortcut && key === "n" && !isTypingTarget) {
         event.preventDefault();
         router.push("/studio?new=true");
         return;
       }
 
-      // Cmd/Ctrl+T - Choose template
-      if (isModifier && key === "t") {
+      // Alt+T - Choose template (Ctrl/Cmd+T is browser-reserved)
+      if (isAltShortcut && key === "t" && !isTypingTarget) {
         event.preventDefault();
         setShowTemplatePicker(true);
         return;
@@ -438,17 +442,6 @@ export default function DashboardPage() {
               >
                 <Plus className="h-4 w-4 text-primary" />
                 Create New Dataset
-              </button>
-              <button
-                type="button"
-                className="flex min-h-12 w-full items-center gap-3 rounded-md px-3 py-3 text-left text-sm text-foreground transition-colors hover:bg-white/5"
-                onClick={() => {
-                  setMobileMenuOpen(false);
-                  router.push("/profile-upload");
-                }}
-              >
-                <Settings className="h-4 w-4 text-primary" />
-                Settings
               </button>
               <button
                 type="button"
@@ -734,202 +727,111 @@ export default function DashboardPage() {
       )}
 
       {/* Command Palette */}
-      <CommandDialog
+      <StudioCommandPalette
         open={commandPaletteOpen}
         onOpenChange={setCommandPaletteOpen}
       >
-        <CommandInput placeholder="Search commands, datasets..." />
-        <CommandList>
-          <CommandEmpty>No commands found.</CommandEmpty>
+        <StudioCommandGroup heading="Navigation">
+          <StudioCommandItem
+            onSelect={() => {
+              setCommandPaletteOpen(false);
+              router.push("/dashboard");
+            }}
+          >
+            <Search className="h-4 w-4 text-cyan-300" />
+            Dataset List
+          </StudioCommandItem>
+          <StudioCommandItem
+            onSelect={() => {
+              setCommandPaletteOpen(false);
+              router.push("/studio?new=true");
+            }}
+          >
+            <Plus className="h-4 w-4 text-cyan-300" />
+            Create New Dataset
+          </StudioCommandItem>
+          <StudioCommandItem
+            onSelect={() => {
+              setCommandPaletteOpen(false);
+              setShowTemplatePicker(true);
+            }}
+          >
+            <Database className="h-4 w-4 text-cyan-300" />
+            Choose Template
+          </StudioCommandItem>
+          <StudioCommandItem
+            onSelect={() => {
+              setCommandPaletteOpen(false);
+              router.push("/terms");
+            }}
+          >
+            <HelpCircle className="h-4 w-4 text-cyan-300" />
+            Help
+          </StudioCommandItem>
+        </StudioCommandGroup>
 
-          <CommandGroup heading="Actions">
-            <CommandItem
-              onSelect={() => {
-                setCommandPaletteOpen(false);
-                router.push("/studio?new=true");
-              }}
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              <span>Create New Dataset (Blank)</span>
-              <span className="ml-auto text-xs text-muted-foreground">
-                Ctrl+N
-              </span>
-            </CommandItem>
+        <StudioCommandGroup heading="Actions">
+          <StudioCommandItem
+            onSelect={() => {
+              setCommandPaletteOpen(false);
+              setShowJobsPanel((prev) => !prev);
+            }}
+          >
+            <LoaderCircle className="h-4 w-4 text-cyan-300" />
+            Toggle Jobs Panel
+          </StudioCommandItem>
+          <StudioCommandItem
+            onSelect={() => {
+              setCommandPaletteOpen(false);
+              setKeyboardHelpOpen(true);
+            }}
+          >
+            <Keyboard className="h-4 w-4 text-cyan-300" />
+            Keyboard Shortcuts
+          </StudioCommandItem>
+          <StudioCommandItem
+            onSelect={() => {
+              setCommandPaletteOpen(false);
+              handleLogout();
+            }}
+          >
+            <LogOut className="h-4 w-4 text-cyan-300" />
+            Logout
+          </StudioCommandItem>
+        </StudioCommandGroup>
 
-            <CommandItem
-              onSelect={() => {
-                setCommandPaletteOpen(false);
-                setShowTemplatePicker(true);
-              }}
-            >
-              <Database className="mr-2 h-4 w-4" />
-              <span>Choose Template</span>
-              <span className="ml-auto text-xs text-muted-foreground">
-                Ctrl+T
-              </span>
-            </CommandItem>
-
-            <CommandItem
-              onSelect={() => {
-                setCommandPaletteOpen(false);
-                setShowJobsPanel((prev) => !prev);
-              }}
-            >
-              <LoaderCircle className="mr-2 h-4 w-4" />
-              <span>Toggle Jobs Panel</span>
-              <span className="ml-auto text-xs text-muted-foreground">
-                Ctrl+J
-              </span>
-            </CommandItem>
-
-            <CommandItem
-              onSelect={() => {
-                setCommandPaletteOpen(false);
-                router.push("/profile-upload");
-              }}
-            >
-              <Settings className="mr-2 h-4 w-4" />
-              <span>Settings</span>
-            </CommandItem>
-
-            <CommandItem
-              onSelect={() => {
-                setCommandPaletteOpen(false);
-                setKeyboardHelpOpen(true);
-              }}
-            >
-              <Keyboard className="mr-2 h-4 w-4" />
-              <span>Keyboard Shortcuts</span>
-              <span className="ml-auto text-xs text-muted-foreground">
-                Ctrl+/
-              </span>
-            </CommandItem>
-          </CommandGroup>
-
-          {datasets.length > 0 && (
-            <CommandGroup heading="Datasets">
-              {datasets.slice(0, 8).map((dataset) => (
-                <CommandItem
-                  key={dataset.id}
-                  onSelect={() => {
-                    setCommandPaletteOpen(false);
-                    router.push(`/studio?datasetId=${dataset.id}`);
-                  }}
-                >
-                  <Database className="mr-2 h-4 w-4" />
-                  <span>{dataset.name}</span>
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          )}
-
-          <CommandGroup heading="Other">
-            <CommandItem
-              onSelect={() => {
-                setCommandPaletteOpen(false);
-                handleLogout();
-              }}
-            >
-              <LogOut className="mr-2 h-4 w-4" />
-              <span>Logout</span>
-              <span className="ml-auto text-xs text-muted-foreground">
-                Ctrl+Shift+L
-              </span>
-            </CommandItem>
-          </CommandGroup>
-        </CommandList>
-      </CommandDialog>
+        {datasets.length > 0 && (
+          <StudioCommandGroup heading="Datasets">
+            {datasets.slice(0, 8).map((dataset) => (
+              <StudioCommandItem
+                key={dataset.id}
+                onSelect={() => {
+                  setCommandPaletteOpen(false);
+                  router.push(`/studio?datasetId=${dataset.id}`);
+                }}
+              >
+                <Database className="h-4 w-4 text-cyan-300" />
+                {dataset.name}
+              </StudioCommandItem>
+            ))}
+          </StudioCommandGroup>
+        )}
+      </StudioCommandPalette>
 
       {/* Keyboard Help Modal */}
-      {keyboardHelpOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm">
-          <Card className="w-full max-w-lg border-border bg-background p-6">
-            <div className="mb-5 flex items-center justify-between">
-              <h2 className="flex items-center gap-2 font-display text-2xl font-bold">
-                <Keyboard className="h-6 w-6 text-primary" />
-                Keyboard Shortcuts
-              </h2>
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                onClick={() => setKeyboardHelpOpen(false)}
-                aria-label="Close keyboard help"
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-
-            <div className="space-y-4 max-h-[60vh] overflow-y-auto">
-              <div>
-                <h3 className="mb-2 text-sm font-semibold text-foreground">
-                  Navigation
-                </h3>
-                <div className="space-y-1.5 text-sm text-muted-foreground">
-                  <div className="flex items-center justify-between">
-                    <span>Open command palette</span>
-                    <kbd className="rounded-md bg-white/10 px-2 py-1 font-mono text-xs">
-                      Ctrl+K
-                    </kbd>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>Close overlays/panels</span>
-                    <kbd className="rounded-md bg-white/10 px-2 py-1 font-mono text-xs">
-                      Esc
-                    </kbd>
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <h3 className="mb-2 text-sm font-semibold text-foreground">
-                  Dataset Actions
-                </h3>
-                <div className="space-y-1.5 text-sm text-muted-foreground">
-                  <div className="flex items-center justify-between">
-                    <span>Create new dataset (blank)</span>
-                    <kbd className="rounded-md bg-white/10 px-2 py-1 font-mono text-xs">
-                      Ctrl+N
-                    </kbd>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>Choose template</span>
-                    <kbd className="rounded-md bg-white/10 px-2 py-1 font-mono text-xs">
-                      Ctrl+T
-                    </kbd>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>Toggle jobs panel</span>
-                    <kbd className="rounded-md bg-white/10 px-2 py-1 font-mono text-xs">
-                      Ctrl+J
-                    </kbd>
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <h3 className="mb-2 text-sm font-semibold text-foreground">
-                  Tips
-                </h3>
-                <div className="space-y-1.5 text-sm text-muted-foreground">
-                  <p>
-                    💡 Use the command palette (Ctrl+K) to search and jump to
-                    datasets or perform actions quickly.
-                  </p>
-                  <p>
-                    ⌨️ All interactive elements support Tab navigation and Enter
-                    to activate.
-                  </p>
-                  <p>
-                    📱 Mobile menus can be accessed via the hamburger menu icon
-                    or keyboard shortcuts.
-                  </p>
-                </div>
-              </div>
-            </div>
-          </Card>
-        </div>
-      )}
+      <KeyboardShortcutsModal
+        open={keyboardHelpOpen}
+        onClose={() => setKeyboardHelpOpen(false)}
+        shortcuts={[
+          { keys: "Cmd/Ctrl + K", description: "Open command palette" },
+          { keys: "Alt + N", description: "Create new dataset" },
+          { keys: "Alt + T", description: "Choose template" },
+          { keys: "Cmd/Ctrl + J", description: "Toggle jobs panel" },
+          { keys: "Cmd/Ctrl + /", description: "Show keyboard help" },
+          { keys: "Esc", description: "Close dialogs and menus" },
+          { keys: "Tab / Enter", description: "Navigate and confirm controls" },
+        ]}
+      />
     </AuthGuard>
   );
 }

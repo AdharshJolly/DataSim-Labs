@@ -14,10 +14,8 @@ import {
   Menu,
   Plus,
   Search,
-  Settings,
   X,
 } from "lucide-react";
-import { Command } from "cmdk";
 import { List } from "react-window";
 
 import { AttrCard } from "@/components/studio/attr-card";
@@ -58,6 +56,12 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card } from "@/components/ui/card";
 import { useFeedback } from "@/components/ui/feedback-provider";
 import { useErrorNotifier } from "@/lib/use-error-notifier";
+import { KeyboardShortcutsModal } from "@/components/keyboard-shortcuts-modal";
+import {
+  StudioCommandPalette,
+  StudioCommandGroup,
+  StudioCommandItem,
+} from "@/components/studio-command-palette";
 
 const ASYNC_POLL_INTERVAL_MS = 1500;
 const ASYNC_POLL_MAX_ATTEMPTS = 1200;
@@ -486,6 +490,8 @@ export default function StudioPage() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const isModifier = event.metaKey || event.ctrlKey;
+      const isAltShortcut =
+        event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
       const target = event.target as HTMLElement | null;
       const isTypingTarget =
         target != null &&
@@ -516,7 +522,7 @@ export default function StudioPage() {
         setKeyboardHelpOpen(true);
         return;
       }
-      if (key === "n") {
+      if (isAltShortcut && key === "n" && !isTypingTarget) {
         event.preventDefault();
         router.push("/studio?new=true");
         return;
@@ -2302,151 +2308,83 @@ export default function StudioPage() {
         </div>
       </div>
 
-      <Command.Dialog
+      <StudioCommandPalette
         open={commandPaletteOpen}
         onOpenChange={setCommandPaletteOpen}
-        label="Command Palette"
-        className="fixed left-1/2 top-24 z-[120] w-[min(680px,92vw)] -translate-x-1/2 overflow-hidden rounded-xl border border-border bg-background shadow-2xl"
       >
-        <div className="border-b border-border px-3 py-2">
-          <Command.Input
-            autoFocus
-            placeholder="Type a command..."
-            className="h-12 w-full bg-transparent text-sm text-foreground outline-none"
-          />
-        </div>
-        <Command.List className="max-h-[360px] overflow-y-auto p-2">
-          <Command.Empty className="px-3 py-6 text-sm text-muted-foreground">
-            No matching commands
-          </Command.Empty>
-
-          <Command.Group
-            heading="Navigation"
-            className="text-xs text-muted-foreground"
+        <StudioCommandGroup heading="Navigation">
+          <StudioCommandItem
+            onSelect={() => {
+              setCommandPaletteOpen(false);
+              router.push("/dashboard");
+            }}
           >
-            <Command.Item
-              className="flex min-h-12 cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground aria-selected:bg-white/10"
-              onSelect={() => {
-                setCommandPaletteOpen(false);
-                router.push("/dashboard");
-              }}
-            >
-              <Search className="h-4 w-4 text-cyan-300" />
-              Dataset List
-            </Command.Item>
-            <Command.Item
-              className="flex min-h-12 cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground aria-selected:bg-white/10"
-              onSelect={() => {
-                setCommandPaletteOpen(false);
-                router.push("/studio?new=true");
-              }}
-            >
-              <Plus className="h-4 w-4 text-cyan-300" />
-              Create New Dataset
-            </Command.Item>
-            <Command.Item
-              className="flex min-h-12 cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground aria-selected:bg-white/10"
-              onSelect={() => {
-                setCommandPaletteOpen(false);
-                router.push("/profile-upload");
-              }}
-            >
-              <Settings className="h-4 w-4 text-cyan-300" />
-              Settings
-            </Command.Item>
-            <Command.Item
-              className="flex min-h-12 cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground aria-selected:bg-white/10"
-              onSelect={() => {
-                setCommandPaletteOpen(false);
-                router.push("/terms");
-              }}
-            >
-              <HelpCircle className="h-4 w-4 text-cyan-300" />
-              Help
-            </Command.Item>
-          </Command.Group>
-
-          <Command.Group
-            heading="Actions"
-            className="text-xs text-muted-foreground"
+            <Search className="h-4 w-4 text-cyan-300" />
+            Dataset List
+          </StudioCommandItem>
+          <StudioCommandItem
+            onSelect={() => {
+              setCommandPaletteOpen(false);
+              router.push("/studio?new=true");
+            }}
           >
-            <Command.Item
-              className="flex min-h-12 cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground aria-selected:bg-white/10"
+            <Plus className="h-4 w-4 text-cyan-300" />
+            Create New Dataset
+          </StudioCommandItem>
+          <StudioCommandItem
+            onSelect={() => {
+              setCommandPaletteOpen(false);
+              router.push("/terms");
+            }}
+          >
+            <HelpCircle className="h-4 w-4 text-cyan-300" />
+            Help
+          </StudioCommandItem>
+        </StudioCommandGroup>
+
+        <StudioCommandGroup heading="Actions">
+          <StudioCommandItem
+            onSelect={() => {
+              setCommandPaletteOpen(false);
+              setKeyboardHelpOpen(true);
+            }}
+          >
+            <Keyboard className="h-4 w-4 text-cyan-300" />
+            Keyboard Shortcuts
+          </StudioCommandItem>
+          {step === 4 && generatedFiles.length > 0 && (
+            <StudioCommandItem
               onSelect={() => {
                 setCommandPaletteOpen(false);
-                setKeyboardHelpOpen(true);
+                void handleDownload(generatedFiles[0].format);
               }}
             >
-              <Keyboard className="h-4 w-4 text-cyan-300" />
-              Keyboard Shortcuts
-            </Command.Item>
-            {step === 4 && generatedFiles.length > 0 && (
-              <Command.Item
-                className="flex min-h-12 cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground aria-selected:bg-white/10"
-                onSelect={() => {
-                  setCommandPaletteOpen(false);
-                  void handleDownload(generatedFiles[0].format);
-                }}
-              >
-                <Download className="h-4 w-4 text-cyan-300" />
-                Export Current Dataset
-              </Command.Item>
-            )}
-          </Command.Group>
-        </Command.List>
-      </Command.Dialog>
+              <Download className="h-4 w-4 text-cyan-300" />
+              Export Current Dataset
+            </StudioCommandItem>
+          )}
+        </StudioCommandGroup>
+      </StudioCommandPalette>
 
       {keyboardHelpOpen && (
-        <div
-          className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Keyboard shortcuts"
-        >
-          <Card className="w-full max-w-xl border-border bg-background p-5">
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="font-semibold text-foreground">
-                Keyboard Shortcuts
-              </h3>
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className="h-12 w-12"
-                onClick={() => setKeyboardHelpOpen(false)}
-                aria-label="Close keyboard shortcuts"
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-            <div className="grid gap-2 text-sm text-muted-foreground">
-              <p>
-                <span className="font-mono text-foreground">Cmd/Ctrl + K</span>{" "}
-                Open command palette
-              </p>
-              <p>
-                <span className="font-mono text-foreground">Cmd/Ctrl + N</span>{" "}
-                Create new dataset
-              </p>
-              <p>
-                <span className="font-mono text-foreground">Cmd/Ctrl + E</span>{" "}
-                Export current dataset (Step 4)
-              </p>
-              <p>
-                <span className="font-mono text-foreground">Cmd/Ctrl + /</span>{" "}
-                Show keyboard help
-              </p>
-              <p>
-                <span className="font-mono text-foreground">Esc</span> Close
-                dialogs and menus
-              </p>
-              <p>
-                <span className="font-mono text-foreground">Tab / Enter</span>{" "}
-                Navigate and confirm controls
-              </p>
-            </div>
-          </Card>
-        </div>
+        <KeyboardShortcutsModal
+          open={keyboardHelpOpen}
+          onClose={() => setKeyboardHelpOpen(false)}
+          shortcuts={[
+            { keys: "Cmd/Ctrl + K", description: "Open command palette" },
+            { keys: "Alt + N", description: "Create new dataset" },
+            {
+              keys: "Cmd/Ctrl + E",
+              description: "Export current dataset (Step 4)",
+            },
+            { keys: "Cmd/Ctrl + /", description: "Show keyboard help" },
+            { keys: "Esc", description: "Close dialogs and menus" },
+            {
+              keys: "Tab / Enter",
+              description: "Navigate and confirm controls",
+            },
+          ]}
+        />
       )}
     </AuthGuard>
   );

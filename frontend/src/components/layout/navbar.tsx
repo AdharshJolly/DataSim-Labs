@@ -45,8 +45,7 @@ export function Navbar() {
   const mobileFlows = [
     { name: "Dataset List", href: "/dashboard" },
     { name: "Create New Dataset", href: "/studio?new=true" },
-    { name: "Settings", href: "/profile-upload" },
-    { name: "Help", href: "/terms" },
+    { name: "Profile", href: "/profile-upload" },
   ];
 
   const isActive = (path: string) => pathname === path;
