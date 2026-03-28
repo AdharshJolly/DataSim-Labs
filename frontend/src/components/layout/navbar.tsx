@@ -42,6 +42,12 @@ export function Navbar() {
     { name: "Dashboard", href: "/dashboard" },
     { name: "Profile", href: "/profile-upload" },
   ];
+  const mobileFlows = [
+    { name: "Dataset List", href: "/dashboard" },
+    { name: "Create New Dataset", href: "/studio?new=true" },
+    { name: "Settings", href: "/profile-upload" },
+    { name: "Help", href: "/terms" },
+  ];
 
   const isActive = (path: string) => pathname === path;
 
@@ -126,8 +132,9 @@ export function Navbar() {
         <Button
           variant="outline"
           size="icon"
-          className="md:hidden"
+          className="h-12 w-12 md:hidden"
           onClick={() => setIsOpen(!isOpen)}
+          aria-label={isOpen ? "Close navigation menu" : "Open navigation menu"}
         >
           {isOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
         </Button>
@@ -137,13 +144,13 @@ export function Navbar() {
       {isOpen && (
         <div className="absolute left-0 top-full w-full border-b border-border bg-background/95 p-4 backdrop-blur-xl md:hidden">
           <div className="flex flex-col gap-4">
-            {navLinks.map((link) => (
+            {mobileFlows.map((link) => (
               <Link
                 key={link.name}
                 href={link.href}
-                className={`px-4 py-2 text-sm font-medium transition-colors ${
+                className={`min-h-12 rounded-lg px-4 py-3 text-sm font-medium transition-colors ${
                   isActive(link.href)
-                    ? "text-primary bg-primary/10 rounded-lg"
+                    ? "bg-primary/10 text-primary"
                     : "text-muted-foreground"
                 }`}
                 onClick={() => setIsOpen(false)}
@@ -155,7 +162,7 @@ export function Navbar() {
             {isAuthenticated ? (
               <Button
                 variant="default"
-                className="w-full"
+                className="min-h-12 w-full"
                 onClick={() => {
                   setIsOpen(false);
                   handleLogout();
@@ -168,12 +175,12 @@ export function Navbar() {
               <>
                 <Link
                   href="/login"
-                  className="px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground hover:bg-white/5 rounded-lg"
+                  className="min-h-12 rounded-lg px-4 py-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground"
                   onClick={() => setIsOpen(false)}
                 >
                   Sign In
                 </Link>
-                <Button asChild variant="default" className="w-full">
+                <Button asChild variant="default" className="min-h-12 w-full">
                   <Link href="/register" onClick={() => setIsOpen(false)}>
                     Get Started
                   </Link>

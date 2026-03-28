@@ -1,16 +1,24 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
   Check,
   CheckCircle2,
   Download,
+  HelpCircle,
+  Keyboard,
   LoaderCircle,
+  Menu,
   Plus,
+  Search,
+  Settings,
   X,
 } from "lucide-react";
+import { Command } from "cmdk";
+import { List } from "react-window";
 
 import { AttrCard } from "@/components/studio/attr-card";
 import { FORMAT_OPTIONS, STEP_LABELS } from "@/components/studio/constants";
@@ -55,6 +63,7 @@ const ASYNC_POLL_INTERVAL_MS = 1500;
 const ASYNC_POLL_MAX_ATTEMPTS = 1200;
 const AUTO_ASYNC_ROW_THRESHOLD = 50000;
 const AUTO_ASYNC_CELL_THRESHOLD = 1000000;
+const PREVIEW_ROW_HEIGHT = 44;
 
 // ─── Helper Functions ─────────────────────────────────────────────────────
 
@@ -122,10 +131,15 @@ function templateColumnsToAttrRows(columns: Record<string, any>): AttrRow[] {
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function StudioPage() {
+  const router = useRouter();
   const { pushToast } = useFeedback();
   const [step, setStep] = useState<Step>(1);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [keyboardHelpOpen, setKeyboardHelpOpen] = useState(false);
+  const [optimisticSaving, setOptimisticSaving] = useState(false);
 
   // Step 1
   const [dsName, setDsName] = useState("");
@@ -145,6 +159,10 @@ export default function StudioPage() {
   >([]);
   const [selectedComparisonCol, setSelectedComparisonCol] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const optimisticSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const optimisticSaveSeq = useRef(0);
 
   // Step 4
   const [rowCount, setRowCount] = useState(1000);
@@ -214,6 +232,44 @@ export default function StudioPage() {
     previewComparisonCols[0] ??
     null;
   const selectedNumericComparison = selectedPreviewComparison?.numeric ?? null;
+  const previewColumnTemplate = useMemo(
+    () => `repeat(${Math.max(previewCols.length, 1)}, minmax(140px, 1fr))`,
+    [previewCols.length],
+  );
+  const renderPreviewRow = ({
+    index,
+    style,
+  }: {
+    index?: number;
+    style?: CSSProperties;
+    [key: string]: unknown;
+  }) => {
+    const safeIndex = typeof index === "number" ? index : 0;
+    const row = previewRows[safeIndex] ?? {};
+    return (
+      <div
+        style={{
+          ...style,
+          display: "grid",
+          gridTemplateColumns: previewColumnTemplate,
+        }}
+        className="border-b border-border/40 text-sm transition-colors hover:bg-white/5"
+      >
+        {previewCols.map((col) => (
+          <div
+            key={`${safeIndex}-${col}`}
+            className="truncate px-4 py-2.5 text-foreground"
+          >
+            {row[col] == null ? (
+              <span className="italic text-muted-foreground/60">null</span>
+            ) : (
+              String(row[col])
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  };
 
   // Load existing dataset from query string
   useEffect(() => {
@@ -367,6 +423,128 @@ export default function StudioPage() {
         (item) => item.source && item.target && !Number.isNaN(item.strength),
       );
   };
+
+  const scheduleOptimisticValidation = (
+    nextAttrs: AttrRow[],
+    previousAttrs: AttrRow[],
+  ) => {
+    if (step !== 3 || !datasetId) {
+      return;
+    }
+
+    if (optimisticSaveTimer.current) {
+      clearTimeout(optimisticSaveTimer.current);
+      optimisticSaveTimer.current = null;
+    }
+
+    const seq = optimisticSaveSeq.current + 1;
+    optimisticSaveSeq.current = seq;
+    setOptimisticSaving(true);
+
+    optimisticSaveTimer.current = setTimeout(() => {
+      void (async () => {
+        try {
+          const correlations = parseCorrelationRules();
+          const res = await saveAttributes({
+            dataset_id: datasetId,
+            attributes: nextAttrs.map(toApiAttr),
+            seed: seed.trim() ? Number(seed) : undefined,
+            correlations,
+          });
+
+          if (optimisticSaveSeq.current !== seq) {
+            return;
+          }
+
+          setVersionId(res.version_id);
+          localStorage.setItem("datasim:dataset_version_id", res.version_id);
+          await loadPreview(res.version_id);
+          pushToast({
+            title: "Changes Synced",
+            message: "Field updates validated and preview refreshed.",
+            intent: "success",
+          });
+        } catch (e) {
+          if (optimisticSaveSeq.current !== seq) {
+            return;
+          }
+          setAttrs(previousAttrs);
+          notifyError(
+            "Validation Failed",
+            e,
+            "Field update was rejected. Reverting to previous values.",
+          );
+        } finally {
+          if (optimisticSaveSeq.current === seq) {
+            setOptimisticSaving(false);
+          }
+        }
+      })();
+    }, 700);
+  };
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const isModifier = event.metaKey || event.ctrlKey;
+      const target = event.target as HTMLElement | null;
+      const isTypingTarget =
+        target != null &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable);
+
+      if (event.key === "Escape") {
+        setCommandPaletteOpen(false);
+        setKeyboardHelpOpen(false);
+        setMobileSidebarOpen(false);
+        return;
+      }
+
+      if (!isModifier) {
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+      if (key === "k") {
+        event.preventDefault();
+        setCommandPaletteOpen(true);
+        return;
+      }
+      if (key === "/") {
+        event.preventDefault();
+        setKeyboardHelpOpen(true);
+        return;
+      }
+      if (key === "n") {
+        event.preventDefault();
+        router.push("/studio?new=true");
+        return;
+      }
+      if (
+        key === "e" &&
+        !isTypingTarget &&
+        step === 4 &&
+        generatedFiles.length > 0
+      ) {
+        event.preventDefault();
+        void handleDownload(generatedFiles[0].format);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [generatedFiles, router, step]);
+
+  useEffect(() => {
+    return () => {
+      if (optimisticSaveTimer.current) {
+        clearTimeout(optimisticSaveTimer.current);
+      }
+    };
+  }, []);
 
   // ── Step 1: Create Dataset ───────────────────────────────────
   const handleCreate = async () => {
@@ -706,8 +884,8 @@ export default function StudioPage() {
     key: K,
     value: AttrRow[K],
   ) => {
-    setAttrs((prev) =>
-      prev.map((a, idx) => {
+    setAttrs((prev) => {
+      const updated = prev.map((a, idx) => {
         if (idx !== i) return a;
         const next = { ...a, [key]: value };
         if (key === "type") {
@@ -730,8 +908,11 @@ export default function StudioPage() {
           }
         }
         return next;
-      }),
-    );
+      });
+
+      scheduleOptimisticValidation(updated, prev);
+      return updated;
+    });
   };
 
   const addAttr = () => setAttrs((prev) => [...prev, newAttr(prev.length)]);
@@ -766,7 +947,7 @@ export default function StudioPage() {
                   onClick={() => {
                     if (done) setStep(s);
                   }}
-                  className={`group flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors ${
+                  className={`group flex min-h-12 w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-sm font-medium transition-colors ${
                     active
                       ? "bg-primary/10 text-primary"
                       : done
@@ -809,13 +990,97 @@ export default function StudioPage() {
           )}
         </aside>
 
+        {mobileSidebarOpen && (
+          <button
+            type="button"
+            className="fixed inset-0 z-40 bg-black/40 md:hidden"
+            aria-label="Close steps menu"
+            onClick={() => setMobileSidebarOpen(false)}
+          />
+        )}
+
+        <aside
+          className={`fixed left-0 top-0 z-50 h-full w-80 max-w-[85vw] transform border-r border-border bg-background p-4 transition-transform md:hidden ${
+            mobileSidebarOpen ? "translate-x-0" : "-translate-x-full"
+          }`}
+          aria-hidden={!mobileSidebarOpen}
+        >
+          <div className="mb-4 flex items-center justify-between">
+            <p className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">
+              Steps
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-12 w-12"
+              onClick={() => setMobileSidebarOpen(false)}
+              aria-label="Close steps drawer"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          <nav className="space-y-1">
+            {STEP_LABELS.map(([num, label], i) => {
+              const s = (i + 1) as Step;
+              const done = step > s;
+              const active = step === s;
+              const inactive = s > step;
+              return (
+                <button
+                  key={`mobile-step-${s}`}
+                  type="button"
+                  disabled={inactive}
+                  onClick={() => {
+                    if (done) {
+                      setStep(s);
+                      setMobileSidebarOpen(false);
+                    }
+                  }}
+                  className={`group flex min-h-12 w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-sm font-medium transition-colors ${
+                    active
+                      ? "bg-primary/10 text-primary"
+                      : done
+                        ? "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+                        : "cursor-not-allowed text-muted-foreground/50"
+                  }`}
+                >
+                  <span
+                    className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                      active
+                        ? "bg-primary text-primary-foreground"
+                        : done
+                          ? "bg-green-500/20 text-green-400"
+                          : "bg-border text-muted-foreground"
+                    }`}
+                  >
+                    {done ? <Check className="h-4 w-4" /> : num}
+                  </span>
+                  <span>{label}</span>
+                </button>
+              );
+            })}
+          </nav>
+        </aside>
+
         {/* ── Main Content ── */}
         <div className="min-w-0 flex-1 pb-24">
           {/* Mobile step bar */}
           <div className="mb-6 md:hidden">
-            <p className="mb-2 text-sm font-semibold uppercase tracking-widest text-muted-foreground">
-              Step {step} of {STEP_LABELS.length}
-            </p>
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">
+                Step {step} of {STEP_LABELS.length}
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-12 gap-2 px-3"
+                onClick={() => setMobileSidebarOpen(true)}
+              >
+                <Menu className="h-4 w-4" />
+                Steps
+              </Button>
+            </div>
             <div className="flex h-1.5 w-full items-center gap-1.5 rounded-full bg-border">
               {STEP_LABELS.map((_, i) => {
                 const s = (i + 1) as Step;
@@ -1024,11 +1289,18 @@ export default function StudioPage() {
                     Review 10 sample rows. Tweak the field settings below and
                     regenerate until the data looks right.
                   </p>
+                  {optimisticSaving && (
+                    <p className="mt-2 flex items-center gap-2 text-xs text-cyan-300">
+                      <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                      Validating field changes and refreshing preview...
+                    </p>
+                  )}
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <Button
                     type="button"
                     variant="outline"
+                    className="min-h-12"
                     onClick={() => setStep(2)}
                   >
                     ← Edit Fields
@@ -1036,6 +1308,7 @@ export default function StudioPage() {
                   <Button
                     type="button"
                     variant="outline"
+                    className="min-h-12"
                     disabled={isRefreshing}
                     onClick={() => void handleRegenerate()}
                   >
@@ -1051,6 +1324,7 @@ export default function StudioPage() {
                   <Button
                     type="button"
                     variant="default"
+                    className="min-h-12"
                     onClick={() => setStep(4)}
                   >
                     Looks Good →
@@ -1353,44 +1627,73 @@ export default function StudioPage() {
                   </span>
                 </div>
               ) : previewRows.length > 0 ? (
-                <div className="overflow-x-auto rounded-lg border border-border">
-                  <table className="min-w-full text-sm">
-                    <thead className="border-b border-border/50 bg-white/5">
-                      <tr>
+                <div className="space-y-3">
+                  <div className="text-xs text-muted-foreground">
+                    {previewRows.length.toLocaleString()} rows ·{" "}
+                    {previewCols.length} columns
+                  </div>
+
+                  <div className="space-y-3 md:hidden">
+                    {previewRows.slice(0, 60).map((row, index) => (
+                      <Card
+                        key={`preview-card-${index}`}
+                        className="border-border bg-background/60 p-3"
+                      >
+                        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Row {index + 1}
+                        </p>
+                        <div className="space-y-1.5 text-sm">
+                          {previewCols.map((col) => (
+                            <div
+                              key={`preview-card-${index}-${col}`}
+                              className="flex items-start justify-between gap-3"
+                            >
+                              <span className="min-w-0 flex-1 text-xs text-muted-foreground">
+                                {col}
+                              </span>
+                              <span className="min-w-0 flex-1 truncate text-right text-foreground">
+                                {row[col] == null ? "null" : String(row[col])}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </Card>
+                    ))}
+                  </div>
+
+                  <div className="hidden rounded-lg border border-border md:block">
+                    <div className="max-h-[460px] overflow-auto">
+                      <div
+                        className="sticky top-0 z-10 grid border-b border-border/50 bg-background/95"
+                        style={{ gridTemplateColumns: previewColumnTemplate }}
+                      >
                         {previewCols.map((col) => (
-                          <th
-                            key={col}
-                            className="px-4 py-3 text-left font-medium text-muted-foreground"
+                          <div
+                            key={`preview-header-${col}`}
+                            className="truncate px-4 py-3 text-left text-sm font-medium text-muted-foreground"
                           >
                             {col}
-                          </th>
+                          </div>
                         ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border/50">
-                      {previewRows.map((row, ri) => (
-                        <tr
-                          key={ri}
-                          className="transition-colors hover:bg-white/5"
-                        >
-                          {previewCols.map((col) => (
-                            <td
-                              key={col}
-                              className="whitespace-nowrap px-4 py-3 text-foreground"
-                            >
-                              {row[col] == null ? (
-                                <span className="italic text-muted-foreground/60">
-                                  null
-                                </span>
-                              ) : (
-                                String(row[col])
-                              )}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </div>
+                      <List
+                        style={{
+                          height: Math.min(
+                            420,
+                            Math.max(
+                              220,
+                              previewRows.length * PREVIEW_ROW_HEIGHT,
+                            ),
+                          ),
+                          width: "100%",
+                        }}
+                        rowCount={previewRows.length}
+                        rowHeight={PREVIEW_ROW_HEIGHT}
+                        rowComponent={renderPreviewRow}
+                        rowProps={{}}
+                      />
+                    </div>
+                  </div>
                 </div>
               ) : (
                 <div className="flex h-60 items-center justify-center rounded-lg border-2 border-dashed border-border/50 text-sm text-muted-foreground">
@@ -1998,6 +2301,153 @@ export default function StudioPage() {
           )}
         </div>
       </div>
+
+      <Command.Dialog
+        open={commandPaletteOpen}
+        onOpenChange={setCommandPaletteOpen}
+        label="Command Palette"
+        className="fixed left-1/2 top-24 z-[120] w-[min(680px,92vw)] -translate-x-1/2 overflow-hidden rounded-xl border border-border bg-background shadow-2xl"
+      >
+        <div className="border-b border-border px-3 py-2">
+          <Command.Input
+            autoFocus
+            placeholder="Type a command..."
+            className="h-12 w-full bg-transparent text-sm text-foreground outline-none"
+          />
+        </div>
+        <Command.List className="max-h-[360px] overflow-y-auto p-2">
+          <Command.Empty className="px-3 py-6 text-sm text-muted-foreground">
+            No matching commands
+          </Command.Empty>
+
+          <Command.Group
+            heading="Navigation"
+            className="text-xs text-muted-foreground"
+          >
+            <Command.Item
+              className="flex min-h-12 cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground aria-selected:bg-white/10"
+              onSelect={() => {
+                setCommandPaletteOpen(false);
+                router.push("/dashboard");
+              }}
+            >
+              <Search className="h-4 w-4 text-cyan-300" />
+              Dataset List
+            </Command.Item>
+            <Command.Item
+              className="flex min-h-12 cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground aria-selected:bg-white/10"
+              onSelect={() => {
+                setCommandPaletteOpen(false);
+                router.push("/studio?new=true");
+              }}
+            >
+              <Plus className="h-4 w-4 text-cyan-300" />
+              Create New Dataset
+            </Command.Item>
+            <Command.Item
+              className="flex min-h-12 cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground aria-selected:bg-white/10"
+              onSelect={() => {
+                setCommandPaletteOpen(false);
+                router.push("/profile-upload");
+              }}
+            >
+              <Settings className="h-4 w-4 text-cyan-300" />
+              Settings
+            </Command.Item>
+            <Command.Item
+              className="flex min-h-12 cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground aria-selected:bg-white/10"
+              onSelect={() => {
+                setCommandPaletteOpen(false);
+                router.push("/terms");
+              }}
+            >
+              <HelpCircle className="h-4 w-4 text-cyan-300" />
+              Help
+            </Command.Item>
+          </Command.Group>
+
+          <Command.Group
+            heading="Actions"
+            className="text-xs text-muted-foreground"
+          >
+            <Command.Item
+              className="flex min-h-12 cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground aria-selected:bg-white/10"
+              onSelect={() => {
+                setCommandPaletteOpen(false);
+                setKeyboardHelpOpen(true);
+              }}
+            >
+              <Keyboard className="h-4 w-4 text-cyan-300" />
+              Keyboard Shortcuts
+            </Command.Item>
+            {step === 4 && generatedFiles.length > 0 && (
+              <Command.Item
+                className="flex min-h-12 cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground aria-selected:bg-white/10"
+                onSelect={() => {
+                  setCommandPaletteOpen(false);
+                  void handleDownload(generatedFiles[0].format);
+                }}
+              >
+                <Download className="h-4 w-4 text-cyan-300" />
+                Export Current Dataset
+              </Command.Item>
+            )}
+          </Command.Group>
+        </Command.List>
+      </Command.Dialog>
+
+      {keyboardHelpOpen && (
+        <div
+          className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Keyboard shortcuts"
+        >
+          <Card className="w-full max-w-xl border-border bg-background p-5">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="font-semibold text-foreground">
+                Keyboard Shortcuts
+              </h3>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="h-12 w-12"
+                onClick={() => setKeyboardHelpOpen(false)}
+                aria-label="Close keyboard shortcuts"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="grid gap-2 text-sm text-muted-foreground">
+              <p>
+                <span className="font-mono text-foreground">Cmd/Ctrl + K</span>{" "}
+                Open command palette
+              </p>
+              <p>
+                <span className="font-mono text-foreground">Cmd/Ctrl + N</span>{" "}
+                Create new dataset
+              </p>
+              <p>
+                <span className="font-mono text-foreground">Cmd/Ctrl + E</span>{" "}
+                Export current dataset (Step 4)
+              </p>
+              <p>
+                <span className="font-mono text-foreground">Cmd/Ctrl + /</span>{" "}
+                Show keyboard help
+              </p>
+              <p>
+                <span className="font-mono text-foreground">Esc</span> Close
+                dialogs and menus
+              </p>
+              <p>
+                <span className="font-mono text-foreground">Tab / Enter</span>{" "}
+                Navigate and confirm controls
+              </p>
+            </div>
+          </Card>
+        </div>
+      )}
     </AuthGuard>
   );
 }
