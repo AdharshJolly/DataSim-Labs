@@ -30,7 +30,10 @@ export default function HomePage() {
         {/* Animated Glow Blobs */}
         <div className="absolute -top-24 left-1/2 -z-10 h-[500px] w-[500px] -translate-x-1/2 bg-glow-primary opacity-50 blur-3xl animate-pulse" />
 
-        <Badge variant="outline" className="animate-fade-in gap-2 border-primary/20 bg-primary/5 px-4 py-1.5 text-xs tracking-wide text-primary backdrop-blur-sm">
+        <Badge
+          variant="outline"
+          className="animate-fade-in gap-2 border-primary/20 bg-primary/5 px-4 py-1.5 text-xs tracking-wide text-primary backdrop-blur-sm"
+        >
           <Sparkles className="h-3.5 w-3.5" />
           <span>REALISM ENGINE LIVE</span>
         </Badge>
@@ -50,13 +53,20 @@ export default function HomePage() {
         </p>
 
         <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
-          <Button asChild className="h-12 px-8 text-base shadow-lg shadow-primary/20">
+          <Button
+            asChild
+            className="h-12 px-8 text-base shadow-lg shadow-primary/20"
+          >
             <Link href="/register">
               <span>Launch Dataset Builder</span>
               <ArrowRight className="ml-2 h-5 w-5" />
             </Link>
           </Button>
-          <Button asChild variant="secondary" className="group h-12 px-8 transition-all hover:bg-white/10">
+          <Button
+            asChild
+            variant="secondary"
+            className="group h-12 px-8 transition-all hover:bg-muted/70"
+          >
             <Link href="/studio">
               <span>Open Interactive Studio</span>
               <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
@@ -65,15 +75,15 @@ export default function HomePage() {
         </div>
 
         {/* Hero Visual */}
-        <div className="mt-20 w-full max-w-5xl overflow-hidden rounded-2xl border border-white/10 bg-black/40 p-2 backdrop-blur-sm shadow-2xl">
-          <div className="rounded-xl border border-white/5 bg-background/50 p-1">
-            <div className="flex items-center gap-2 px-4 py-3 border-b border-white/5">
+        <div className="mt-20 w-full max-w-5xl overflow-hidden rounded-2xl border border-border/70 bg-card/70 p-2 backdrop-blur-sm shadow-2xl">
+          <div className="rounded-xl border border-border/50 bg-background/50 p-1">
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-border/50">
               <div className="flex gap-1.5">
                 <div className="h-3 w-3 rounded-full bg-red-500/50"></div>
                 <div className="h-3 w-3 rounded-full bg-yellow-500/50"></div>
                 <div className="h-3 w-3 rounded-full bg-green-500/50"></div>
               </div>
-              <div className="ml-4 h-5  rounded-md bg-white/5 flex items-center px-3">
+              <div className="ml-4 h-5  rounded-md bg-card/70 flex items-center px-3">
                 <span className="text-[10px] text-muted-foreground font-mono whitespace-nowrap">
                   datasim-lab.com/studio/research-dataset-v1
                 </span>
@@ -84,7 +94,7 @@ export default function HomePage() {
                 {[...Array(12)].map((_, i) => (
                   <div
                     key={i}
-                    className="h-24 rounded-lg border border-white/10 bg-white/5 animate-pulse"
+                    className="h-24 rounded-lg border border-border/70 bg-card/70 animate-pulse"
                     style={{ animationDelay: `${i * 100}ms` }}
                   />
                 ))}
@@ -110,7 +120,7 @@ export default function HomePage() {
       </section>
 
       {/* Stats/Social Proof */}
-      <section className="grid grid-cols-2 gap-8 md:grid-cols-4 border-y border-white/5 py-12">
+      <section className="grid grid-cols-2 gap-8 md:grid-cols-4 border-y border-border/50 py-12">
         {[
           { label: "Realism Confidence", value: "99.5%", icon: Sparkles },
           { label: "Preview Latency", value: "< 2s", icon: Zap },
@@ -174,11 +184,11 @@ export default function HomePage() {
           ].map(({ icon: Icon, step, title, desc, color }) => (
             <article
               key={step}
-              className="group relative rounded-2xl border border-white/5 bg-white/[0.02] p-8 transition-all hover:border-white/10 hover:bg-white/[0.04]"
+              className="group relative rounded-2xl border border-border/50 bg-card/65 p-8 transition-all hover:border-border/70 hover:bg-muted/35"
             >
               <div className="flex items-center justify-between mb-8">
                 <div
-                  className={`rounded-xl bg-white/5 p-3 group-hover:scale-110 transition-transform ${color}`}
+                  className={`rounded-xl bg-card/70 p-3 group-hover:scale-110 transition-transform ${color}`}
                 >
                   <Icon className="h-6 w-6" />
                 </div>
@@ -232,7 +242,7 @@ export default function HomePage() {
           ].map(({ icon: Icon, label }) => (
             <div
               key={label}
-              className="flex items-center gap-3 rounded-xl border border-white/5 bg-white/[0.02] p-4 transition-all hover:border-primary/30 hover:bg-primary/5 group"
+              className="flex items-center gap-3 rounded-xl border border-border/50 bg-card/65 p-4 transition-all hover:border-primary/30 hover:bg-primary/5 group"
             >
               <Icon className="h-5 w-5 flex-shrink-0 text-muted-foreground group-hover:text-primary transition-colors" />
               <span className="text-sm font-medium">{label}</span>
@@ -254,11 +264,11 @@ export default function HomePage() {
 
         <div className="grid gap-8 lg:grid-cols-2 items-center">
           {/* Glassmorphic Chart/Data Preview Mockup */}
-          <div className="relative w-full rounded-2xl border border-white/10 bg-black/40 p-4 shadow-2xl backdrop-blur-xl">
+          <div className="relative w-full rounded-2xl border border-border/70 bg-card/70 p-4 shadow-2xl backdrop-blur-xl">
             <div className="absolute -inset-0.5 rounded-2xl bg-gradient-to-tr from-primary/20 via-transparent to-secondary/20 blur-xl -z-10" />
 
             {/* Header */}
-            <div className="flex items-center justify-between border-b border-white/5 pb-4 mb-4">
+            <div className="flex items-center justify-between border-b border-border/50 pb-4 mb-4">
               <div className="flex items-center gap-3">
                 <div className="h-8 w-8 rounded bg-primary/20 flex items-center justify-center">
                   <Database className="h-4 w-4 text-primary" />
@@ -280,7 +290,7 @@ export default function HomePage() {
             {/* Split View */}
             <div className="grid grid-cols-2 gap-4">
               {/* Fake Chart */}
-              <div className="rounded-xl border border-white/5 bg-background/50 p-4 flex flex-col justify-end h-40 relative overflow-hidden">
+              <div className="rounded-xl border border-border/50 bg-background/50 p-4 flex flex-col justify-end h-40 relative overflow-hidden">
                 <div className="absolute top-4 left-4 text-xs font-medium text-muted-foreground">
                   Throughput (Rows/s)
                 </div>
@@ -296,7 +306,7 @@ export default function HomePage() {
               </div>
 
               {/* Fake Code */}
-              <div className="rounded-xl border border-white/5 bg-background/50 p-4 h-40 font-mono text-[10px] text-muted-foreground overflow-hidden">
+              <div className="rounded-xl border border-border/50 bg-background/50 p-4 h-40 font-mono text-[10px] text-muted-foreground overflow-hidden">
                 <div className="text-secondary/80">{"{"}</div>
                 <div className="ml-2 text-primary">
                   "id":{" "}
@@ -319,14 +329,17 @@ export default function HomePage() {
                   <span className="text-green-400/80">"2026-03-18..."</span>
                 </div>
                 <div className="text-secondary/80">{"}"}</div>
-                <div className="animate-pulse mt-2 h-2 w-16 bg-white/10 rounded" />
+                <div className="mt-2 h-2 w-16 animate-pulse rounded bg-muted/70" />
               </div>
             </div>
           </div>
 
           {/* Description */}
           <div className="space-y-6 lg:pl-8">
-            <Badge variant="outline" className="gap-2 border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-muted-foreground">
+            <Badge
+              variant="outline"
+              className="gap-2 border-border/70 bg-card/70 px-3 py-1 text-xs font-medium text-muted-foreground"
+            >
               <Sparkles className="h-3.5 w-3.5 text-primary" /> Multi-Format
               Support
             </Badge>
@@ -342,7 +355,7 @@ export default function HomePage() {
               {["CSV", "JSON", "JSONL", "Excel", "API Ready"].map((fmt) => (
                 <div
                   key={fmt}
-                  className="rounded-md border border-white/5 bg-white/[0.02] px-4 py-2 font-mono text-sm font-semibold hover:border-primary/30 transition-colors cursor-default"
+                  className="rounded-md border border-border/50 bg-card/65 px-4 py-2 font-mono text-sm font-semibold hover:border-primary/30 transition-colors cursor-default"
                 >
                   {fmt}
                 </div>

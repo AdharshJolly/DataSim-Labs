@@ -257,7 +257,7 @@ export default function StudioPage() {
           display: "grid",
           gridTemplateColumns: previewColumnTemplate,
         }}
-        className="border-b border-border/40 text-sm transition-colors hover:bg-white/5"
+        className="border-b border-border/40 text-sm transition-colors hover:bg-card/70"
       >
         {previewCols.map((col) => (
           <div
@@ -957,7 +957,7 @@ export default function StudioPage() {
                     active
                       ? "bg-primary/10 text-primary"
                       : done
-                        ? "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+                        ? "text-muted-foreground hover:bg-card/70 hover:text-foreground"
                         : "cursor-not-allowed text-muted-foreground/50"
                   }`}
                 >
@@ -984,7 +984,7 @@ export default function StudioPage() {
               <p className="mb-2 text-sm font-semibold uppercase tracking-widest text-muted-foreground">
                 Dataset
               </p>
-              <div className="rounded-lg border border-border bg-white/5 p-3">
+              <div className="rounded-lg border border-border bg-card/70 p-3">
                 <p className="truncate font-semibold text-foreground">
                   {dsName || `ID: ${datasetId.substring(0, 8)}...`}
                 </p>
@@ -999,7 +999,7 @@ export default function StudioPage() {
         {mobileSidebarOpen && (
           <button
             type="button"
-            className="fixed inset-0 z-40 bg-black/40 md:hidden"
+            className="fixed inset-0 z-40 bg-card/70 md:hidden"
             aria-label="Close steps menu"
             onClick={() => setMobileSidebarOpen(false)}
           />
@@ -1047,7 +1047,7 @@ export default function StudioPage() {
                     active
                       ? "bg-primary/10 text-primary"
                       : done
-                        ? "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+                        ? "text-muted-foreground hover:bg-card/70 hover:text-foreground"
                         : "cursor-not-allowed text-muted-foreground/50"
                   }`}
                 >
@@ -1222,7 +1222,7 @@ export default function StudioPage() {
                 </Button>
               </header>
 
-              <Card className="mb-8 p-4 bg-white/5 border-border">
+              <Card className="mb-8 p-4 bg-card/70 border-border">
                 <p className="text-sm font-semibold text-foreground">
                   Correlation Builder (optional)
                 </p>
@@ -1339,7 +1339,7 @@ export default function StudioPage() {
               </header>
 
               {realismMetadata && (
-                <Card className="mb-6 border-border bg-white/5 p-4">
+                <Card className="mb-6 border-border bg-card/70 p-4">
                   <p className="text-sm font-semibold text-foreground">
                     Realism Planner Metadata
                   </p>
@@ -1404,7 +1404,7 @@ export default function StudioPage() {
               )}
 
               {previewComparisonCols.length > 0 && (
-                <Card className="mb-6 border-border bg-white/5 p-4">
+                <Card className="mb-6 border-border bg-card/70 p-4">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <h3 className="text-sm font-semibold text-foreground">
@@ -1802,7 +1802,7 @@ export default function StudioPage() {
                             className={`flex h-24 w-24 flex-col items-center justify-center gap-1.5 rounded-lg border-2 text-sm font-semibold transition-all duration-150 ${
                               formats.includes(value)
                                 ? "border-primary bg-primary/10 text-primary shadow-lg shadow-primary/10"
-                                : "border-border bg-white/5 text-muted-foreground hover:border-primary/50 hover:bg-primary/5"
+                                : "border-border bg-card/70 text-muted-foreground hover:border-primary/50 hover:bg-primary/5"
                             }`}
                           >
                             <Icon className="h-6 w-6" />
@@ -1833,7 +1833,7 @@ export default function StudioPage() {
                       </p>
                     </div>
 
-                    <div className="space-y-3 rounded-lg border border-border bg-white/5 p-4">
+                    <div className="space-y-3 rounded-lg border border-border bg-card/70 p-4">
                       <p className="text-sm font-medium text-foreground">
                         Generation mode:{" "}
                         {shouldUseAsyncGeneration
@@ -1904,7 +1904,7 @@ export default function StudioPage() {
                       )}
                     </div>
 
-                    <div className="space-y-3 rounded-lg border border-border bg-white/5 p-4">
+                    <div className="space-y-3 rounded-lg border border-border bg-card/70 p-4">
                       <label className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
                         <input
                           type="checkbox"
@@ -2009,7 +2009,7 @@ export default function StudioPage() {
                     {generatedFiles.map((file) => (
                       <div
                         key={file.format}
-                        className="flex items-center justify-between gap-3 rounded-lg border border-border bg-white/5 p-4"
+                        className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card/70 p-4"
                       >
                         <div>
                           <p className="font-bold uppercase">{file.format}</p>
@@ -2057,7 +2057,7 @@ export default function StudioPage() {
                   )}
 
                   {qualityDashboard && (
-                    <Card className="border-border bg-white/5 p-4">
+                    <Card className="border-border bg-card/70 p-4">
                       <h3 className="font-semibold text-foreground">
                         Data Quality Score Dashboard
                       </h3>
@@ -2164,7 +2164,7 @@ export default function StudioPage() {
                     <ValidationDashboard report={validationSummary} />
                   )}
 
-                  <div className="rounded-lg border border-border bg-white/5 p-4">
+                  <div className="rounded-lg border border-border bg-card/70 p-4">
                     <h3 className="font-semibold text-foreground">
                       Generation Diagnostics
                     </h3>

@@ -143,7 +143,7 @@ export default function DownloadPage() {
       )}
 
       {/* Dataset Selector */}
-      <Card className="max-w-xl space-y-4 rounded-xl border-border bg-white/5 p-6 backdrop-blur-sm">
+      <Card className="max-w-xl space-y-4 rounded-xl border-border bg-card/70 p-6 backdrop-blur-sm">
         <div className="space-y-2">
           <label
             htmlFor="dataset-id"
@@ -185,9 +185,9 @@ export default function DownloadPage() {
           <p className="font-medium">Searching for artifacts...</p>
         </div>
       ) : hasFiles ? (
-        <Card className="overflow-hidden rounded-xl border-border bg-white/5 backdrop-blur-sm">
+        <Card className="overflow-hidden rounded-xl border-border bg-card/70 backdrop-blur-sm">
           <table className="w-full text-left text-sm">
-            <thead className="border-b border-border bg-white/5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            <thead className="border-b border-border bg-card/70 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               <tr>
                 <th className="px-6 py-4">Format</th>
                 <th className="px-6 py-4">Filename</th>
@@ -199,7 +199,7 @@ export default function DownloadPage() {
               {files.map((file) => (
                 <tr
                   key={file.file_name}
-                  className="transition-colors hover:bg-white/5"
+                  className="transition-colors hover:bg-card/70"
                 >
                   <td className="px-6 py-4">
                     <Badge

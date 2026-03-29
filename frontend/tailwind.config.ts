@@ -3,10 +3,10 @@ import type { Config } from "tailwindcss";
 const config: Config = {
   darkMode: "class",
   content: [
-    './pages/**/*.{ts,tsx}',
-    './components/**/*.{ts,tsx}',
-    './app/**/*.{ts,tsx}',
-    './src/**/*.{ts,tsx}',
+    "./pages/**/*.{ts,tsx}",
+    "./components/**/*.{ts,tsx}",
+    "./app/**/*.{ts,tsx}",
+    "./src/**/*.{ts,tsx}",
   ],
   theme: {
     container: {
@@ -60,6 +60,7 @@ const config: Config = {
       fontFamily: {
         sans: ["var(--font-sans)"],
         mono: ["var(--font-mono)"],
+        display: ["var(--font-display)", "var(--font-sans)"],
       },
       keyframes: {
         "accordion-down": {
@@ -77,7 +78,7 @@ const config: Config = {
         "subtle-float": {
           "0%, 100%": { transform: "translateY(0)" },
           "50%": { transform: "translateY(-5px)" },
-        }
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",

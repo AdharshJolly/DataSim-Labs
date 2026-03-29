@@ -109,7 +109,7 @@ function CreateDatasetChooser({
           <button
             type="button"
             onClick={chooseBlank}
-            className="flex w-full items-start gap-2 rounded-md px-3 py-2 text-left transition-colors hover:bg-white/5"
+            className="flex w-full items-start gap-2 rounded-md px-3 py-2 text-left transition-colors hover:bg-card/70"
           >
             <Plus className="mt-0.5 h-4 w-4 text-primary" />
             <span>
@@ -124,7 +124,7 @@ function CreateDatasetChooser({
           <button
             type="button"
             onClick={chooseTemplate}
-            className="flex w-full items-start gap-2 rounded-md px-3 py-2 text-left transition-colors hover:bg-white/5"
+            className="flex w-full items-start gap-2 rounded-md px-3 py-2 text-left transition-colors hover:bg-card/70"
           >
             <Database className="mt-0.5 h-4 w-4 text-primary" />
             <span>
@@ -356,12 +356,12 @@ export default function DashboardPage() {
             <button
               type="button"
               onClick={() => setCommandPaletteOpen(true)}
-              className="hidden gap-2 rounded-lg border border-border/50 bg-white/5 px-3 py-2.5 text-sm text-muted-foreground transition-all hover:border-primary/50 hover:bg-primary/10 hover:text-foreground md:flex items-center"
+              className="hidden gap-2 rounded-lg border border-border/50 bg-card/70 px-3 py-2.5 text-sm text-muted-foreground transition-all hover:border-primary/50 hover:bg-primary/10 hover:text-foreground md:flex items-center"
               aria-label="Open command palette"
             >
               <Search className="h-4 w-4" />
               <span>Quick search</span>
-              <kbd className="ml-auto rounded px-1.5 bg-white/10 font-mono text-xs">
+              <kbd className="ml-auto rounded bg-muted/70 px-1.5 font-mono text-xs">
                 Ctrl+K
               </kbd>
             </button>
@@ -416,14 +416,14 @@ export default function DashboardPage() {
           <>
             <button
               type="button"
-              className="fixed inset-0 z-40 bg-black/40 md:hidden"
+              className="fixed inset-0 z-40 bg-card/70 md:hidden"
               aria-label="Close mobile dashboard menu"
               onClick={() => setMobileMenuOpen(false)}
             />
             <Card className="fixed right-4 top-24 z-50 w-[min(320px,90vw)] border-border bg-background p-2 md:hidden">
               <button
                 type="button"
-                className="flex min-h-12 w-full items-center gap-3 rounded-md px-3 py-3 text-left text-sm text-foreground transition-colors hover:bg-white/5"
+                className="flex min-h-12 w-full items-center gap-3 rounded-md px-3 py-3 text-left text-sm text-foreground transition-colors hover:bg-card/70"
                 onClick={() => {
                   setMobileMenuOpen(false);
                   window.scrollTo({ top: 0, behavior: "smooth" });
@@ -434,7 +434,7 @@ export default function DashboardPage() {
               </button>
               <button
                 type="button"
-                className="flex min-h-12 w-full items-center gap-3 rounded-md px-3 py-3 text-left text-sm text-foreground transition-colors hover:bg-white/5"
+                className="flex min-h-12 w-full items-center gap-3 rounded-md px-3 py-3 text-left text-sm text-foreground transition-colors hover:bg-card/70"
                 onClick={() => {
                   setMobileMenuOpen(false);
                   router.push("/studio?new=true");
@@ -445,7 +445,7 @@ export default function DashboardPage() {
               </button>
               <button
                 type="button"
-                className="flex min-h-12 w-full items-center gap-3 rounded-md px-3 py-3 text-left text-sm text-foreground transition-colors hover:bg-white/5"
+                className="flex min-h-12 w-full items-center gap-3 rounded-md px-3 py-3 text-left text-sm text-foreground transition-colors hover:bg-card/70"
                 onClick={() => {
                   setMobileMenuOpen(false);
                   router.push("/terms");
@@ -503,7 +503,7 @@ export default function DashboardPage() {
             {datasets.map((dataset) => (
               <Card
                 key={dataset.id}
-                className="group flex flex-col gap-4 rounded-2xl bg-gradient-to-br from-white/[0.05] to-transparent p-5 backdrop-blur-sm transition-all duration-300 hover:-translate-y-1 hover:border-primary/50 hover:shadow-xl hover:shadow-primary/5"
+                className="group flex flex-col gap-4 rounded-2xl bg-gradient-to-br from-card/90 to-transparent p-5 backdrop-blur-sm transition-all duration-300 hover:-translate-y-1 hover:border-primary/50 hover:shadow-xl hover:shadow-primary/10"
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
@@ -629,7 +629,7 @@ export default function DashboardPage() {
               type="button"
               aria-label="Close jobs panel"
               onClick={() => setShowJobsPanel(false)}
-              className="fixed inset-0 z-[70] bg-black/20 backdrop-blur-[1px]"
+              className="fixed inset-0 z-[70] bg-muted/35 backdrop-blur-[1px]"
             />
           )}
 

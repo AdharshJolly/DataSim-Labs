@@ -412,7 +412,7 @@ export default function ProfileUploadPage() {
           </p>
         </div>
 
-        <div className="rounded-2xl border border-border bg-gradient-to-br from-white/[0.06] via-white/[0.03] to-transparent p-6 shadow-xl shadow-black/20">
+        <div className="rounded-2xl border border-border bg-gradient-to-br from-card/90 via-card/70 to-transparent p-6 shadow-xl shadow-primary/10">
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <label
@@ -571,7 +571,7 @@ export default function ProfileUploadPage() {
         </div>
 
         {profile && (
-          <div className="space-y-5 rounded-2xl border border-border bg-white/[0.03] p-6">
+          <div className="space-y-5 rounded-2xl border border-border bg-card/70 p-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="font-display text-2xl font-bold text-foreground">
                 Profile Preview
@@ -734,7 +734,7 @@ export default function ProfileUploadPage() {
 
                     {(columnData.data_type === "float" ||
                       columnData.data_type === "integer") && (
-                      <div className="mt-3 rounded-lg border border-border/70 bg-white/[0.02] p-3 text-xs text-muted-foreground">
+                      <div className="mt-3 rounded-lg border border-border/70 bg-card/65 p-3 text-xs text-muted-foreground">
                         <p>
                           Mean: {formatNumber(columnData.distribution?.mean)}
                         </p>

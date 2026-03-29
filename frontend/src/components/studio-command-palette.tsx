@@ -82,7 +82,7 @@ export function StudioCommandItem({
   return (
     <Command.Item
       className={cn(
-        "flex min-h-12 cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground aria-selected:bg-white/10",
+        "flex min-h-12 cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm text-foreground aria-selected:bg-muted/60",
         className,
       )}
       {...props}

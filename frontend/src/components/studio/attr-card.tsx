@@ -68,7 +68,7 @@ export function AttrCard({
     showSkewParams;
 
   return (
-    <div className="rounded-lg border border-border bg-gradient-to-br from-white/[0.03] to-transparent backdrop-blur-[2px] transition-all duration-300 focus-within:border-primary/80 hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5">
+    <div className="rounded-lg border border-border bg-gradient-to-br from-card/80 to-transparent backdrop-blur-[2px] transition-all duration-300 focus-within:border-primary/80 hover:border-primary/30 hover:shadow-lg hover:shadow-primary/10">
       {/* Header */}
       <div className="flex items-center gap-2 border-b border-border p-3">
         <GripVertical className="h-5 w-5 flex-shrink-0 cursor-move text-muted-foreground/50" />
@@ -335,7 +335,7 @@ export function AttrCard({
                     className={`flex-1 px-3 py-1.5 text-xs font-medium transition-colors ${
                       attr.skew_direction === "left"
                         ? "bg-primary/20 text-primary"
-                        : "bg-background/70 text-muted-foreground hover:bg-white/5"
+                        : "bg-background/70 text-muted-foreground hover:bg-card/70"
                     }`}
                   >
                     ← Left (tail left)
@@ -346,7 +346,7 @@ export function AttrCard({
                     className={`flex-1 px-3 py-1.5 text-xs font-medium transition-colors ${
                       attr.skew_direction === "right"
                         ? "bg-primary/20 text-primary"
-                        : "bg-background/70 text-muted-foreground hover:bg-white/5"
+                        : "bg-background/70 text-muted-foreground hover:bg-card/70"
                     }`}
                   >
                     Right (tail right) →

@@ -60,7 +60,7 @@ export function TemplateGrid({
         {[1, 2, 3, 4, 5].map((i) => (
           <Card
             key={i}
-            className="h-48 animate-pulse bg-gradient-to-br from-white/[0.05] to-transparent"
+            className="h-48 animate-pulse bg-gradient-to-br from-card/90 to-transparent"
           />
         ))}
       </div>
@@ -81,7 +81,7 @@ export function TemplateGrid({
         {templates.map((template) => (
           <Card
             key={template.id}
-            className="group relative flex flex-col gap-3 rounded-2xl bg-gradient-to-br from-white/[0.05] to-transparent p-5 backdrop-blur-sm transition-all duration-300 hover:-translate-y-1 hover:border-primary/50 hover:shadow-xl hover:shadow-primary/5"
+            className="group relative flex flex-col gap-3 rounded-2xl bg-gradient-to-br from-card/90 to-transparent p-5 backdrop-blur-sm transition-all duration-300 hover:-translate-y-1 hover:border-primary/50 hover:shadow-xl hover:shadow-primary/10"
           >
             <div className="absolute right-3 top-3">
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/20 text-primary">
@@ -139,7 +139,7 @@ export function TemplateGrid({
       </div>
 
       {showCreateLink && (
-        <Card className="rounded-2xl border-dashed bg-gradient-to-br from-white/[0.02] to-transparent p-6 text-center">
+        <Card className="rounded-2xl border-dashed bg-gradient-to-br from-card/80 to-transparent p-6 text-center">
           <h3 className="font-display text-lg font-bold">Start from Scratch</h3>
           <p className="mt-2 text-sm text-muted-foreground">
             Prefer to build your own schema? No problem!
