@@ -230,7 +230,6 @@ export default function HomePage() {
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
           {[
             { icon: Hash, label: "Numeric Ranges" },
-            { icon: Users, label: "Identity Profiles" },
             { icon: Mail, label: "Company Emails" },
             { icon: Milestone, label: "Geographic Fields" },
             { icon: Type, label: "Free Text" },
@@ -313,7 +312,7 @@ export default function HomePage() {
                   <span className="text-muted-foreground">"usr_9f82...",</span>
                 </div>
                 <div className="ml-2 text-primary">
-                  "profile": <span className="text-secondary/80">{"{"}</span>
+                  "record": <span className="text-secondary/80">{"{"}</span>
                 </div>
                 <div className="ml-4 text-primary">
                   "name":{" "}

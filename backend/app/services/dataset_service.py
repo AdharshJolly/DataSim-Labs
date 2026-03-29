@@ -184,7 +184,6 @@ class DatasetService:
         seed: int | None = None,
         dataset_version_id: uuid.UUID | None = None,
         retention_hours: int = 24,
-        drift_profile: dict[str, Any] | None = None,
         enforce_sync_limits: bool = True,
     ) -> dict[str, Any]:
         return GenerationOrchestrator.generate_dataset_files(
@@ -198,7 +197,6 @@ class DatasetService:
             seed=seed,
             dataset_version_id=dataset_version_id,
             retention_hours=retention_hours,
-            drift_profile=drift_profile,
             enforce_sync_limits=enforce_sync_limits,
         )
 
@@ -212,7 +210,6 @@ class DatasetService:
         seed: int | None = None,
         dataset_version_id: uuid.UUID | None = None,
         source_job_id: str | None = None,
-        drift_profile: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         dataset = DatasetRepository.get_dataset(
             db=db,
@@ -235,7 +232,6 @@ class DatasetService:
             formats=formats,
             seed=seed,
             source_job_id=source_job_id,
-            drift_profile=drift_profile,
         )
 
     @staticmethod

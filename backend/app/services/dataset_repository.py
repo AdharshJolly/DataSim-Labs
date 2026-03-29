@@ -184,18 +184,3 @@ class DatasetRepository:
             .sort("order_index", 1)
         )
         return [Attribute.from_document(row) for row in rows]
-
-    @staticmethod
-    def load_semantic_groups_for_version(
-        db: Database,
-        dataset_version_id: uuid.UUID,
-    ) -> list[dict[str, Any]]:
-        """Load persisted semantic dependency groups for profile-aware generation."""
-        profile_doc = db["data_profiles"].find_one(
-            {"dataset_version_id": str(dataset_version_id)},
-            {"semantic_groups": 1},
-        )
-        groups = profile_doc.get("semantic_groups", []) if profile_doc else []
-        if isinstance(groups, list):
-            return [group for group in groups if isinstance(group, dict)]
-        return []

@@ -165,11 +165,6 @@ def generate_dataset(
             chunk_size=settings.generation_chunk_size,
             seed=payload.seed,
             retention_hours=settings.artifact_retention_hours,
-            drift_profile=(
-                payload.drift_profile.model_dump(mode="json")
-                if payload.drift_profile
-                else None
-            ),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -183,7 +178,6 @@ def generate_dataset(
         "quality_dashboard": generation_result.get("quality_dashboard"),
         "validation_summary": generation_result.get("validation_summary"),
         "quality_guardrails": generation_result.get("quality_guardrails"),
-        "drift_simulation": generation_result.get("drift_simulation"),
         "generation_signature": generation_result.get("generation_signature"),
         "generation_run_id": generation_result.get("generation_run_id"),
         "comparison": generation_result.get("comparison"),
@@ -211,11 +205,6 @@ def generate_dataset_async(
             row_count=payload.row_count,
             formats=payload.formats,
             seed=payload.seed,
-            drift_profile=(
-                payload.drift_profile.model_dump(mode="json")
-                if payload.drift_profile
-                else None
-            ),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -498,93 +487,3 @@ def update_dataset_status(
         created_at=dataset.created_at.isoformat(),
         updated_at=dataset.updated_at.isoformat(),
     )
-
-
-from fastapi import File, UploadFile
-from app.services.profile_service import ProfileService
-
-
-@router.post("/{dataset_version_id}/profile/upload")
-def upload_dataset_profile(
-    dataset_version_id: uuid.UUID,
-    file: UploadFile = File(...),
-    db: Database = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    try:
-        profile = ProfileService.process_and_save_profile(
-            db=db, dataset_version_id=dataset_version_id, file=file
-        )
-        return {"message": "Profile learned successfully", "profile": profile}
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@router.get("/{dataset_version_id}/profile")
-def get_dataset_profile(
-    dataset_version_id: uuid.UUID,
-    db: Database = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    try:
-        profile = ProfileService.get_profile(
-            db=db, dataset_version_id=dataset_version_id
-        )
-        return profile
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-
-@router.post("/{dataset_version_id}/profile/generate")
-def generate_from_profile(
-    dataset_version_id: uuid.UUID,
-    row_count: int = Query(default=10, ge=1, le=1000),
-    seed: int | None = Query(default=None),
-    enable_feedback_loop: bool = Query(default=True),
-    max_iterations: int = Query(default=3, ge=1, le=10),
-    db: Database = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    try:
-        response_data = ProfileService.generate_from_profile(
-            db=db,
-            dataset_version_id=dataset_version_id,
-            row_count=row_count,
-            seed=seed,
-            enable_feedback_loop=enable_feedback_loop,
-            max_iterations=max_iterations,
-        )
-        return response_data
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-from pydantic import BaseModel
-from app.services.template_service import TemplateService
-from app.services.copilot_service import CoPilotService
-
-
-class CopilotRequest(BaseModel):
-    prompt: str
-
-
-@router.get("/templates")
-def get_templates(
-    current_user: User = Depends(get_current_user),
-):
-    return {
-        "templates": TemplateService.get_all_templates(),
-        "personas": TemplateService.get_all_personas(),
-    }
-
-
-@router.post("/copilot/generate-profile")
-def copilot_generate_profile(
-    payload: CopilotRequest,
-    current_user: User = Depends(get_current_user),
-):
-    try:
-        profile = CoPilotService.generate_profile_from_prompt(payload.prompt)
-        return {"message": "AI generation successful", "profile": profile}
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc

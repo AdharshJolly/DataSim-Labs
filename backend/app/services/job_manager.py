@@ -27,7 +27,6 @@ class JobManager:
         formats: list[str],
         seed: int | None = None,
         source_job_id: str | None = None,
-        drift_profile: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Create a new generation job."""
         now = datetime.now(timezone.utc)
@@ -41,7 +40,6 @@ class JobManager:
             "formats": sorted([fmt.lower() for fmt in formats]),
             "seed": seed,
             "source_job_id": source_job_id,
-            "drift_profile": drift_profile or {"enabled": False},
             "status": "queued",
             "stage": "queued",
             "progress_percentage": 0,
@@ -111,11 +109,6 @@ class JobManager:
             formats=[str(item) for item in job.get("formats", ["csv"])],
             seed=(int(job["seed"]) if job.get("seed") is not None else None),
             source_job_id=job_id,
-            drift_profile=(
-                dict(job.get("drift_profile", {}))
-                if isinstance(job.get("drift_profile"), dict)
-                else {"enabled": False}
-            ),
         )
 
     @staticmethod

@@ -84,32 +84,19 @@ async def get_semantic_rules(
     dataset_version_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
 ) -> SemanticRulesResponseDto:
-    """Get semantic rules for a dataset."""
-    try:
-        # Lazy import to avoid blocking startup
-        from app.db.session import get_db
-        from app.engine.profiling.profile_manager import ProfileManager
+    """Get semantic rules for a dataset.
 
-        db = next(get_db())
-        manager = ProfileManager(db)
-        profile = manager.get_profile_by_version(dataset_version_id)
-
-        if not profile:
-            raise HTTPException(status_code=404, detail="Dataset profile not found")
-
-        return SemanticRulesResponseDto(
-            dataset_version_id=dataset_version_id,
-            rules=[SemanticRuleDto(**rule) for rule in profile.semantic_rules],
-            metadata={
-                "rule_count": len(profile.semantic_rules),
-                "dataset_name": profile.metadata.get("original_filename", ""),
-                "profile_confidence": profile.metadata.get("confidence_score", 0.0),
-            },
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error retrieving rules: {str(e)}")
+    Profiling-backed semantic rules have been removed, so this endpoint now
+    returns an empty ruleset until semantic rules are reintroduced.
+    """
+    return SemanticRulesResponseDto(
+        dataset_version_id=dataset_version_id,
+        rules=[],
+        metadata={
+            "rule_count": 0,
+            "profiling_removed": True,
+        },
+    )
 
 
 @router.post("/filter", response_model=FilteredRulesResponseDto)

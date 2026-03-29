@@ -40,14 +40,10 @@ export function Navbar() {
     };
   }, []);
 
-  const navLinks = [
-    { name: "Dashboard", href: "/dashboard" },
-    { name: "Profile", href: "/profile-upload" },
-  ];
+  const navLinks = [{ name: "Dashboard", href: "/dashboard" }];
   const mobileFlows = [
     { name: "Dataset List", href: "/dashboard" },
     { name: "Create New Dataset", href: "/studio?new=true" },
-    { name: "Profile", href: "/profile-upload" },
   ];
 
   const isActive = (path: string) => pathname === path;
@@ -92,22 +88,20 @@ export function Navbar() {
 
         {/* Desktop Nav */}
         <div className="hidden items-center gap-8 md:flex">
-          <div className="flex items-center gap-2 rounded-xl border border-border/70 bg-card/70 p-1.5">
-            {navLinks.map((link) => (
-              <Link
-                key={link.name}
-                href={link.href}
-                className={cn(
-                  "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
-                  isActive(link.href)
-                    ? "bg-primary/15 text-primary"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {link.name}
-              </Link>
-            ))}
-          </div>
+          {navLinks.map((link) => (
+            <Link
+              key={link.name}
+              href={link.href}
+              className={cn(
+                "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                isActive(link.href)
+                  ? "bg-primary/15 text-primary"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {link.name}
+            </Link>
+          ))}
           <div className="flex items-center gap-3">
             <ThemeToggle />
             {isAuthenticated ? (

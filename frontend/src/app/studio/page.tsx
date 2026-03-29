@@ -687,14 +687,6 @@ export default function StudioPage() {
         row_count: rowCount,
         formats,
         seed: seed.trim() ? Number(seed) : undefined,
-        drift_profile: {
-          enabled: driftEnabled,
-          intensity: driftIntensity,
-          target_columns: driftColumnsText
-            .split(",")
-            .map((value) => value.trim())
-            .filter(Boolean),
-        },
       };
 
       if (!shouldUseAsyncGeneration) {
@@ -844,14 +836,6 @@ export default function StudioPage() {
       row_count: rowCount,
       formats,
       seed: seed.trim() ? Number(seed) : undefined,
-      drift_profile: {
-        enabled: driftEnabled,
-        intensity: driftIntensity,
-        target_columns: driftColumnsText
-          .split(",")
-          .map((value) => value.trim())
-          .filter(Boolean),
-      },
     })
       .then((response) => {
         if (!isCancelled) {

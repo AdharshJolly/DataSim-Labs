@@ -286,11 +286,6 @@ export interface GenerateRequest {
   row_count: number;
   formats: Array<"csv" | "json" | "jsonl" | "excel">;
   seed?: number;
-  drift_profile?: {
-    enabled: boolean;
-    intensity: number;
-    target_columns: string[];
-  };
   enable_refinement?: boolean;
   max_refinement_iterations?: number;
 }
@@ -365,7 +360,6 @@ export interface GenerateResponse {
     actual_alerts: number;
     message: string;
   } | null;
-  drift_simulation?: Record<string, unknown> | null;
   generation_signature?: string | null;
   generation_run_id?: string | null;
   comparison?: Record<string, unknown> | null;
@@ -461,72 +455,6 @@ export interface DatasetVersionsResponse {
   versions: DatasetVersionSummary[];
 }
 
-export interface ProfileColumnDistribution {
-  type?: string;
-  semantic_type?: string;
-  generator?: string;
-  mean?: number;
-  std?: number;
-  min?: number;
-  max?: number;
-}
-
-export interface ProfileColumn {
-  data_type: string;
-  semantic_type?: string | null;
-  unique_ratio?: number;
-  confidence?: number;
-  null_percentage: number;
-  distribution?: ProfileColumnDistribution;
-}
-
-export interface ProfileDependency {
-  source?: string;
-  target?: string;
-  sources?: string[];
-  columns?: string[];
-  type: string;
-  correlation?: number;
-  strength?: number;
-}
-
-export interface DatasetProfile {
-  row_count: number;
-  columns: Record<string, ProfileColumn>;
-  dependency_graph?: ProfileDependency[];
-  metadata?: {
-    row_count?: number;
-    confidence_score?: number;
-    low_confidence?: boolean;
-  };
-  explainability?: {
-    columns?: Record<
-      string,
-      {
-        type?: string;
-        distribution?: string;
-        mean?: number;
-        std?: number;
-        min?: number;
-        max?: number;
-        confidence?: number;
-      }
-    >;
-    correlations?: Array<Record<string, unknown>>;
-    meta?: {
-      rows_analyzed?: number;
-      confidence?: string;
-      confidence_score?: number;
-      low_confidence?: boolean;
-    };
-  };
-}
-
-export interface UploadProfileResponse {
-  message: string;
-  profile: DatasetProfile;
-}
-
 export interface DatasetTemplate {
   id: string;
   name: string;
@@ -538,23 +466,6 @@ export interface DatasetTemplate {
 export interface DatasetTemplatesResponse {
   success: boolean;
   templates: DatasetTemplate[];
-}
-
-export interface GenerateFromProfileRequest {
-  row_count: number;
-  seed?: number;
-  enable_feedback_loop?: boolean;
-  max_iterations?: number;
-}
-
-export interface GenerateFromProfileResponse {
-  dataset_version_id: string;
-  rows: number;
-  data: Record<string, unknown>[];
-  validation_summary?: ValidationSummary;
-  validation_report?: Record<string, unknown>;
-  generation_warnings?: string[];
-  generation_metadata?: Record<string, unknown>;
 }
 
 export function register(payload: AuthRequest): Promise<AuthResponse> {
@@ -733,61 +644,6 @@ export function getDatasetVersions(
 ): Promise<DatasetVersionsResponse> {
   return apiRequest<DatasetVersionsResponse>(
     `/api/v1/dataset/${datasetId}/versions`,
-  );
-}
-
-export async function uploadDatasetProfile(
-  datasetVersionId: string,
-  file: File,
-): Promise<UploadProfileResponse> {
-  const formData = new FormData();
-  formData.append("file", file);
-
-  const response = await fetchWithAuth(
-    `${API_BASE_URL}/api/v1/dataset/${encodeURIComponent(datasetVersionId)}/profile/upload`,
-    {
-      method: "POST",
-      body: formData,
-      cache: "no-store",
-    },
-  );
-
-  if (!response.ok) {
-    const detail = await parseApiError(response);
-    throw new Error(`${detail} (${response.status})`);
-  }
-
-  return (await response.json()) as UploadProfileResponse;
-}
-
-export function getDatasetProfile(
-  datasetVersionId: string,
-): Promise<DatasetProfile> {
-  return apiRequest<DatasetProfile>(
-    `/api/v1/dataset/${encodeURIComponent(datasetVersionId)}/profile`,
-  );
-}
-
-export function generateDataFromProfile(
-  datasetVersionId: string,
-  payload: GenerateFromProfileRequest,
-): Promise<GenerateFromProfileResponse> {
-  const search = new URLSearchParams();
-  search.set("row_count", String(payload.row_count));
-  if (typeof payload.seed === "number") {
-    search.set("seed", String(payload.seed));
-  }
-  search.set(
-    "enable_feedback_loop",
-    String(payload.enable_feedback_loop ?? true),
-  );
-  search.set("max_iterations", String(payload.max_iterations ?? 3));
-
-  return apiRequest<GenerateFromProfileResponse>(
-    `/api/v1/dataset/${encodeURIComponent(datasetVersionId)}/profile/generate?${search.toString()}`,
-    {
-      method: "POST",
-    },
   );
 }
 

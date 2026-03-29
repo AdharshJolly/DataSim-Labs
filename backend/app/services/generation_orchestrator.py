@@ -52,15 +52,10 @@ class GenerationOrchestrator:
 
         generator_seed = seed if seed is not None else version.seed
         generator = DatasetGenerator(seed=generator_seed)
-        semantic_groups = DatasetRepository.load_semantic_groups_for_version(
-            db=db,
-            dataset_version_id=dataset_version_id,
-        )
         frame = generator.generate_dataframe(
             attributes=attributes,
             row_count=10,
             realism_rules=realism_rules,
-            semantic_groups=semantic_groups,
         )
         return {
             "data": frame.to_dict(orient="records"),
@@ -94,7 +89,6 @@ class GenerationOrchestrator:
         seed: int | None = None,
         dataset_version_id: uuid.UUID | None = None,
         retention_hours: int = 24,
-        drift_profile: dict[str, Any] | None = None,
         enforce_sync_limits: bool = True,
     ) -> dict[str, Any]:
         """Generate and export full datasets for a dataset's latest version."""
@@ -142,10 +136,6 @@ class GenerationOrchestrator:
         )
         generator_seed = seed if seed is not None else owned_version.seed
         generator = DatasetGenerator(seed=generator_seed)
-        semantic_groups = DatasetRepository.load_semantic_groups_for_version(
-            db=db,
-            dataset_version_id=owned_version.id,
-        )
         generation_signature = GenerationOrchestrator._build_generation_signature(
             dataset_id=dataset.id,
             dataset_version_id=owned_version.id,
@@ -164,7 +154,6 @@ class GenerationOrchestrator:
                 if isinstance(owned_version.config_json, dict)
                 else []
             ),
-            drift_profile=drift_profile or {},
         )
 
         generation_result = generator.export_dataset_files(
@@ -175,7 +164,6 @@ class GenerationOrchestrator:
             output_root=output_root,
             chunk_size=chunk_size,
             realism_rules=realism_rules,
-            semantic_groups=semantic_groups,
             min_chunk_size=settings.generation_min_chunk_size,
             target_cells_per_chunk=settings.generation_target_cells_per_chunk,
         )
@@ -222,7 +210,6 @@ class GenerationOrchestrator:
         generation_result["comparison"] = comparison
         generation_result["quality_guardrails"] = quality_guardrails
         generation_result["quality_dashboard"] = quality_dashboard
-        generation_result["drift_simulation"] = drift_profile or {"enabled": False}
         return generation_result
 
     @staticmethod
@@ -699,7 +686,6 @@ class GenerationOrchestrator:
         realism_rules: list[dict[str, Any]],
         realism_metadata: dict[str, Any],
         correlations: list[dict[str, Any]],
-        drift_profile: dict[str, Any],
     ) -> str:
         """Build a deterministic signature of generation parameters."""
         payload = {
@@ -721,7 +707,6 @@ class GenerationOrchestrator:
             "realism_rules": realism_rules,
             "realism_metadata": realism_metadata,
             "correlations": correlations,
-            "drift_profile": drift_profile,
         }
         canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
