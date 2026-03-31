@@ -40,6 +40,9 @@ from app.schemas.dataset import (
     SuggestionResponse,
     CompareRequest,
     CompareResponse,
+    FeedbackRequest,
+    FeedbackResponse,
+    FeedbackSummaryResponse,
     PreviewRequest,
     PreviewResponse,
 )
@@ -47,6 +50,7 @@ from app.engine.dataset_generator import AttributeSpec, DatasetGenerator
 from app.services.dataset_repository import DatasetRepository
 from app.services.comparison_engine import ComparisonEngine
 from app.services.generation_orchestrator import GenerationOrchestrator
+from app.services.feedback_service import FeedbackService
 from app.services.job_manager import JobManager
 from app.services.suggestion_engine import SuggestionEngine
 from app.services.template_service import TemplateService
@@ -303,6 +307,74 @@ def compare_dataset_output(
         overall_drift_score=float(comparison.get("overall_drift_score", 0.0)),
         metrics=comparison.get("metrics", []),
         recommendations=comparison.get("recommendations", []),
+    )
+
+
+@router.post("/feedback", response_model=FeedbackResponse)
+def submit_dataset_feedback(
+    payload: FeedbackRequest,
+    db: Database = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> FeedbackResponse:
+    try:
+        DatasetRepository.get_dataset(
+            db=db,
+            user_id=current_user.id,
+            dataset_id=payload.dataset_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    created = FeedbackService.submit_feedback(
+        db=db,
+        user_id=current_user.id,
+        dataset_id=payload.dataset_id,
+        dataset_version_id=payload.dataset_version_id,
+        rating=payload.rating,
+        comment=payload.comment,
+        generation_signature=payload.generation_signature,
+        config_snapshot=payload.config_snapshot,
+    )
+
+    return FeedbackResponse(
+        feedback_id=str(created.get("_id")),
+        dataset_id=payload.dataset_id,
+        dataset_version_id=payload.dataset_version_id,
+        rating=payload.rating,
+        comment=payload.comment,
+        message="Feedback submitted",
+    )
+
+
+@router.get("/feedback-summary", response_model=FeedbackSummaryResponse)
+def get_feedback_summary(
+    dataset_id: uuid.UUID | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Database = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> FeedbackSummaryResponse:
+    if dataset_id is not None:
+        try:
+            DatasetRepository.get_dataset(
+                db=db,
+                user_id=current_user.id,
+                dataset_id=dataset_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    summary = FeedbackService.summarize_feedback(
+        db=db,
+        user_id=current_user.id,
+        dataset_id=dataset_id,
+        limit=limit,
+    )
+    return FeedbackSummaryResponse(
+        dataset_id=dataset_id,
+        count=int(summary.get("count", 0)),
+        average_rating=summary.get("average_rating"),
+        ratings=summary.get("ratings", []),
+        recent=summary.get("recent", []),
     )
 
 

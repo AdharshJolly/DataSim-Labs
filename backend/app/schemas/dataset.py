@@ -330,6 +330,32 @@ class CompareResponse(BaseModel):
     recommendations: list[RefinementRecommendation] = Field(default_factory=list)
 
 
+class FeedbackRequest(BaseModel):
+    dataset_id: UUID
+    dataset_version_id: UUID | None = None
+    rating: int = Field(ge=1, le=5)
+    comment: str | None = Field(default=None, max_length=2000)
+    generation_signature: str | None = None
+    config_snapshot: dict[str, Any] = Field(default_factory=dict)
+
+
+class FeedbackResponse(BaseModel):
+    feedback_id: str
+    dataset_id: UUID
+    dataset_version_id: UUID | None = None
+    rating: int
+    comment: str | None = None
+    message: str
+
+
+class FeedbackSummaryResponse(BaseModel):
+    dataset_id: UUID | None = None
+    count: int
+    average_rating: float | None = None
+    ratings: list[int] = Field(default_factory=list)
+    recent: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class GenerateRequest(BaseModel):
     dataset_id: UUID
     dataset_version_id: UUID | None = None

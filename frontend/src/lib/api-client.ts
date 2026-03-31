@@ -326,6 +326,32 @@ export interface CompareResponse {
   recommendations: RefinementRecommendation[];
 }
 
+export interface FeedbackRequest {
+  dataset_id: string;
+  dataset_version_id?: string;
+  rating: number;
+  comment?: string;
+  generation_signature?: string;
+  config_snapshot?: Record<string, unknown>;
+}
+
+export interface FeedbackResponse {
+  feedback_id: string;
+  dataset_id: string;
+  dataset_version_id?: string | null;
+  rating: number;
+  comment?: string | null;
+  message: string;
+}
+
+export interface FeedbackSummaryResponse {
+  dataset_id?: string | null;
+  count: number;
+  average_rating?: number | null;
+  ratings: number[];
+  recent: Array<Record<string, unknown>>;
+}
+
 export interface PreviewHistogramBin {
   bin_start: number;
   bin_end: number;
@@ -719,6 +745,28 @@ export function compareDatasetOutput(
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export function submitDatasetFeedback(
+  payload: FeedbackRequest,
+): Promise<FeedbackResponse> {
+  return apiRequest<FeedbackResponse>("/api/v1/dataset/feedback", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getFeedbackSummary(
+  datasetId?: string,
+): Promise<FeedbackSummaryResponse> {
+  const search = new URLSearchParams();
+  if (datasetId) {
+    search.set("dataset_id", datasetId);
+  }
+  const query = search.toString();
+  return apiRequest<FeedbackSummaryResponse>(
+    `/api/v1/dataset/feedback-summary${query ? `?${query}` : ""}`,
+  );
 }
 
 export function generateDataset(

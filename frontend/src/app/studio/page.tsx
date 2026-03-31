@@ -45,6 +45,7 @@ import {
   createDataset,
   downloadDatasetFile,
   streamDatasetCsv,
+  submitDatasetFeedback,
   generationPreflight,
   generateDataset,
   dryRunSemanticRules,
@@ -266,6 +267,9 @@ export default function StudioPage() {
   const [preflightBusy, setPreflightBusy] = useState(false);
   const [allowLowQualityDownloads, setAllowLowQualityDownloads] =
     useState(false);
+  const [feedbackRating, setFeedbackRating] = useState(0);
+  const [feedbackComment, setFeedbackComment] = useState("");
+  const [feedbackBusy, setFeedbackBusy] = useState(false);
   const { notifyError } = useErrorNotifier(setError);
 
   const estimatedCells = rowCount * Math.max(1, attrs.length);
@@ -1397,6 +1401,40 @@ export default function StudioPage() {
       notifyError("Streaming Download Failed", e, "Unable to stream CSV download.");
     } finally {
       setStreamingBusy(false);
+    }
+  };
+
+  const handleSubmitFeedback = async () => {
+    if (!datasetId || feedbackRating < 1) {
+      setError("Select a rating before submitting feedback.");
+      return;
+    }
+
+    setFeedbackBusy(true);
+    setError("");
+    try {
+      await submitDatasetFeedback({
+        dataset_id: datasetId,
+        dataset_version_id: versionId || undefined,
+        rating: feedbackRating,
+        comment: feedbackComment.trim() || undefined,
+        generation_signature: generationSignature || undefined,
+        config_snapshot: {
+          row_count: rowCount,
+          formats,
+          attribute_count: attrs.length,
+        },
+      });
+      pushToast({
+        title: "Feedback Submitted",
+        message: "Thanks! Your rating was recorded for adaptive tuning.",
+        intent: "success",
+      });
+      setFeedbackComment("");
+    } catch (e) {
+      notifyError("Feedback Failed", e, "Unable to submit feedback right now.");
+    } finally {
+      setFeedbackBusy(false);
     }
   };
 
@@ -2764,6 +2802,47 @@ export default function StudioPage() {
                       </div>
                     ))}
                   </div>
+
+                  <Card className="border-border bg-card/70 p-4">
+                    <p className="text-sm font-semibold text-foreground">
+                      Feedback Learning
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Rate this generation to improve future recommendations.
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {[1, 2, 3, 4, 5].map((rating) => (
+                        <button
+                          key={`feedback-${rating}`}
+                          type="button"
+                          className={`rounded-md border px-3 py-1 text-sm ${
+                            feedbackRating === rating
+                              ? "border-primary bg-primary/20 text-primary"
+                              : "border-border text-muted-foreground hover:border-primary/50"
+                          }`}
+                          onClick={() => setFeedbackRating(rating)}
+                        >
+                          {rating}
+                        </button>
+                      ))}
+                    </div>
+                    <textarea
+                      className="mt-3 h-20 w-full"
+                      placeholder="Optional feedback about quality or realism"
+                      value={feedbackComment}
+                      onChange={(e) => setFeedbackComment(e.target.value)}
+                    />
+                    <div className="mt-3">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={feedbackBusy || feedbackRating < 1}
+                        onClick={() => void handleSubmitFeedback()}
+                      >
+                        {feedbackBusy ? "Submitting..." : "Submit Feedback"}
+                      </Button>
+                    </div>
+                  </Card>
 
                   {!guardrailsPassed && (
                     <Alert>
