@@ -44,6 +44,7 @@ import {
   type PreviewColumnComparison,
   createDataset,
   downloadDatasetFile,
+  streamDatasetCsv,
   generationPreflight,
   generateDataset,
   dryRunSemanticRules,
@@ -258,6 +259,8 @@ export default function StudioPage() {
   const [driftEnabled, setDriftEnabled] = useState(false);
   const [driftIntensity, setDriftIntensity] = useState(0.1);
   const [driftColumnsText, setDriftColumnsText] = useState("");
+  const [streamingBusy, setStreamingBusy] = useState(false);
+  const [streamedBytes, setStreamedBytes] = useState(0);
   const [preflightResult, setPreflightResult] =
     useState<GenerationPreflightResponse | null>(null);
   const [preflightBusy, setPreflightBusy] = useState(false);
@@ -1364,6 +1367,36 @@ export default function StudioPage() {
       URL.revokeObjectURL(url);
     } catch (e) {
       notifyError("Download Failed", e, "Download failed");
+    }
+  };
+
+  const handleStreamCsvDownload = async () => {
+    if (!versionId) {
+      setError("No saved version to stream.");
+      return;
+    }
+
+    setStreamingBusy(true);
+    setStreamedBytes(0);
+    setError("");
+    try {
+      const { blob, fileName } = await streamDatasetCsv(versionId, rowCount, {
+        chunkSize: 50000,
+        seed: seed.trim() ? Number(seed) : undefined,
+        onProgressBytes: (bytesRead) => setStreamedBytes(bytesRead),
+      });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = fileName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      notifyError("Streaming Download Failed", e, "Unable to stream CSV download.");
+    } finally {
+      setStreamingBusy(false);
     }
   };
 
@@ -2660,6 +2693,16 @@ export default function StudioPage() {
                         ) : (
                           `Generate ${rowCount.toLocaleString()} Rows`
                         )}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={streamingBusy || !versionId}
+                        onClick={() => void handleStreamCsvDownload()}
+                      >
+                        {streamingBusy
+                          ? `Streaming... ${formatBytes(streamedBytes)}`
+                          : "Live Stream CSV"}
                       </Button>
                       {shouldUseAsyncGeneration && jobId && busy && (
                         <Button

@@ -4,7 +4,7 @@ from typing import Any
 
 from fastapi import APIRouter
 from fastapi import Depends, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 import pandas as pd
 from pymongo.database import Database
 
@@ -522,6 +522,71 @@ def download_dataset(
         "dataset_id": dataset_id,
         "files": files,
     }
+
+
+@router.get("/stream")
+def stream_dataset_csv(
+    dataset_version_id: uuid.UUID = Query(...),
+    row_count: int = Query(..., ge=1, le=10000000),
+    chunk_size: int = Query(default=50000, ge=1000, le=500000),
+    seed: int | None = Query(default=None, ge=0),
+    db: Database = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> StreamingResponse:
+    try:
+        version = DatasetRepository.get_dataset_version_for_user(
+            db=db,
+            user_id=current_user.id,
+            dataset_version_id=dataset_version_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    attributes = DatasetRepository.load_version_attributes(
+        db=db,
+        dataset_version_id=dataset_version_id,
+    )
+    if not attributes:
+        raise HTTPException(status_code=400, detail="Dataset version has no attributes")
+
+    attribute_specs = [
+        AttributeSpec(
+            name=attribute.name,
+            data_type=attribute.data_type.value,
+            constraints=attribute.constraints_json,
+            distribution=attribute.distribution.value,
+            null_percentage=attribute.null_percentage,
+        )
+        for attribute in attributes
+    ]
+
+    semantic_rules = version.config_json.get("semantic_rules", [])
+    if not isinstance(semantic_rules, list):
+        semantic_rules = []
+
+    generator_seed = seed if seed is not None else version.seed
+
+    streaming_generator = DatasetGenerator(seed=generator_seed)
+
+    def iter_csv() -> Any:
+        remaining = row_count
+        first_chunk = True
+        while remaining > 0:
+            current_chunk = min(chunk_size, remaining)
+            frame = streaming_generator.generate_dataframe(
+                attributes=attribute_specs,
+                row_count=current_chunk,
+                semantic_rules=semantic_rules,
+            )
+            csv_chunk = frame.to_csv(index=False, header=first_chunk)
+            yield csv_chunk.encode("utf-8")
+            first_chunk = False
+            remaining -= current_chunk
+
+    safe_file_name = f"dataset_{dataset_version_id}_stream.csv"
+    response = StreamingResponse(iter_csv(), media_type="text/csv")
+    response.headers["Content-Disposition"] = f'attachment; filename="{safe_file_name}"'
+    return response
 
 
 @router.get("/list", response_model=DatasetListResponse)
