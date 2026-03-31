@@ -7,7 +7,7 @@ from typing import Any
 
 from pymongo.database import Database
 
-from app.services.generation_orchestrator import GenerationOrchestrator
+from app.services.orchestration.generation_orchestrator import GenerationOrchestrator
 
 
 class PreflightOrchestrator:

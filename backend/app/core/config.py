@@ -13,6 +13,19 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 
 
+def _is_upstash_host(url: str) -> bool:
+    parsed = urlparse(url)
+    return bool(parsed.hostname and parsed.hostname.endswith("upstash.io"))
+
+
+def _validate_upstash_tls(url: str, field_name: str) -> None:
+    if not url:
+        return
+    parsed = urlparse(url)
+    if _is_upstash_host(url) and parsed.scheme != "rediss":
+        raise ValueError(f"{field_name} uses Upstash and must use rediss:// (TLS).")
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=(str(BACKEND_DIR / ".env"),),
@@ -21,9 +34,12 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    # --- App ---
     app_name: str = "DataSim Lab API"
     api_prefix: str = "/api/v1"
     app_env: Literal["development", "staging", "production"] = "development"
+
+    # --- Database ---
 
     mongodb_uri: str = Field(validation_alias="MONGODB_URI")
     mongodb_database: str = Field(
@@ -34,6 +50,7 @@ class Settings(BaseSettings):
         default_factory=lambda: ["http://localhost:3000"]
     )
 
+    # --- Generation ---
     artifacts_dir: str = "artifacts"
     generation_chunk_size: int = 100000
     generation_min_chunk_size: int = 10000
@@ -45,6 +62,8 @@ class Settings(BaseSettings):
     async_generation_cell_threshold: int = 1000000
     quality_alert_threshold: int = 5
     artifact_retention_hours: int = 24
+
+    # --- Auth & Cookies ---
     jwt_secret_key: str = Field(validation_alias="JWT_SECRET_KEY")
     jwt_algorithm: str = "HS256"
     jwt_expiration_minutes: int = 60
@@ -66,10 +85,14 @@ class Settings(BaseSettings):
         default="lax",
         validation_alias="AUTH_COOKIE_SAMESITE",
     )
+
+    # --- AI ---
     gemini_api_key: str = Field(default="", validation_alias="GEMINI_API_KEY")
     gemini_model: str = Field(
         default="gemini-2.5-flash", validation_alias="GEMINI_MODEL"
     )
+
+    # --- Async / Celery ---
     redis_url: str = Field(default="", validation_alias="REDIS_URL")
     celery_broker_url: str = Field(default="", validation_alias="CELERY_BROKER_URL")
     celery_result_backend: str = Field(
@@ -202,19 +225,6 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_async_settings(self) -> "Settings":
-        def _is_upstash_host(url: str) -> bool:
-            parsed = urlparse(url)
-            return bool(parsed.hostname and parsed.hostname.endswith("upstash.io"))
-
-        def _validate_upstash_tls(url: str, field_name: str) -> None:
-            if not url:
-                return
-            parsed = urlparse(url)
-            if _is_upstash_host(url) and parsed.scheme != "rediss":
-                raise ValueError(
-                    f"{field_name} uses Upstash and must use rediss:// (TLS)."
-                )
-
         if not self.celery_broker_url and self.redis_url:
             self.celery_broker_url = self.redis_url
         if not self.celery_result_backend and self.redis_url:

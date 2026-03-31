@@ -1,6 +1,109 @@
-export * from "./api-client/core";
-export * from "./api-client/types";
-export * from "./api-client/auth";
-export * from "./api-client/dataset";
-export * from "./api-client/files";
-export * from "./api-client/semantic";
+export {
+  API_BASE_URL,
+  setAuthToken,
+  clearAuthToken,
+  parseApiError,
+  fetchWithAuth,
+  apiRequest,
+  type TokenRefreshResponse,
+} from "./api-client/core";
+
+export { register, login, me, logout } from "./api-client/auth";
+
+export {
+  createDataset,
+  saveAttributes,
+  previewDataset,
+  explainDatasetRow,
+  suggestDatasetSettings,
+  compareDatasetOutput,
+  submitDatasetFeedback,
+  getFeedbackSummary,
+  generateDataset,
+  generationPreflight,
+  generateDatasetAsync,
+  getGenerationJob,
+  cancelGenerationJob,
+  listGenerationJobs,
+  retryGenerationJob,
+  listDatasets,
+  listDatasetTemplates,
+  getDataset,
+  getDatasetVersions,
+  deleteDataset,
+} from "./api-client/dataset";
+
+export {
+  listDatasetFiles,
+  buildDownloadUrl,
+  downloadDatasetFile,
+  streamDatasetCsv,
+} from "./api-client/files";
+
+export {
+  getSemanticRules,
+  upsertSemanticRules,
+  dryRunSemanticRules,
+  inferSemanticRules,
+} from "./api-client/semantic";
+
+export type {
+  DataType,
+  DistributionType,
+  AttributeConfig,
+  CreateDatasetRequest,
+  AuthRequest,
+  AuthResponse,
+  CurrentUserResponse,
+  CreateDatasetResponse,
+  SaveAttributesRequest,
+  SaveAttributesResponse,
+  PreviewResponse,
+  ExplainRequest,
+  ExplainedCell,
+  ExplainResponse,
+  AttributeSuggestion,
+  RelationshipSuggestion,
+  SuggestionRequest,
+  SuggestionResponse,
+  CompareRequest,
+  CompareMetric,
+  RefinementRecommendation,
+  CompareResponse,
+  FeedbackRequest,
+  FeedbackResponse,
+  FeedbackSummaryResponse,
+  PreviewHistogramBin,
+  PreviewNumericComparison,
+  PreviewColumnComparison,
+  GenerateRequest,
+  GenerationPreflightIssue,
+  GenerationPreflightResponse,
+  GeneratedFileInfo,
+  DatasetStatus,
+  ValidationSummary,
+  GenerateResponse,
+  GenerationJobStatus,
+  GenerateAsyncResponse,
+  GenerationJobResponse,
+  CancelGenerationJobResponse,
+  GenerationJobListResponse,
+  RetryGenerationJobResponse,
+  DownloadListResponse,
+  DatasetSummary,
+  DatasetVersionSummary,
+  DatasetListResponse,
+  DatasetDetailResponse,
+  DatasetVersionsResponse,
+  DatasetTemplate,
+  DatasetTemplatesResponse,
+  SemanticRule,
+  SemanticConflictPolicy,
+  SemanticRulesMetadata,
+  SemanticRulesResponse,
+  UpsertSemanticRulesRequest,
+  DryRunSemanticRulesRequest,
+  DryRunSemanticRulesResponse,
+  InferSemanticRulesRequest,
+  InferSemanticRulesResponse,
+} from "./api-client/types";

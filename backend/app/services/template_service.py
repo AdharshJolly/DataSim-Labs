@@ -1,10 +1,10 @@
-from typing import Dict, Any, List
+from typing import Any
 import uuid
 
 
 class TemplateService:
     @staticmethod
-    def get_all_templates() -> List[Dict[str, Any]]:
+    def get_all_templates() -> list[dict[str, Any]]:
         """Return prebuilt dataset templates."""
         templates = [
             {
@@ -329,7 +329,7 @@ class TemplateService:
         return [TemplateService._enrich_template(template) for template in templates]
 
     @staticmethod
-    def _enrich_template(template: Dict[str, Any]) -> Dict[str, Any]:
+    def _enrich_template(template: dict[str, Any]) -> dict[str, Any]:
         """Attach smart-template metadata while preserving backward compatibility."""
         template_id = str(template.get("id", "")).strip()
         metadata_by_template = {
@@ -391,7 +391,7 @@ class TemplateService:
         return merged
 
     @staticmethod
-    def get_all_personas() -> List[Dict[str, Any]]:
+    def get_all_personas() -> list[dict[str, Any]]:
         """Return prebuilt data personas."""
         return [
             {

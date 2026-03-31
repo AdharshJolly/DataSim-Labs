@@ -1,5 +1,5 @@
 import { NUMERIC_TYPES } from "./constants";
-import { typeLabel } from "./helpers";
+import { typeLabel } from "./format-utils";
 import type { AttrRow, AttrUpdate } from "./types";
 
 interface QuickAdjustProps {

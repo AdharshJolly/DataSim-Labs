@@ -8,6 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pymongo.database import Database
 from pymongo.errors import PyMongoError
 
+from app.api.errors import raise_database_unavailable
+from app.auth.cookie_utils import _clear_auth_cookies, _client_key, _set_auth_cookies
 from app.auth.dependencies import get_current_user
 from app.auth.models import User
 from app.auth.schemas import (
@@ -19,11 +21,9 @@ from app.auth.schemas import (
     TokenRefreshResponse,
 )
 from app.auth.rate_limit import (
-    LOGIN_POLICY,
-    REFRESH_POLICY,
-    REGISTER_POLICY,
     rate_limiter,
 )
+from app.auth.rate_limit_policies import LOGIN_POLICY, REFRESH_POLICY, REGISTER_POLICY
 from app.auth.security import (
     create_access_token,
     create_refresh_token,
@@ -32,65 +32,9 @@ from app.auth.security import (
     verify_password,
     InvalidTokenError,
 )
-from app.core.config import settings
 from app.db.session import get_db
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-
-
-def _client_key(request: Request, route_name: str, identity: str = "") -> str:
-    forwarded_for = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
-    client_ip = forwarded_for or (request.client.host if request.client else "unknown")
-    ident = identity.strip().lower() if identity else "anonymous"
-    return f"{route_name}:{client_ip}:{ident}"
-
-
-def _set_auth_cookies(
-    response: Response, access_token: str, refresh_token: str
-) -> None:
-    secure_cookie = settings.auth_cookie_secure or settings.app_env == "production"
-    common_kwargs = {
-        "httponly": True,
-        "secure": secure_cookie,
-        "samesite": settings.auth_cookie_samesite,
-        "path": settings.auth_cookie_path,
-    }
-    if settings.auth_cookie_domain:
-        common_kwargs["domain"] = settings.auth_cookie_domain
-
-    response.set_cookie(
-        key=settings.auth_access_cookie_name,
-        value=access_token,
-        max_age=settings.jwt_expiration_minutes * 60,
-        **common_kwargs,
-    )
-    response.set_cookie(
-        key=settings.auth_refresh_cookie_name,
-        value=refresh_token,
-        max_age=settings.jwt_refresh_expiration_days * 24 * 60 * 60,
-        **common_kwargs,
-    )
-
-
-def _clear_auth_cookies(response: Response) -> None:
-    secure_cookie = settings.auth_cookie_secure or settings.app_env == "production"
-    clear_kwargs = {
-        "secure": secure_cookie,
-        "samesite": settings.auth_cookie_samesite,
-        "path": settings.auth_cookie_path,
-    }
-    if settings.auth_cookie_domain:
-        clear_kwargs["domain"] = settings.auth_cookie_domain
-
-    response.delete_cookie(key=settings.auth_access_cookie_name, **clear_kwargs)
-    response.delete_cookie(key=settings.auth_refresh_cookie_name, **clear_kwargs)
-
-
-def _raise_database_unavailable() -> None:
-    raise HTTPException(
-        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        detail="Database unavailable. Please try again shortly.",
-    )
 
 
 @router.post("/register", response_model=AuthResponse)
@@ -110,7 +54,7 @@ def register_user(
     try:
         existing_user = db["users"].find_one({"email": normalized_email})
     except PyMongoError:
-        _raise_database_unavailable()
+        raise_database_unavailable()
     if existing_user is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Email already registered"
@@ -122,7 +66,7 @@ def register_user(
     try:
         db["users"].insert_one(user.to_document())
     except PyMongoError:
-        _raise_database_unavailable()
+        raise_database_unavailable()
 
     token = create_access_token({"user_id": str(user.id), "email": user.email})
     refresh_token = create_refresh_token({"user_id": str(user.id), "email": user.email})
@@ -144,7 +88,7 @@ def register_user(
             },
         )
     except PyMongoError:
-        _raise_database_unavailable()
+        raise_database_unavailable()
 
     _set_auth_cookies(response, token, refresh_token)
     return AuthResponse(
@@ -172,7 +116,7 @@ def login_user(
     try:
         user_doc = db["users"].find_one({"email": normalized_email})
     except PyMongoError:
-        _raise_database_unavailable()
+        raise_database_unavailable()
     user = User.from_document(user_doc) if user_doc else None
     if user is None or not verify_password(payload.password, user.password_hash):
         raise HTTPException(
@@ -199,7 +143,7 @@ def login_user(
             },
         )
     except PyMongoError:
-        _raise_database_unavailable()
+        raise_database_unavailable()
 
     _set_auth_cookies(response, token, refresh_token)
     return AuthResponse(
@@ -258,7 +202,7 @@ def refresh_token(
     try:
         user_doc = db["users"].find_one({"_id": user_id})
     except PyMongoError:
-        _raise_database_unavailable()
+        raise_database_unavailable()
 
     if not user_doc:
         raise HTTPException(
@@ -306,7 +250,7 @@ def refresh_token(
             },
         )
     except PyMongoError:
-        _raise_database_unavailable()
+        raise_database_unavailable()
 
     if update_result.modified_count != 1:
         raise HTTPException(

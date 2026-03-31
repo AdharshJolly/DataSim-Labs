@@ -20,7 +20,7 @@ from app.models.dataset import Dataset, DatasetStatus, DatasetVersion
 from app.schemas.dataset import AttributeConfig
 from app.services.comparison_engine import ComparisonEngine
 from app.services.dataset_repository import DatasetRepository
-from app.services.generation_orchestrator import GenerationOrchestrator
+from app.services.orchestration.generation_orchestrator import GenerationOrchestrator
 from app.services.job_manager import JobManager
 from app.services.orchestration.generation_orchestrator import (
     GenerationWorkflowOrchestrator,

@@ -3,7 +3,7 @@ import { useMemo } from "react";
 import {
   parseCorrelationRulesText,
   parseSemanticRulesText,
-} from "@/components/studio/helpers";
+} from "@/components/studio/rule-parsers";
 import type { CorrelationRule } from "@/components/studio/relationship-builder";
 import type { SemanticRule } from "@/lib/api-client";
 

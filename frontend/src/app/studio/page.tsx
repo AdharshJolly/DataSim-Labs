@@ -15,14 +15,16 @@ import {
 
 import { STEP_LABELS } from "@/components/studio/constants";
 import {
-  applySuggestionToAttr,
-  mergeSemanticRuleSets,
   newAttr,
-  templateColumnsToAttrRows,
-  toApiAttr,
   uid,
   validateCategoricalWeights,
-} from "@/components/studio/helpers";
+} from "@/components/studio/studio-helpers";
+import {
+  applySuggestionToAttr,
+  attrRowToApiAttribute,
+  templateColumnsToAttrRows,
+} from "@/components/studio/attr-transform";
+import { mergeSemanticRuleSets } from "@/components/studio/rule-parsers";
 import type { AttrRow, OutputFormat, Step } from "@/components/studio/types";
 import { Step1CreateDataset } from "@/components/studio/steps/step-1-create-dataset";
 import { Step2DefineFields } from "@/components/studio/steps/step-2-define-fields";
@@ -450,7 +452,7 @@ export default function StudioPage() {
     try {
       const response = await suggestDatasetSettings({
         dataset_version_id: versionId || undefined,
-        attributes: attrs.map(toApiAttr),
+        attributes: attrs.map(attrRowToApiAttribute),
       });
 
       const suggestionMap = new Map<string, AttributeSuggestion>();
@@ -672,7 +674,7 @@ export default function StudioPage() {
           const correlations = parseCorrelationRules();
           const res = await saveAttributes({
             dataset_id: datasetId,
-            attributes: nextAttrs.map(toApiAttr),
+            attributes: nextAttrs.map(attrRowToApiAttribute),
             seed: seed.trim() ? Number(seed) : undefined,
             correlations,
           });
@@ -815,7 +817,9 @@ export default function StudioPage() {
     setBusy(true);
     setError("");
     // Client-side weight validation
-    const weightError = attrs.map(validateCategoricalWeights).find(Boolean);
+    const weightError = attrs
+      .map(validateCategoricalWeights)
+      .find((value): value is string => Boolean(value));
     if (weightError) {
       setBusy(false);
       setError(weightError);
@@ -825,7 +829,7 @@ export default function StudioPage() {
       const correlations = parseCorrelationRules();
       const res = await saveAttributes({
         dataset_id: datasetId,
-        attributes: attrs.map(toApiAttr),
+        attributes: attrs.map(attrRowToApiAttribute),
         seed: seed.trim() ? Number(seed) : undefined,
         correlations,
       });

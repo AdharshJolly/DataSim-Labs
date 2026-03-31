@@ -1,4 +1,4 @@
-"""Shared dataframe and chunking helpers for generation flows."""
+"""DataFrame sizing and chunking utilities."""
 
 from __future__ import annotations
 

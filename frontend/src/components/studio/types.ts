@@ -1,3 +1,4 @@
+// UI-only types - not sent to the API directly
 import type { DataType, DistributionType } from "@/lib/api-client";
 
 export type Step = 1 | 2 | 3 | 4;

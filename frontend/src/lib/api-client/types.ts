@@ -1,3 +1,4 @@
+// API contract types - mirrors backend Pydantic schemas
 export type DataType =
   | "integer"
   | "float"

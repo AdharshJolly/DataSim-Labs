@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.v1.routes.dataset import router as dataset_router
+from app.api.v1.routes import router as dataset_router
 from app.api.v1.routes.health import router as health_router
 from app.api.v1.routes.semantic_rules import router as semantic_rules_router
 from app.api.errors import register_exception_handlers

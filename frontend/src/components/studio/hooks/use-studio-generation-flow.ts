@@ -1,17 +1,16 @@
 import { useCallback } from "react";
 
 import type { AttrRow, OutputFormat } from "@/components/studio/types";
-import { validateCategoricalWeights } from "@/components/studio/helpers";
 import {
   cancelGenerationJob,
   downloadDatasetFile,
-  generateDataset,
   generateDatasetAsync,
   type GenerationJobStatus,
-  getGenerationJob,
   streamDatasetCsv,
   submitDatasetFeedback,
 } from "@/lib/api-client";
+import { useJobPolling } from "./use-job-polling";
+import { useSyncGeneration } from "./use-sync-generation";
 
 interface ToastInput {
   title: string;
@@ -136,27 +135,37 @@ export function useStudioGenerationFlow({
     ],
   );
 
-  const handleGenerate = useCallback(async () => {
-    if (!datasetId) {
-      setError("No dataset selected.");
-      return;
-    }
-    if (formats.length === 0) {
-      setError("Select at least one output format.");
-      return;
-    }
+  const runSyncGeneration = useSyncGeneration({
+    datasetId,
+    versionId,
+    attrs,
+    formats,
+    rowCount,
+    seed,
+    setError,
+    setAllowLowQualityDownloads,
+    applyGenerationResult,
+  });
 
+  const pollQueuedJob = useJobPolling({
+    asyncPollIntervalMs,
+    asyncPollMaxAttempts,
+    setJobStatus,
+    setJobStage,
+    setJobProgress,
+    applyGenerationResult,
+  });
+
+  const handleGenerate = useCallback(async () => {
     setBusy(true);
     setError("");
 
-    const weightError = attrs.map(validateCategoricalWeights).find(Boolean);
-    if (weightError) {
-      setBusy(false);
-      setError(weightError);
-      return;
-    }
-
     try {
+      if (!shouldUseAsyncGeneration) {
+        await runSyncGeneration();
+        return;
+      }
+
       const payload = {
         dataset_id: datasetId,
         dataset_version_id: versionId || undefined,
@@ -165,54 +174,13 @@ export function useStudioGenerationFlow({
         seed: seed.trim() ? Number(seed) : undefined,
       };
 
-      if (!shouldUseAsyncGeneration) {
-        setAllowLowQualityDownloads(false);
-        const result = await generateDataset(payload);
-        applyGenerationResult(result as Record<string, any>);
-        return;
-      }
-
       const queued = await generateDatasetAsync(payload);
       setAllowLowQualityDownloads(false);
       setJobId(queued.job_id);
       setJobStatus(queued.status);
       setJobStage("queued");
       setJobProgress(0);
-
-      const wait = (ms: number) =>
-        new Promise((resolve) => setTimeout(resolve, ms));
-
-      for (let attempt = 0; attempt < asyncPollMaxAttempts; attempt += 1) {
-        const job = await getGenerationJob(queued.job_id);
-        setJobStatus(job.status);
-        setJobStage(job.stage);
-        setJobProgress(job.progress_percentage);
-
-        if (job.status === "completed") {
-          const result = job.result;
-          if (!result) {
-            throw new Error(
-              "Generation completed but no result payload returned.",
-            );
-          }
-          applyGenerationResult(result as Record<string, any>);
-          break;
-        }
-
-        if (job.status === "failed") {
-          throw new Error(job.error || "Async generation job failed.");
-        }
-
-        if (job.status === "cancelled") {
-          throw new Error("Async generation job was cancelled.");
-        }
-
-        await wait(asyncPollIntervalMs);
-
-        if (attempt === asyncPollMaxAttempts - 1) {
-          throw new Error("Timed out waiting for async generation job.");
-        }
-      }
+      await pollQueuedJob(queued.job_id);
     } catch (error) {
       notifyError("Generation Failed", error, "Generation failed");
     } finally {
@@ -234,9 +202,9 @@ export function useStudioGenerationFlow({
     setJobStatus,
     setJobStage,
     setJobProgress,
-    asyncPollMaxAttempts,
-    asyncPollIntervalMs,
     notifyError,
+    runSyncGeneration,
+    pollQueuedJob,
   ]);
 
   const handleCancelJob = useCallback(async () => {

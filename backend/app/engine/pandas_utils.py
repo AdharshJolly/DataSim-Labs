@@ -1,9 +1,4 @@
-"""
-pandas_utils.py
-
-Common DataFrame manipulation utilities used across generators and processors.
-Provides reusable patterns for mutation, filtering, and row-level operations.
-"""
+"""Row-level mutation and masking utilities for generation pipelines."""
 
 from __future__ import annotations
 
