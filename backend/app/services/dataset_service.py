@@ -1079,36 +1079,31 @@ class DatasetService:
         return run_id
 
     @staticmethod
-    def _compare_with_previous_run(
+    def evaluate_quality_guardrails(quality_report: dict[str, Any]) -> dict[str, Any]:
+        return GenerationOrchestrator.evaluate_quality_guardrails(quality_report)
+
+    @staticmethod
+    def get_dataset_version_for_user(
         db: Database,
-        dataset_id: uuid.UUID,
-        current_run_id: str,
-        current_quality: dict[str, Any],
-    ) -> dict[str, Any] | None:
-        previous = db["dataset_generation_runs"].find_one(
-            {
-                "dataset_id": str(dataset_id),
-                "_id": {"$ne": current_run_id},
-            },
-            sort=[("created_at", DESCENDING)],
+        user_id: uuid.UUID,
+        dataset_version_id: uuid.UUID,
+    ) -> DatasetVersion:
+        return DatasetRepository.get_dataset_version_for_user(
+            db=db,
+            user_id=user_id,
+            dataset_version_id=dataset_version_id,
         )
-        if previous is None:
-            return None
 
-        previous_quality = previous.get("quality_report", {})
-        current_realism = current_quality.get("realism", {})
-        previous_realism = previous_quality.get("realism", {})
-
-        current_rows_affected = int(current_realism.get("total_rows_affected", 0))
-        previous_rows_affected = int(previous_realism.get("total_rows_affected", 0))
-
-        return {
-            "previous_run_id": str(previous.get("_id")),
-            "previous_signature": str(previous.get("generation_signature", "")),
-            "delta_rows_affected": current_rows_affected - previous_rows_affected,
-            "previous_created_at": (
-                previous.get("created_at").isoformat()
-                if previous.get("created_at") is not None
-                else None
-            ),
-        }
+    @staticmethod
+    def update_dataset_version_semantic_rules(
+        db: Database,
+        user_id: uuid.UUID,
+        dataset_version_id: uuid.UUID,
+        semantic_rules: list[dict[str, Any]],
+    ) -> DatasetVersion:
+        return DatasetRepository.update_dataset_version_semantic_rules(
+            db=db,
+            user_id=user_id,
+            dataset_version_id=dataset_version_id,
+            semantic_rules=semantic_rules,
+        )

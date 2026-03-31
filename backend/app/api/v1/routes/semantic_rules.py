@@ -4,16 +4,19 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from pymongo.database import Database
 from pydantic import BaseModel, Field
 
 from app.auth.dependencies import get_current_user
 from app.auth.models import User
+from app.db.session import get_db
 from app.engine.semantic_rule_engine import (
     SemanticRuleEngine,
     filter_rules_by_confidence,
     sort_rules_by_priority,
 )
 from app.engine.semantic_rule_validator import SemanticRuleValidator
+from app.services.dataset_service import DatasetService
 
 
 # ============ PYDANTIC SCHEMAS ============
@@ -44,6 +47,7 @@ class FilterRulesRequestDto(BaseModel):
     """Request to filter rules by confidence."""
 
     threshold: float = Field(ge=0.0, le=1.0, default=0.7)
+    rules: list[SemanticRuleDto] = Field(default_factory=list)
 
 
 class FilteredRulesResponseDto(BaseModel):
@@ -71,6 +75,12 @@ class ValidationReportDto(BaseModel):
     violations: list[str] = Field(default_factory=list)
 
 
+class UpsertSemanticRulesRequestDto(BaseModel):
+    """Request to upsert semantic rules for a dataset version."""
+
+    rules: list[SemanticRuleDto] = Field(default_factory=list)
+
+
 # ============ ROUTER ============
 
 router = APIRouter(prefix="/rules", tags=["semantic-rules"])
@@ -82,34 +92,77 @@ router = APIRouter(prefix="/rules", tags=["semantic-rules"])
 @router.get("/dataset/{dataset_version_id}", response_model=SemanticRulesResponseDto)
 async def get_semantic_rules(
     dataset_version_id: uuid.UUID,
+    db: Database = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> SemanticRulesResponseDto:
-    """Get semantic rules for a dataset."""
+    """Get semantic rules for a dataset.
+
+    Rules are read from dataset_version.config_json.semantic_rules.
+    """
     try:
-        # Lazy import to avoid blocking startup
-        from app.db.session import get_db
-        from app.engine.profiling.profile_manager import ProfileManager
-
-        db = next(get_db())
-        manager = ProfileManager(db)
-        profile = manager.get_profile_by_version(dataset_version_id)
-
-        if not profile:
-            raise HTTPException(status_code=404, detail="Dataset profile not found")
-
-        return SemanticRulesResponseDto(
+        version = DatasetService.get_dataset_version_for_user(
+            db=db,
+            user_id=current_user.id,
             dataset_version_id=dataset_version_id,
-            rules=[SemanticRuleDto(**rule) for rule in profile.semantic_rules],
-            metadata={
-                "rule_count": len(profile.semantic_rules),
-                "dataset_name": profile.metadata.get("original_filename", ""),
-                "profile_confidence": profile.metadata.get("confidence_score", 0.0),
-            },
         )
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error retrieving rules: {str(e)}")
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    raw_rules = version.config_json.get("semantic_rules", [])
+    if not isinstance(raw_rules, list):
+        raw_rules = []
+
+    typed_rules: list[SemanticRuleDto] = []
+    for rule in raw_rules:
+        if not isinstance(rule, dict):
+            continue
+        try:
+            typed_rules.append(SemanticRuleDto.model_validate(rule))
+        except Exception:
+            continue
+
+    return SemanticRulesResponseDto(
+        dataset_version_id=dataset_version_id,
+        rules=typed_rules,
+        metadata={
+            "rule_count": len(typed_rules),
+            "source": "dataset_version.config_json.semantic_rules",
+        },
+    )
+
+
+@router.put("/dataset/{dataset_version_id}", response_model=SemanticRulesResponseDto)
+async def upsert_semantic_rules(
+    dataset_version_id: uuid.UUID,
+    request: UpsertSemanticRulesRequestDto,
+    db: Database = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> SemanticRulesResponseDto:
+    """Upsert semantic rules for a dataset version."""
+    typed_rules = [rule.model_dump(mode="json") for rule in request.rules]
+
+    try:
+        version = DatasetService.update_dataset_version_semantic_rules(
+            db=db,
+            user_id=current_user.id,
+            dataset_version_id=dataset_version_id,
+            semantic_rules=typed_rules,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    stored_rules = version.config_json.get("semantic_rules", [])
+    if not isinstance(stored_rules, list):
+        stored_rules = []
+
+    return SemanticRulesResponseDto(
+        dataset_version_id=dataset_version_id,
+        rules=[SemanticRuleDto.model_validate(rule) for rule in stored_rules],
+        metadata={
+            "rule_count": len(stored_rules),
+            "updated": True,
+        },
+    )
 
 
 @router.post("/filter", response_model=FilteredRulesResponseDto)
@@ -119,8 +172,7 @@ async def filter_semantic_rules(
 ) -> FilteredRulesResponseDto:
     """Filter semantic rules by confidence threshold."""
     try:
-        # Without dataset_version_id, just filter empty rules
-        rules_to_filter = []
+        rules_to_filter = [rule.model_dump(mode="json") for rule in request.rules]
 
         # Filter by confidence
         filtered = filter_rules_by_confidence(rules_to_filter, request.threshold)
