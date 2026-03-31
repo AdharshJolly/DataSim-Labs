@@ -122,6 +122,7 @@ sequenceDiagram
 - Python 3.11+
 - Node.js 20+
 - npm 10+
+- MongoDB
 - Redis (for async job execution)
 
 ### 1) Configure Environment
@@ -141,6 +142,8 @@ venv\Scripts\activate
 pip install -r requirements.txt
 python run_services.py
 ```
+
+`run_services.py` starts the API server and, when `ASYNC_GENERATION_ENABLED=true`, a Celery worker process.
 
 ### 3) Start Frontend
 
@@ -167,6 +170,7 @@ npm run dev
 
 ### Dataset Lifecycle
 
+- `GET /api/v1/dataset/templates`
 - `POST /api/v1/dataset/create`
 - `POST /api/v1/dataset/attributes`
 - `POST /api/v1/dataset/preview`
@@ -181,6 +185,17 @@ npm run dev
 - `GET /api/v1/dataset/list`
 - `GET /api/v1/dataset/{dataset_id}`
 - `GET /api/v1/dataset/{dataset_id}/versions`
+
+### Semantic Rules
+
+- `GET /api/v1/rules/dataset/{dataset_version_id}`
+- `POST /api/v1/rules/filter`
+- `POST /api/v1/rules/validate`
+- `POST /api/v1/rules/apply`
+
+### System
+
+- `GET /health`
 
 ## Project Layout
 
