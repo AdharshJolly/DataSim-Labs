@@ -32,6 +32,7 @@ import {
   RelationshipBuilder,
   type CorrelationRule,
 } from "@/components/studio/relationship-builder";
+import { SemanticRuleBuilder } from "@/components/studio/semantic-rule-builder";
 import type { AttrRow, OutputFormat, Step } from "@/components/studio/types";
 import {
   type AttributeConfig,
@@ -50,6 +51,9 @@ import {
   listDatasetFiles,
   previewDataset,
   saveAttributes,
+  getSemanticRules,
+  upsertSemanticRules,
+  type SemanticRule,
   type GenerationPreflightResponse,
 } from "@/lib/api-client";
 
@@ -158,6 +162,8 @@ export default function StudioPage() {
   const [attrs, setAttrs] = useState<AttrRow[]>([newAttr(0)]);
   const [versionId, setVersionId] = useState("");
   const [correlationRulesText, setCorrelationRulesText] = useState("[]");
+  const [semanticRulesText, setSemanticRulesText] = useState("[]");
+  const [semanticRulesSaving, setSemanticRulesSaving] = useState(false);
 
   // Step 3
   const [previewRows, setPreviewRows] = useState<Record<string, unknown>[]>([]);
@@ -266,6 +272,53 @@ export default function StudioPage() {
       return [];
     }
   }, [correlationRulesText]);
+
+  const semanticRules: SemanticRule[] = useMemo(() => {
+    try {
+      if (!semanticRulesText.trim()) {
+        return [];
+      }
+      const parsed = JSON.parse(semanticRulesText) as unknown;
+      if (!Array.isArray(parsed)) {
+        return [];
+      }
+      return parsed
+        .filter(
+          (item): item is Record<string, unknown> =>
+            !!item && typeof item === "object",
+        )
+        .map((item) => ({
+          id: String(item.id ?? "").trim(),
+          type: String(item.type ?? "custom_rule").trim(),
+          target: String(item.target ?? "").trim(),
+          sources: Array.isArray(item.sources)
+            ? item.sources
+                .map((source) => String(source).trim())
+                .filter(Boolean)
+            : [],
+          transform:
+            item.transform && typeof item.transform === "object"
+              ? (item.transform as Record<string, unknown>)
+              : {},
+          confidence: Number(item.confidence ?? 0.7),
+          priority: Number(item.priority ?? 1),
+          constraints:
+            item.constraints && typeof item.constraints === "object"
+              ? (item.constraints as Record<string, unknown>)
+              : null,
+        }))
+        .filter(
+          (rule) =>
+            rule.id &&
+            rule.target &&
+            rule.sources.length > 0 &&
+            !Number.isNaN(rule.confidence) &&
+            !Number.isNaN(rule.priority),
+        );
+    } catch {
+      return [];
+    }
+  }, [semanticRulesText]);
   const selectedNumericComparison = selectedPreviewComparison?.numeric ?? null;
   const previewColumnTemplate = useMemo(
     () => `repeat(${Math.max(previewCols.length, 1)}, minmax(140px, 1fr))`,
@@ -424,11 +477,30 @@ export default function StudioPage() {
           | { metadata?: Record<string, unknown> }
           | undefined;
         const correlations = latest.config_json.correlations;
+        const semanticRulesFromVersion = latest.config_json.semantic_rules;
         if (Array.isArray(correlations)) {
           setCorrelationRulesText(JSON.stringify(correlations, null, 2));
         }
+        if (Array.isArray(semanticRulesFromVersion)) {
+          setSemanticRulesText(
+            JSON.stringify(semanticRulesFromVersion, null, 2),
+          );
+        }
         if (realism?.metadata) {
           setRealismMetadata(realism.metadata);
+        }
+
+        if (latest.id) {
+          void (async () => {
+            try {
+              const semanticResponse = await getSemanticRules(latest.id);
+              setSemanticRulesText(
+                JSON.stringify(semanticResponse.rules ?? [], null, 2),
+              );
+            } catch {
+              // Ignore if no semantic rules are stored yet.
+            }
+          })();
         }
 
         setStep(existingFiles.length > 0 ? 4 : 2);
@@ -463,6 +535,46 @@ export default function StudioPage() {
     setCorrelationRulesText(JSON.stringify(rules, null, 2));
   };
 
+  const handleSemanticRulesChange = (rules: SemanticRule[]) => {
+    setSemanticRulesText(JSON.stringify(rules, null, 2));
+  };
+
+  const persistSemanticRules = async (datasetVersionId: string) => {
+    setSemanticRulesSaving(true);
+    try {
+      await upsertSemanticRules(datasetVersionId, {
+        rules: semanticRules,
+      });
+    } finally {
+      setSemanticRulesSaving(false);
+    }
+  };
+
+  const handleSaveSemanticRules = async () => {
+    if (!versionId) {
+      setError(
+        "Save attributes first to create a version before saving rules.",
+      );
+      return;
+    }
+
+    setError("");
+    try {
+      await persistSemanticRules(versionId);
+      pushToast({
+        title: "Semantic Rules Saved",
+        message: "Rules have been saved for the current dataset version.",
+        intent: "success",
+      });
+    } catch (e) {
+      notifyError(
+        "Save Semantic Rules Failed",
+        e,
+        "Unable to save semantic rules.",
+      );
+    }
+  };
+
   const scheduleOptimisticValidation = (
     nextAttrs: AttrRow[],
     previousAttrs: AttrRow[],
@@ -494,6 +606,8 @@ export default function StudioPage() {
           if (optimisticSaveSeq.current !== seq) {
             return;
           }
+
+          await persistSemanticRules(res.version_id);
 
           setVersionId(res.version_id);
           localStorage.setItem("datasim:dataset_version_id", res.version_id);
@@ -641,6 +755,7 @@ export default function StudioPage() {
         seed: seed.trim() ? Number(seed) : undefined,
         correlations,
       });
+      await persistSemanticRules(res.version_id);
       setVersionId(res.version_id);
       localStorage.setItem("datasim:dataset_version_id", res.version_id);
       setStep(3);
@@ -1245,6 +1360,15 @@ export default function StudioPage() {
                 attributeNames={attrs.map((attr) => attr.name)}
                 rules={correlationRules}
                 onChange={handleCorrelationRulesChange}
+              />
+
+              <SemanticRuleBuilder
+                attributeNames={attrs.map((attr) => attr.name)}
+                rules={semanticRules}
+                onChange={handleSemanticRulesChange}
+                onSave={handleSaveSemanticRules}
+                saveDisabled={!versionId}
+                saveBusy={semanticRulesSaving}
               />
 
               <Card className="mb-8 border-border bg-card/70 p-4">

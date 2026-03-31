@@ -468,6 +468,27 @@ export interface DatasetTemplatesResponse {
   templates: DatasetTemplate[];
 }
 
+export interface SemanticRule {
+  id: string;
+  type: string;
+  target: string;
+  sources: string[];
+  transform: Record<string, unknown>;
+  confidence: number;
+  priority: number;
+  constraints?: Record<string, unknown> | null;
+}
+
+export interface SemanticRulesResponse {
+  dataset_version_id: string;
+  rules: SemanticRule[];
+  metadata: Record<string, unknown>;
+}
+
+export interface UpsertSemanticRulesRequest {
+  rules: SemanticRule[];
+}
+
 export function register(payload: AuthRequest): Promise<AuthResponse> {
   return apiRequest<AuthResponse>("/api/v1/auth/register", {
     method: "POST",
@@ -644,6 +665,27 @@ export function getDatasetVersions(
 ): Promise<DatasetVersionsResponse> {
   return apiRequest<DatasetVersionsResponse>(
     `/api/v1/dataset/${datasetId}/versions`,
+  );
+}
+
+export function getSemanticRules(
+  datasetVersionId: string,
+): Promise<SemanticRulesResponse> {
+  return apiRequest<SemanticRulesResponse>(
+    `/api/v1/rules/dataset/${datasetVersionId}`,
+  );
+}
+
+export function upsertSemanticRules(
+  datasetVersionId: string,
+  payload: UpsertSemanticRulesRequest,
+): Promise<SemanticRulesResponse> {
+  return apiRequest<SemanticRulesResponse>(
+    `/api/v1/rules/dataset/${datasetVersionId}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    },
   );
 }
 
