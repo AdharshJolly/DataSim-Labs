@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -19,15 +18,7 @@ import {
   LoaderCircle,
   X,
   Database,
-  Pencil,
-  Download,
-  Trash2,
   AlertTriangle,
-  CheckCircle2,
-  Archive,
-  RefreshCw,
-  Clock3,
-  ChevronDown,
   HelpCircle,
   Menu,
   Search,
@@ -47,6 +38,8 @@ import {
   StudioCommandGroup,
   StudioCommandItem,
 } from "@/components/studio-command-palette";
+import { DatasetCard } from "@/components/dashboard/dataset-card";
+import { JobsPanel } from "@/components/dashboard/jobs-panel";
 
 interface CreateDatasetChooserProps {
   buttonLabel: string;
@@ -288,54 +281,6 @@ export default function DashboardPage() {
     return map;
   }, [datasets]);
 
-  const StatusChip = ({ status }: { status: DatasetSummary["status"] }) => {
-    const statusMap = {
-      active: {
-        icon: CheckCircle2,
-        text: "Ready",
-        variant: "success",
-      },
-      generating: {
-        icon: LoaderCircle,
-        text: "Generating",
-        variant: "cyber",
-      },
-      draft: {
-        icon: Pencil,
-        text: "Draft",
-        variant: "warning",
-      },
-      archived: {
-        icon: Archive,
-        text: "Archived",
-        variant: "secondary",
-      },
-    } as const;
-
-    const current = statusMap[status];
-    const shouldSpin = status === "generating";
-    return (
-      <Badge
-        variant={
-          current.variant as
-            | "success"
-            | "cyber"
-            | "warning"
-            | "secondary"
-            | "default"
-            | "destructive"
-            | "outline"
-        }
-        className="gap-1.5 px-2 py-1 text-xs"
-      >
-        <current.icon
-          className={shouldSpin ? "h-3 w-3 animate-spin" : "h-3 w-3"}
-        />
-        {current.text}
-      </Badge>
-    );
-  };
-
   return (
     <AuthGuard>
       <section className="space-y-8">
@@ -501,82 +446,12 @@ export default function DashboardPage() {
         ) : (
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {datasets.map((dataset) => (
-              <Card
+              <DatasetCard
                 key={dataset.id}
-                className="group flex flex-col gap-4 rounded-2xl bg-gradient-to-br from-card/90 to-transparent p-5 backdrop-blur-sm transition-all duration-300 hover:-translate-y-1 hover:border-primary/50 hover:shadow-xl hover:shadow-primary/10"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <h2 className="truncate font-display text-xl font-bold">
-                      {dataset.name}
-                    </h2>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Created:{" "}
-                      {new Date(dataset.created_at).toLocaleDateString(
-                        undefined,
-                        {
-                          year: "numeric",
-                          month: "short",
-                          day: "numeric",
-                        },
-                      )}
-                    </p>
-                  </div>
-                  <StatusChip status={dataset.status} />
-                </div>
-
-                {dataset.description && (
-                  <p className="line-clamp-2 text-sm text-muted-foreground">
-                    {dataset.description}
-                  </p>
-                )}
-
-                {dataset.status === "draft" && dataset.latest_version_id && (
-                  <p className="text-xs text-amber-300/90">
-                    <Clock3 className="mr-1 inline h-3 w-3" />
-                    No active export files found. Regenerate to download again.
-                  </p>
-                )}
-
-                <div className="mt-auto flex flex-wrap gap-2 pt-2">
-                  <Button
-                    asChild
-                    variant="cyber"
-                    className="h-9 flex-1 text-xs px-3"
-                  >
-                    <Link href={`/studio?datasetId=${dataset.id}`}>
-                      <Pencil className="mr-1.5 h-3 w-3" />
-                      Open Studio
-                    </Link>
-                  </Button>
-                  {dataset.latest_version_id && dataset.status !== "draft" && (
-                    <Button
-                      asChild
-                      variant="outline"
-                      size="sm"
-                      className="h-9 px-3 hover:border-secondary hover:text-secondary"
-                    >
-                      <Link href={`/download?datasetId=${dataset.id}`}>
-                        <Download className="h-3 w-3" />
-                      </Link>
-                    </Button>
-                  )}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={deletingId === dataset.id}
-                    className="h-9 px-3 hover:border-destructive hover:bg-destructive/20 hover:text-destructive"
-                    onClick={() => void onDelete(dataset.id)}
-                  >
-                    {deletingId === dataset.id ? (
-                      <LoaderCircle className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Trash2 className="h-3 w-3" />
-                    )}
-                  </Button>
-                </div>
-              </Card>
+                dataset={dataset}
+                deletingId={deletingId}
+                onDelete={(datasetId) => void onDelete(datasetId)}
+              />
             ))}
           </div>
         )}
@@ -623,107 +498,14 @@ export default function DashboardPage() {
       )}
 
       {datasets.length !== 0 && (
-        <>
-          {showJobsPanel && (
-            <button
-              type="button"
-              aria-label="Close jobs panel"
-              onClick={() => setShowJobsPanel(false)}
-              className="fixed inset-0 z-[70] bg-muted/35 backdrop-blur-[1px]"
-            />
-          )}
-
-          <aside
-            className={`fixed right-0 top-0 bottom-0 z-[80] w-full max-w-md transform border-l border-border bg-[#0b0f1a]/95 shadow-2xl transition-transform duration-300 ease-out will-change-transform ${
-              showJobsPanel ? "translate-x-0" : "translate-x-full"
-            }`}
-            aria-hidden={!showJobsPanel}
-          >
-            <div className="flex h-full flex-col">
-              <div className="flex items-center justify-between border-b border-border px-5 py-4">
-                <div>
-                  <h2 className="font-display text-2xl font-bold">My Jobs</h2>
-                  <p className="text-xs text-muted-foreground">
-                    Latest {jobs.length}
-                  </p>
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-8 w-8 p-0"
-                  onClick={() => setShowJobsPanel(false)}
-                  aria-label="Close jobs panel"
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto p-4">
-                {jobs.length === 0 ? (
-                  <Card className="p-5 text-sm text-muted-foreground">
-                    No jobs yet. Start a generation run to see activity here.
-                  </Card>
-                ) : (
-                  <div className="space-y-2">
-                    {jobs.slice(0, 12).map((job) => {
-                      const canRetry =
-                        job.status === "failed" || job.status === "cancelled";
-                      return (
-                        <div
-                          key={job.job_id}
-                          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border/70 bg-background/40 p-3 text-sm"
-                        >
-                          <div className="min-w-0">
-                            <p className="truncate font-medium text-foreground">
-                              {datasetNameById.get(job.dataset_id) ||
-                                `Dataset ${job.dataset_id.slice(0, 8)}...`}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              {job.status.toUpperCase()} ·{" "}
-                              {job.progress_percentage}% ·{" "}
-                              {new Date(job.created_at).toLocaleString()}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Button
-                              asChild
-                              variant="outline"
-                              size="sm"
-                              className="h-8"
-                            >
-                              <Link
-                                href={`/studio?datasetId=${job.dataset_id}`}
-                              >
-                                Open
-                              </Link>
-                            </Button>
-                            {canRetry && (
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                className="h-8 hover:border-cyan-300 hover:text-cyan-300"
-                                disabled={retryingJobId === job.job_id}
-                                onClick={() => void onRetryJob(job.job_id)}
-                              >
-                                {retryingJobId === job.job_id ? (
-                                  <LoaderCircle className="h-3 w-3 animate-spin" />
-                                ) : (
-                                  <RefreshCw className="h-3 w-3" />
-                                )}
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
-          </aside>
-        </>
+        <JobsPanel
+          showJobsPanel={showJobsPanel}
+          jobs={jobs}
+          datasetNameById={datasetNameById}
+          retryingJobId={retryingJobId}
+          onClose={() => setShowJobsPanel(false)}
+          onRetryJob={(jobId) => void onRetryJob(jobId)}
+        />
       )}
 
       {/* Command Palette */}

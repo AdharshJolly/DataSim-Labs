@@ -278,9 +278,7 @@ def compare_dataset_output(
     ]
 
     row_count = (
-        len(payload.generated_data)
-        if payload.generated_data
-        else payload.sample_rows
+        len(payload.generated_data) if payload.generated_data else payload.sample_rows
     )
     generator_seed = payload.seed if payload.seed is not None else version.seed
     baseline_generator = DatasetGenerator(seed=generator_seed)
@@ -300,7 +298,9 @@ def compare_dataset_output(
             semantic_rules=version.config_json.get("semantic_rules", []),
         )
 
-    comparison = ComparisonEngine.compare(expected_df=expected_df, generated_df=generated_df)
+    comparison = ComparisonEngine.compare(
+        expected_df=expected_df, generated_df=generated_df
+    )
 
     return CompareResponse(
         dataset_version_id=payload.dataset_version_id,

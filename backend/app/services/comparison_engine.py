@@ -12,7 +12,9 @@ class ComparisonEngine:
     """Computes drift metrics and actionable refinement suggestions."""
 
     @staticmethod
-    def compare(expected_df: pd.DataFrame, generated_df: pd.DataFrame) -> dict[str, Any]:
+    def compare(
+        expected_df: pd.DataFrame, generated_df: pd.DataFrame
+    ) -> dict[str, Any]:
         if expected_df.empty or generated_df.empty:
             return {
                 "overall_drift_score": 0.0,
@@ -29,20 +31,30 @@ class ComparisonEngine:
         drift_values: list[float] = []
 
         for column in shared_columns:
-            expected_numeric = pd.to_numeric(expected_df[column], errors="coerce").dropna()
-            generated_numeric = pd.to_numeric(generated_df[column], errors="coerce").dropna()
+            expected_numeric = pd.to_numeric(
+                expected_df[column], errors="coerce"
+            ).dropna()
+            generated_numeric = pd.to_numeric(
+                generated_df[column], errors="coerce"
+            ).dropna()
 
             if expected_numeric.empty or generated_numeric.empty:
                 continue
 
             expected_mean = float(expected_numeric.mean())
             generated_mean = float(generated_numeric.mean())
-            expected_var = float(expected_numeric.var()) if len(expected_numeric) > 1 else 0.0
-            generated_var = float(generated_numeric.var()) if len(generated_numeric) > 1 else 0.0
+            expected_var = (
+                float(expected_numeric.var()) if len(expected_numeric) > 1 else 0.0
+            )
+            generated_var = (
+                float(generated_numeric.var()) if len(generated_numeric) > 1 else 0.0
+            )
 
             mean_diff = abs(generated_mean - expected_mean)
             variance_diff = abs(generated_var - expected_var)
-            kl_divergence = ComparisonEngine._kl_divergence(expected_numeric, generated_numeric)
+            kl_divergence = ComparisonEngine._kl_divergence(
+                expected_numeric, generated_numeric
+            )
 
             metric_rows.append(
                 {
@@ -59,7 +71,9 @@ class ComparisonEngine:
 
             normalized_mean_drift = mean_diff / (abs(expected_mean) + 1.0)
             normalized_variance_drift = variance_diff / (abs(expected_var) + 1.0)
-            combined_drift = (normalized_mean_drift + normalized_variance_drift + kl_divergence) / 3.0
+            combined_drift = (
+                normalized_mean_drift + normalized_variance_drift + kl_divergence
+            ) / 3.0
             drift_values.append(combined_drift)
 
             if combined_drift > 0.35:
@@ -68,7 +82,9 @@ class ComparisonEngine:
                         "attribute_name": column,
                         "action": "adjust_distribution",
                         "reason": "Detected high drift between expected and generated distribution.",
-                        "suggested_distribution": "normal" if kl_divergence < 0.3 else "skewed",
+                        "suggested_distribution": (
+                            "normal" if kl_divergence < 0.3 else "skewed"
+                        ),
                         "confidence": min(0.95, 0.55 + combined_drift),
                     }
                 )
@@ -82,7 +98,9 @@ class ComparisonEngine:
         }
 
     @staticmethod
-    def _kl_divergence(expected: pd.Series, generated: pd.Series, bins: int = 12) -> float:
+    def _kl_divergence(
+        expected: pd.Series, generated: pd.Series, bins: int = 12
+    ) -> float:
         min_val = min(float(expected.min()), float(generated.min()))
         max_val = max(float(expected.max()), float(generated.max()))
         if min_val == max_val:

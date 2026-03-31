@@ -23,14 +23,19 @@ class SuggestionEngine:
             constraints = dict(attr.constraints or {})
 
             if attr.type.value in {"integer", "float"}:
-                if any(k in name for k in ["salary", "income", "price", "amount", "cost", "revenue"]):
+                if any(
+                    k in name
+                    for k in ["salary", "income", "price", "amount", "cost", "revenue"]
+                ):
                     attribute_suggestions.append(
                         {
                             "attribute_name": attr.name,
                             "suggested_distribution": "skewed",
                             "suggested_constraints": {
                                 "skew_direction": "right",
-                                "skew_intensity": float(constraints.get("skew_intensity", 2.0)),
+                                "skew_intensity": float(
+                                    constraints.get("skew_intensity", 2.0)
+                                ),
                             },
                             "confidence": 0.86,
                             "reason": "Financial-like numeric columns are typically right-skewed.",
@@ -50,7 +55,11 @@ class SuggestionEngine:
             if attr.type.value == "categorical":
                 categories = constraints.get("categories")
                 weights = constraints.get("weights")
-                if isinstance(categories, list) and categories and not isinstance(weights, list):
+                if (
+                    isinstance(categories, list)
+                    and categories
+                    and not isinstance(weights, list)
+                ):
                     equal_weight = round(1.0 / len(categories), 4)
                     attribute_suggestions.append(
                         {
@@ -108,7 +117,9 @@ class SuggestionEngine:
             relationship_suggestions.append(
                 {
                     "source": "company",
-                    "target": "domain" if "domain" in normalized_names else "email_domain",
+                    "target": (
+                        "domain" if "domain" in normalized_names else "email_domain"
+                    ),
                     "strength": 0.82,
                     "confidence": 0.82,
                     "reason": "Detected likely company to domain mapping pattern.",

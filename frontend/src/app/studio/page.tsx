@@ -1,53 +1,45 @@
 "use client";
 
-import Link from "next/link";
 import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
   Check,
-  CheckCircle2,
   Download,
   HelpCircle,
   Keyboard,
-  LoaderCircle,
   Menu,
   Plus,
   Search,
   X,
 } from "lucide-react";
-import { List } from "react-window";
 
-import { AttrCard } from "@/components/studio/attr-card";
-import { FORMAT_OPTIONS, STEP_LABELS } from "@/components/studio/constants";
+import { STEP_LABELS } from "@/components/studio/constants";
 import {
-  formatBytes,
+  applySuggestionToAttr,
+  mergeSemanticRuleSets,
   newAttr,
+  parseCorrelationRulesText,
+  parseSemanticRulesText,
+  templateColumnsToAttrRows,
   toApiAttr,
   uid,
   validateCategoricalWeights,
 } from "@/components/studio/helpers";
-import { QuickAdjustCard } from "@/components/studio/quick-adjust-card";
-import {
-  RelationshipBuilder,
-  type CorrelationRule,
-} from "@/components/studio/relationship-builder";
-import { SemanticRuleBuilder } from "@/components/studio/semantic-rule-builder";
+import { type CorrelationRule } from "@/components/studio/relationship-builder";
 import type { AttrRow, OutputFormat, Step } from "@/components/studio/types";
+import { Step1CreateDataset } from "@/components/studio/steps/step-1-create-dataset";
+import { Step2DefineFields } from "@/components/studio/steps/step-2-define-fields";
+import { Step3PreviewRefine } from "@/components/studio/steps/step-3-preview-refine";
+import { Step4Generate } from "@/components/studio/steps/step-4-generate";
+import { useStudioGenerationFlow } from "@/components/studio/hooks/use-studio-generation-flow";
 import {
   type AttributeConfig,
-  cancelGenerationJob,
-  generateDatasetAsync,
-  getGenerationJob,
   type GeneratedFileInfo,
   type GenerationJobStatus,
   type PreviewColumnComparison,
   createDataset,
-  downloadDatasetFile,
-  streamDatasetCsv,
-  submitDatasetFeedback,
   generationPreflight,
-  generateDataset,
   dryRunSemanticRules,
   getDatasetVersions,
   listDatasetTemplates,
@@ -69,12 +61,9 @@ import {
   type AttributeSuggestion,
   type CompareResponse,
 } from "@/lib/api-client";
-
-import { ValidationDashboard } from "@/components/studio/validation-dashboard";
 import { AuthGuard } from "@/components/auth/auth-guard";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Card } from "@/components/ui/card";
 import { useFeedback } from "@/components/ui/feedback-provider";
 import { useErrorNotifier } from "@/lib/use-error-notifier";
 import { KeyboardShortcutsModal } from "@/components/keyboard-shortcuts-modal";
@@ -89,69 +78,6 @@ const ASYNC_POLL_MAX_ATTEMPTS = 1200;
 const AUTO_ASYNC_ROW_THRESHOLD = 50000;
 const AUTO_ASYNC_CELL_THRESHOLD = 1000000;
 const PREVIEW_ROW_HEIGHT = 44;
-
-// ─── Helper Functions ─────────────────────────────────────────────────────
-
-function templateColumnsToAttrRows(columns: Record<string, any>): AttrRow[] {
-  return Object.entries(columns).map(([name, colConfig]) => {
-    const dist = colConfig.distribution || {};
-    const makeRow = (overrides: Partial<AttrRow>): AttrRow => ({
-      _id: uid(),
-      name: "field",
-      description: "",
-      type: "integer",
-      distribution: "uniform",
-      allow_nulls: false,
-      null_percentage: 10,
-      min: "0",
-      max: "100",
-      categories: "",
-      weights: "",
-      start_date: "",
-      end_date: "",
-      precision: "2",
-      max_length: "64",
-      true_probability: "0.5",
-      skew_direction: "right",
-      skew_intensity: "2",
-      ...overrides,
-    });
-
-    // Map data_type to field type
-    let fieldType: AttrRow["type"] = "text";
-    if (colConfig.data_type === "integer") fieldType = "integer";
-    else if (colConfig.data_type === "float") fieldType = "float";
-    else if (colConfig.data_type === "boolean") fieldType = "boolean";
-    else if (colConfig.data_type === "date") fieldType = "date";
-    else if (colConfig.data_type === "email") fieldType = "email";
-    else if (colConfig.data_type === "categorical") fieldType = "categorical";
-    else if (colConfig.data_type === "text") fieldType = "text";
-
-    const row: AttrRow = makeRow({
-      name,
-      type: fieldType,
-    });
-
-    // Apply distribution settings
-    if (dist.max_length) row.max_length = String(dist.max_length);
-    if (dist.min !== undefined) row.min = String(dist.min);
-    if (dist.max !== undefined) row.max = String(dist.max);
-    if (dist.start_date) row.start_date = dist.start_date;
-    if (dist.end_date) row.end_date = dist.end_date;
-    if (dist.precision) row.precision = String(dist.precision);
-
-    // Handle categorical
-    if (dist.categories && Array.isArray(dist.categories)) {
-      row.categories = dist.categories.join(", ");
-      row.distribution = "weighted_categorical";
-      if (dist.probabilities && Array.isArray(dist.probabilities)) {
-        row.weights = dist.probabilities.join(", ");
-      }
-    }
-
-    return row;
-  });
-}
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
@@ -196,9 +122,8 @@ export default function StudioPage() {
     rowIndex: number;
     column: string;
   } | null>(null);
-  const [selectedExplainTrace, setSelectedExplainTrace] = useState<
-    ExplainResponse | null
-  >(null);
+  const [selectedExplainTrace, setSelectedExplainTrace] =
+    useState<ExplainResponse | null>(null);
   const [compareBusy, setCompareBusy] = useState(false);
   const [compareResult, setCompareResult] = useState<CompareResponse | null>(
     null,
@@ -292,26 +217,7 @@ export default function StudioPage() {
 
   const correlationRules: CorrelationRule[] = useMemo(() => {
     try {
-      if (!correlationRulesText.trim()) {
-        return [];
-      }
-      const parsed = JSON.parse(correlationRulesText) as unknown;
-      if (!Array.isArray(parsed)) {
-        return [];
-      }
-      return parsed
-        .filter(
-          (item): item is Record<string, unknown> =>
-            !!item && typeof item === "object",
-        )
-        .map((item) => ({
-          source: String(item.source ?? "").trim(),
-          target: String(item.target ?? "").trim(),
-          strength: Number(item.strength ?? 0),
-        }))
-        .filter(
-          (item) => item.source && item.target && !Number.isNaN(item.strength),
-        );
+      return parseCorrelationRulesText(correlationRulesText);
     } catch {
       return [];
     }
@@ -319,46 +225,7 @@ export default function StudioPage() {
 
   const semanticRules: SemanticRule[] = useMemo(() => {
     try {
-      if (!semanticRulesText.trim()) {
-        return [];
-      }
-      const parsed = JSON.parse(semanticRulesText) as unknown;
-      if (!Array.isArray(parsed)) {
-        return [];
-      }
-      return parsed
-        .filter(
-          (item): item is Record<string, unknown> =>
-            !!item && typeof item === "object",
-        )
-        .map((item) => ({
-          id: String(item.id ?? "").trim(),
-          type: String(item.type ?? "custom_rule").trim(),
-          target: String(item.target ?? "").trim(),
-          sources: Array.isArray(item.sources)
-            ? item.sources
-                .map((source) => String(source).trim())
-                .filter(Boolean)
-            : [],
-          transform:
-            item.transform && typeof item.transform === "object"
-              ? (item.transform as Record<string, unknown>)
-              : {},
-          confidence: Number(item.confidence ?? 0.7),
-          priority: Number(item.priority ?? 1),
-          constraints:
-            item.constraints && typeof item.constraints === "object"
-              ? (item.constraints as Record<string, unknown>)
-              : null,
-        }))
-        .filter(
-          (rule) =>
-            rule.id &&
-            rule.target &&
-            rule.sources.length > 0 &&
-            !Number.isNaN(rule.confidence) &&
-            !Number.isNaN(rule.priority),
-        );
+      return parseSemanticRulesText(semanticRulesText);
     } catch {
       return [];
     }
@@ -572,62 +439,7 @@ export default function StudioPage() {
   }, []);
 
   const parseCorrelationRules = () => {
-    if (!correlationRulesText.trim()) {
-      return [] as Array<{ source: string; target: string; strength: number }>;
-    }
-    const parsed = JSON.parse(correlationRulesText) as unknown;
-    if (!Array.isArray(parsed)) {
-      throw new Error("Correlation rules must be a JSON array.");
-    }
-    return parsed
-      .filter(
-        (item): item is Record<string, unknown> =>
-          !!item && typeof item === "object",
-      )
-      .map((item) => ({
-        source: String(item.source ?? "").trim(),
-        target: String(item.target ?? "").trim(),
-        strength: Number(item.strength ?? 0),
-      }))
-      .filter(
-        (item) => item.source && item.target && !Number.isNaN(item.strength),
-      );
-  };
-
-  const applySuggestionToAttr = (
-    attr: AttrRow,
-    suggestion: AttributeSuggestion,
-  ): AttrRow => {
-    const constraints = suggestion.suggested_constraints ?? {};
-    const next: AttrRow = {
-      ...attr,
-      distribution: suggestion.suggested_distribution,
-    };
-
-    if (typeof constraints.min === "number") next.min = String(constraints.min);
-    if (typeof constraints.max === "number") next.max = String(constraints.max);
-    if (typeof constraints.precision === "number") {
-      next.precision = String(constraints.precision);
-    }
-    if (
-      constraints.skew_direction === "left" ||
-      constraints.skew_direction === "right"
-    ) {
-      next.skew_direction = constraints.skew_direction;
-    }
-    if (typeof constraints.skew_intensity === "number") {
-      next.skew_intensity = String(constraints.skew_intensity);
-    }
-    if (typeof constraints.max_length === "number") {
-      next.max_length = String(constraints.max_length);
-    }
-    if (Array.isArray(constraints.weights)) {
-      next.weights = constraints.weights
-        .map((value) => String(value))
-        .join(", ");
-    }
-
-    return next;
+    return parseCorrelationRulesText(correlationRulesText);
   };
 
   const handleSuggestSettings = async () => {
@@ -796,37 +608,6 @@ export default function StudioPage() {
     } finally {
       setSemanticRulesDryRunning(false);
     }
-  };
-
-  const mergeSemanticRuleSets = (
-    existing: SemanticRule[],
-    incoming: SemanticRule[],
-  ): SemanticRule[] => {
-    const seen = new Set<string>();
-    const merged: SemanticRule[] = [];
-
-    const pushIfUnique = (rule: SemanticRule) => {
-      const key = JSON.stringify({
-        target: rule.target,
-        sources: [...rule.sources].sort(),
-        type: rule.type,
-        transform: rule.transform,
-      });
-      if (seen.has(key)) {
-        return;
-      }
-      seen.add(key);
-      merged.push(rule);
-    };
-
-    for (const rule of existing) {
-      pushIfUnique(rule);
-    }
-    for (const rule of incoming) {
-      pushIfUnique(rule);
-    }
-
-    return merged;
   };
 
   const handleInferSemanticRules = async () => {
@@ -1207,236 +988,51 @@ export default function StudioPage() {
     });
   };
 
+  const {
+    handleGenerate,
+    handleCancelJob,
+    handleDownload,
+    handleStreamCsvDownload,
+    handleSubmitFeedback,
+  } = useStudioGenerationFlow({
+    datasetId,
+    versionId,
+    attrs,
+    formats,
+    rowCount,
+    seed,
+    shouldUseAsyncGeneration,
+    feedbackRating,
+    feedbackComment,
+    generationSignature,
+    jobId,
+    setError,
+    setBusy,
+    setStreamingBusy,
+    setStreamedBytes,
+    setFeedbackBusy,
+    setFeedbackComment,
+    setAllowLowQualityDownloads,
+    setGeneratedFiles,
+    setQualityReport,
+    setQualityDashboard,
+    setValidationSummary,
+    setQualityGuardrails,
+    setSemanticRuleMetrics,
+    setGenerationSignature,
+    setGenerationRunId,
+    setRunComparison,
+    setJobId,
+    setJobStatus,
+    setJobStage,
+    setJobProgress,
+    notifyError,
+    pushToast,
+    asyncPollIntervalMs: ASYNC_POLL_INTERVAL_MS,
+    asyncPollMaxAttempts: ASYNC_POLL_MAX_ATTEMPTS,
+  });
+
   // ── Step 4: Generate ─────────────────────────────────────────
-  const handleGenerate = async () => {
-    if (!datasetId) {
-      setError("No dataset selected.");
-      return;
-    }
-    if (formats.length === 0) {
-      setError("Select at least one output format.");
-      return;
-    }
-    setBusy(true);
-    setError("");
-    // Client-side weight validation
-    const weightError = attrs.map(validateCategoricalWeights).find(Boolean);
-    if (weightError) {
-      setBusy(false);
-      setError(weightError);
-      return;
-    }
-    try {
-      const payload = {
-        dataset_id: datasetId,
-        dataset_version_id: versionId || undefined,
-        row_count: rowCount,
-        formats,
-        seed: seed.trim() ? Number(seed) : undefined,
-      };
-
-      if (!shouldUseAsyncGeneration) {
-        setAllowLowQualityDownloads(false);
-        const res = await generateDataset(payload);
-        setGeneratedFiles(res.files);
-        setQualityReport(
-          (res.quality_report as Record<string, unknown>) ?? null,
-        );
-        setQualityDashboard(res.quality_dashboard ?? null);
-        setValidationSummary(res.validation_summary ?? null);
-        if (res.validation_summary) {
-          try {
-            localStorage.setItem(
-              "datasim:validation_summary",
-              JSON.stringify(res.validation_summary),
-            );
-          } catch {
-            /* ignore */
-          }
-        }
-        setQualityGuardrails(
-          (res.quality_guardrails as Record<string, unknown>) ?? null,
-        );
-        setSemanticRuleMetrics(
-          (res.semantic_rule_metrics as Record<string, unknown>) ?? null,
-        );
-        setGenerationSignature(res.generation_signature ?? "");
-        setGenerationRunId(res.generation_run_id ?? "");
-        setRunComparison((res.comparison as Record<string, unknown>) ?? null);
-        return;
-      }
-
-      const queued = await generateDatasetAsync(payload);
-      setAllowLowQualityDownloads(false);
-      setJobId(queued.job_id);
-      setJobStatus(queued.status);
-      setJobStage("queued");
-      setJobProgress(0);
-
-      const wait = (ms: number) =>
-        new Promise((resolve) => {
-          setTimeout(resolve, ms);
-        });
-
-      for (let attempt = 0; attempt < ASYNC_POLL_MAX_ATTEMPTS; attempt += 1) {
-        const job = await getGenerationJob(queued.job_id);
-        setJobStatus(job.status);
-        setJobStage(job.stage);
-        setJobProgress(job.progress_percentage);
-
-        if (job.status === "completed") {
-          const result = job.result;
-          if (!result) {
-            throw new Error(
-              "Generation completed but no result payload returned.",
-            );
-          }
-          setGeneratedFiles(result.files);
-          setQualityReport(
-            (result.quality_report as Record<string, unknown>) ?? null,
-          );
-          setQualityDashboard(result.quality_dashboard ?? null);
-          setValidationSummary(result.validation_summary ?? null);
-          if (result.validation_summary) {
-            try {
-              localStorage.setItem(
-                "datasim:validation_summary",
-                JSON.stringify(result.validation_summary),
-              );
-            } catch {
-              /* ignore */
-            }
-          }
-          setQualityGuardrails(
-            (result.quality_guardrails as Record<string, unknown>) ?? null,
-          );
-          setSemanticRuleMetrics(
-            (result.semantic_rule_metrics as Record<string, unknown>) ?? null,
-          );
-          setGenerationSignature(result.generation_signature ?? "");
-          setGenerationRunId(result.generation_run_id ?? "");
-          setRunComparison(
-            (result.comparison as Record<string, unknown>) ?? null,
-          );
-          break;
-        }
-
-        if (job.status === "failed") {
-          throw new Error(job.error || "Async generation job failed.");
-        }
-
-        if (job.status === "cancelled") {
-          throw new Error("Async generation job was cancelled.");
-        }
-
-        await wait(ASYNC_POLL_INTERVAL_MS);
-
-        if (attempt === ASYNC_POLL_MAX_ATTEMPTS - 1) {
-          throw new Error("Timed out waiting for async generation job.");
-        }
-      }
-    } catch (e) {
-      notifyError("Generation Failed", e, "Generation failed");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleCancelJob = async () => {
-    if (!jobId) {
-      return;
-    }
-    try {
-      const result = await cancelGenerationJob(jobId);
-      setJobStatus(result.status);
-      setJobStage("cancel_requested");
-      if (result.status === "cancelled") {
-        setJobProgress(100);
-      }
-    } catch (e) {
-      notifyError("Cancel Job Failed", e, "Failed to cancel job");
-    }
-  };
-
-  const handleDownload = async (format: string) => {
-    try {
-      const { blob, fileName } = await downloadDatasetFile(datasetId, format);
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = fileName;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      notifyError("Download Failed", e, "Download failed");
-    }
-  };
-
-  const handleStreamCsvDownload = async () => {
-    if (!versionId) {
-      setError("No saved version to stream.");
-      return;
-    }
-
-    setStreamingBusy(true);
-    setStreamedBytes(0);
-    setError("");
-    try {
-      const { blob, fileName } = await streamDatasetCsv(versionId, rowCount, {
-        chunkSize: 50000,
-        seed: seed.trim() ? Number(seed) : undefined,
-        onProgressBytes: (bytesRead) => setStreamedBytes(bytesRead),
-      });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = fileName;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      notifyError("Streaming Download Failed", e, "Unable to stream CSV download.");
-    } finally {
-      setStreamingBusy(false);
-    }
-  };
-
-  const handleSubmitFeedback = async () => {
-    if (!datasetId || feedbackRating < 1) {
-      setError("Select a rating before submitting feedback.");
-      return;
-    }
-
-    setFeedbackBusy(true);
-    setError("");
-    try {
-      await submitDatasetFeedback({
-        dataset_id: datasetId,
-        dataset_version_id: versionId || undefined,
-        rating: feedbackRating,
-        comment: feedbackComment.trim() || undefined,
-        generation_signature: generationSignature || undefined,
-        config_snapshot: {
-          row_count: rowCount,
-          formats,
-          attribute_count: attrs.length,
-        },
-      });
-      pushToast({
-        title: "Feedback Submitted",
-        message: "Thanks! Your rating was recorded for adaptive tuning.",
-        intent: "success",
-      });
-      setFeedbackComment("");
-    } catch (e) {
-      notifyError("Feedback Failed", e, "Unable to submit feedback right now.");
-    } finally {
-      setFeedbackBusy(false);
-    }
-  };
 
   useEffect(() => {
     if (step !== 4 || !datasetId || formats.length === 0) {
@@ -1722,1433 +1318,157 @@ export default function StudioPage() {
 
           {/* ════════════════ STEP 1 ════════════════ */}
           {step === 1 && (
-            <div>
-              <header className="mb-8">
-                <h1 className="font-display text-4xl font-bold">
-                  Start a New Dataset
-                </h1>
-                <p className="mt-2 text-muted-foreground">
-                  Give your synthetic dataset a name and describe what it
-                  represents. You&apos;ll define the fields next.
-                </p>
-              </header>
-
-              <div className="max-w-lg space-y-6">
-                <div className="space-y-2">
-                  <label
-                    htmlFor="ds-name"
-                    className="text-sm font-medium text-muted-foreground"
-                  >
-                    Dataset Name <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    id="ds-name"
-                    className="w-full"
-                    placeholder="e.g. Project Chimera"
-                    value={dsName}
-                    onChange={(e) => setDsName(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && void handleCreate()}
-                    autoFocus
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <label
-                    htmlFor="ds-desc"
-                    className="text-sm font-medium text-muted-foreground"
-                  >
-                    Description (optional)
-                  </label>
-                  <textarea
-                    id="ds-desc"
-                    className="h-24 w-full resize-none"
-                    placeholder="What is this dataset for? Who will use it? What does it represent?"
-                    value={dsDesc}
-                    onChange={(e) => setDsDesc(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div className="mt-8 flex items-center gap-3">
-                <Button
-                  type="button"
-                  variant="default"
-                  disabled={busy || !dsName.trim()}
-                  onClick={() => void handleCreate()}
-                >
-                  {busy ? (
-                    <span className="flex items-center justify-center gap-2">
-                      <LoaderCircle className="h-4 w-4 animate-spin" />{" "}
-                      Creating…
-                    </span>
-                  ) : (
-                    "Create & Define Fields →"
-                  )}
-                </Button>
-                <Button asChild variant="outline">
-                  <Link href="/dashboard">Cancel</Link>
-                </Button>
-              </div>
-            </div>
+            <Step1CreateDataset
+              dsName={dsName}
+              dsDesc={dsDesc}
+              busy={busy}
+              onNameChange={setDsName}
+              onDescriptionChange={setDsDesc}
+              onCreate={() => void handleCreate()}
+            />
           )}
 
           {/* ════════════════ STEP 2 ════════════════ */}
           {step === 2 && (
-            <div>
-              <header className="mb-8 flex flex-wrap items-start justify-between gap-4">
-                <div>
-                  <h1 className="font-display text-4xl font-bold">
-                    Define Your Fields
-                  </h1>
-                  <p className="mt-2 text-muted-foreground">
-                    Each field becomes a column. Describe what it represents to
-                    guide generation — the more detail, the better.
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="whitespace-nowrap"
-                    disabled={busy || suggestionsBusy || attrs.length === 0}
-                    onClick={() => void handleSuggestSettings()}
-                  >
-                    {suggestionsBusy ? (
-                      <span className="flex items-center justify-center gap-2">
-                        <LoaderCircle className="h-4 w-4 animate-spin" /> Suggesting…
-                      </span>
-                    ) : (
-                      "Suggest Settings"
-                    )}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="default"
-                    className="whitespace-nowrap"
-                    disabled={busy || attrs.length === 0}
-                    onClick={() => void handleSaveAndPreview()}
-                  >
-                    {busy ? (
-                      <span className="flex items-center justify-center gap-2">
-                        <LoaderCircle className="h-4 w-4 animate-spin" /> Saving…
-                      </span>
-                    ) : (
-                      "Save & Preview →"
-                    )}
-                  </Button>
-                </div>
-              </header>
-
-              <RelationshipBuilder
-                attributeNames={attrs.map((attr) => attr.name)}
-                rules={correlationRules}
-                onChange={handleCorrelationRulesChange}
-              />
-
-              <SemanticRuleBuilder
-                attributeNames={attrs.map((attr) => attr.name)}
-                rules={semanticRules}
-                conflictPolicy={semanticConflictPolicy}
-                metadata={semanticRuleMetadata}
-                dryRunResult={semanticDryRunResult}
-                onChange={handleSemanticRulesChange}
-                onConflictPolicyChange={setSemanticConflictPolicy}
-                onSave={handleSaveSemanticRules}
-                onDryRun={handleDryRunSemanticRules}
-                onInfer={handleInferSemanticRules}
-                saveDisabled={!versionId}
-                saveBusy={semanticRulesSaving}
-                dryRunBusy={semanticRulesDryRunning}
-                inferBusy={semanticRulesInferring}
-              />
-
-              <Card className="mb-8 border-border bg-card/70 p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Advanced JSON Editor (optional)
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  You can still edit relationships as raw JSON.
-                </p>
-                <textarea
-                  className="mt-3 h-28 w-full"
-                  value={correlationRulesText}
-                  onChange={(e) => setCorrelationRulesText(e.target.value)}
-                />
-              </Card>
-
-              {/* Attribute list */}
-              <div className="space-y-4">
-                {attrs.map((attr, i) => (
-                  <AttrCard
-                    key={attr._id}
-                    attr={attr}
-                    index={i}
-                    total={attrs.length}
-                    onUpdate={updateAttr}
-                    onRemove={removeAttr}
-                  />
-                ))}
-              </div>
-
-              {/* Add attribute button */}
-              <button
-                type="button"
-                onClick={addAttr}
-                className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border py-4 text-sm font-semibold text-muted-foreground transition-all hover:border-primary/80 hover:bg-primary/10 hover:text-primary"
-              >
-                <Plus className="h-4 w-4" />
-                Add Field
-              </button>
-
-              <div className="mt-8 flex items-center gap-3">
-                <Button
-                  type="button"
-                  variant="default"
-                  disabled={busy || attrs.length === 0}
-                  onClick={() => void handleSaveAndPreview()}
-                >
-                  {busy ? "Saving…" : "Save & Preview →"}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setStep(1)}
-                >
-                  ← Back
-                </Button>
-              </div>
-            </div>
+            <Step2DefineFields
+              attrs={attrs}
+              busy={busy}
+              suggestionsBusy={suggestionsBusy}
+              versionId={versionId}
+              correlationRules={correlationRules}
+              semanticRules={semanticRules}
+              semanticConflictPolicy={semanticConflictPolicy}
+              semanticRuleMetadata={semanticRuleMetadata}
+              semanticDryRunResult={semanticDryRunResult}
+              semanticRulesSaving={semanticRulesSaving}
+              semanticRulesDryRunning={semanticRulesDryRunning}
+              semanticRulesInferring={semanticRulesInferring}
+              correlationRulesText={correlationRulesText}
+              onSuggestSettings={handleSuggestSettings}
+              onSaveAndPreview={handleSaveAndPreview}
+              onSetStep={setStep}
+              onCorrelationRulesChange={handleCorrelationRulesChange}
+              onSemanticRulesChange={handleSemanticRulesChange}
+              onSemanticConflictPolicyChange={setSemanticConflictPolicy}
+              onSaveSemanticRules={handleSaveSemanticRules}
+              onDryRunSemanticRules={handleDryRunSemanticRules}
+              onInferSemanticRules={handleInferSemanticRules}
+              onCorrelationRulesTextChange={setCorrelationRulesText}
+              onAddAttr={addAttr}
+              onUpdateAttr={updateAttr}
+              onRemoveAttr={removeAttr}
+            />
           )}
 
           {/* ════════════════ STEP 3 ════════════════ */}
           {step === 3 && (
-            <div>
-              <header className="mb-8 flex flex-wrap items-start justify-between gap-4">
-                <div>
-                  <h1 className="font-display text-4xl font-bold">
-                    Preview & Refine
-                  </h1>
-                  <p className="mt-2 text-muted-foreground">
-                    Review 10 sample rows. Tweak the field settings below and
-                    regenerate until the data looks right.
-                  </p>
-                  {optimisticSaving && (
-                    <p className="mt-2 flex items-center gap-2 text-xs text-cyan-300">
-                      <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-                      Validating field changes and refreshing preview...
-                    </p>
-                  )}
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="min-h-12"
-                    onClick={() => setStep(2)}
-                  >
-                    ← Edit Fields
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="min-h-12"
-                    disabled={isRefreshing}
-                    onClick={() => void handleRegenerate()}
-                  >
-                    {isRefreshing ? (
-                      <span className="flex items-center gap-2">
-                        <LoaderCircle className="h-4 w-4 animate-spin" />{" "}
-                        Regenerating…
-                      </span>
-                    ) : (
-                      "↺ Regenerate"
-                    )}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="min-h-12"
-                    disabled={compareBusy || previewRows.length === 0}
-                    onClick={() => void handleCompareDrift()}
-                  >
-                    {compareBusy ? "Comparing..." : "Compare Drift"}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="min-h-12"
-                    disabled={
-                      !compareResult || compareResult.recommendations.length === 0
-                    }
-                    onClick={handleApplyRefinementRecommendations}
-                  >
-                    Improve
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="default"
-                    className="min-h-12"
-                    onClick={() => setStep(4)}
-                  >
-                    Looks Good →
-                  </Button>
-                </div>
-              </header>
-
-              {realismMetadata && (
-                <Card className="mb-6 border-border bg-card/70 p-4">
-                  <p className="text-sm font-semibold text-foreground">
-                    Realism Planner Metadata
-                  </p>
-                  <div className="mt-2 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2 lg:grid-cols-4">
-                    <div>
-                      <span className="text-foreground">Source:</span>{" "}
-                      {String(realismMetadata.source ?? "unknown")}
-                    </div>
-                    <div>
-                      <span className="text-foreground">Planner:</span>{" "}
-                      {String(realismMetadata.planner_version ?? "n/a")}
-                    </div>
-                    <div>
-                      <span className="text-foreground">Validated Rules:</span>{" "}
-                      {String(realismMetadata.validated_rule_count ?? 0)}
-                    </div>
-                    <div>
-                      <span className="text-foreground">Conflicts:</span>{" "}
-                      {Array.isArray(realismMetadata.conflicts)
-                        ? realismMetadata.conflicts.length
-                        : 0}
-                    </div>
-                  </div>
-
-                  {Array.isArray(realismMetadata.conflicts) &&
-                    realismMetadata.conflicts.length > 0 && (
-                      <div className="mt-3 rounded border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-200">
-                        <p className="font-medium text-amber-100">
-                          Detected rule conflicts
-                        </p>
-                        <ul className="mt-1 space-y-1">
-                          {realismMetadata.conflicts
-                            .slice(0, 3)
-                            .map((item, idx) => {
-                              const conflict = item as Record<string, unknown>;
-                              return (
-                                <li key={idx}>
-                                  {String(conflict.type ?? "conflict")}:{" "}
-                                  {String(
-                                    conflict.details ?? "details unavailable",
-                                  )}
-                                </li>
-                              );
-                            })}
-                        </ul>
-                      </div>
-                    )}
-
-                  {Array.isArray(realismMetadata.rule_explanations) &&
-                    realismMetadata.rule_explanations.length > 0 && (
-                      <div className="mt-3 text-xs text-muted-foreground">
-                        <p className="font-medium text-foreground">
-                          Rule explainability
-                        </p>
-                        <p className="mt-1">
-                          {realismMetadata.rule_explanations.length} rule
-                          explanations available in version metadata.
-                        </p>
-                      </div>
-                    )}
-                </Card>
-              )}
-
-              {previewComparisonCols.length > 0 && (
-                <Card className="mb-6 border-border bg-card/70 p-4">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <h3 className="text-sm font-semibold text-foreground">
-                        Statistical Comparison
-                      </h3>
-                      <p className="text-xs text-muted-foreground">
-                        Expected distribution versus synthetic preview sample.
-                      </p>
-                    </div>
-                    <select
-                      className="h-9 min-w-48 rounded-md border border-border bg-background px-3 text-sm"
-                      value={selectedPreviewComparison?.column ?? ""}
-                      onChange={(e) => setSelectedComparisonCol(e.target.value)}
-                    >
-                      {previewComparisonCols.map((column) => (
-                        <option key={column.column} value={column.column}>
-                          {column.column}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {selectedNumericComparison ? (
-                    <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                      <div className="rounded-lg border border-border/60 bg-background/60 p-3">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          Summary
-                        </p>
-                        <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
-                          <div>
-                            <span className="text-muted-foreground">
-                              Expected range:
-                            </span>{" "}
-                            {selectedNumericComparison.expected_min?.toFixed(
-                              2,
-                            ) ?? "n/a"}{" "}
-                            -{" "}
-                            {selectedNumericComparison.expected_max?.toFixed(
-                              2,
-                            ) ?? "n/a"}
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground">
-                              Synthetic range:
-                            </span>{" "}
-                            {selectedNumericComparison.synthetic_min?.toFixed(
-                              2,
-                            ) ?? "n/a"}{" "}
-                            -{" "}
-                            {selectedNumericComparison.synthetic_max?.toFixed(
-                              2,
-                            ) ?? "n/a"}
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground">
-                              Expected mean:
-                            </span>{" "}
-                            {selectedNumericComparison.expected_mean?.toFixed(
-                              3,
-                            ) ?? "n/a"}
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground">
-                              Synthetic mean:
-                            </span>{" "}
-                            {selectedNumericComparison.synthetic_mean?.toFixed(
-                              3,
-                            ) ?? "n/a"}
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground">
-                              Expected skew:
-                            </span>{" "}
-                            {selectedNumericComparison.expected_skewness?.toFixed(
-                              3,
-                            ) ?? "n/a"}
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground">
-                              Synthetic skew:
-                            </span>{" "}
-                            {selectedNumericComparison.synthetic_skewness?.toFixed(
-                              3,
-                            ) ?? "n/a"}
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground">
-                              Expected kurtosis:
-                            </span>{" "}
-                            {selectedNumericComparison.expected_kurtosis?.toFixed(
-                              3,
-                            ) ?? "n/a"}
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground">
-                              Synthetic kurtosis:
-                            </span>{" "}
-                            {selectedNumericComparison.synthetic_kurtosis?.toFixed(
-                              3,
-                            ) ?? "n/a"}
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground">
-                              Expected null %:
-                            </span>{" "}
-                            {selectedNumericComparison.expected_missing_pct.toFixed(
-                              2,
-                            )}
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground">
-                              Synthetic null %:
-                            </span>{" "}
-                            {selectedNumericComparison.synthetic_missing_pct.toFixed(
-                              2,
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                          <span
-                            className={`rounded-full px-2 py-1 ${
-                              selectedNumericComparison.ks_passed
-                                ? "bg-emerald-500/15 text-emerald-300"
-                                : "bg-amber-500/15 text-amber-200"
-                            }`}
-                          >
-                            KS:{" "}
-                            {selectedNumericComparison.ks_p_value?.toFixed(3) ??
-                              "n/a"}
-                          </span>
-                          <span
-                            className={`rounded-full px-2 py-1 ${
-                              selectedNumericComparison.ad_passed
-                                ? "bg-emerald-500/15 text-emerald-300"
-                                : "bg-amber-500/15 text-amber-200"
-                            }`}
-                          >
-                            AD:{" "}
-                            {selectedNumericComparison.ad_significance_level?.toFixed(
-                              2,
-                            ) ?? "n/a"}
-                            %
-                          </span>
-                          {selectedNumericComparison.low_variance && (
-                            <span className="rounded-full bg-amber-500/15 px-2 py-1 text-amber-200">
-                              Low variance detected
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="rounded-lg border border-border/60 bg-background/60 p-3">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          Histogram Overlay
-                        </p>
-                        <div className="mt-3 space-y-2">
-                          {selectedNumericComparison.histogram_bins.length >
-                          0 ? (
-                            selectedNumericComparison.histogram_bins.map(
-                              (bin, index, all) => {
-                                const maxCount = Math.max(
-                                  1,
-                                  ...all.map((entry) =>
-                                    Math.max(
-                                      entry.expected_count,
-                                      entry.synthetic_count,
-                                    ),
-                                  ),
-                                );
-                                const expectedWidth =
-                                  (bin.expected_count / maxCount) * 100;
-                                const syntheticWidth =
-                                  (bin.synthetic_count / maxCount) * 100;
-                                return (
-                                  <div
-                                    key={`${bin.bin_start}-${bin.bin_end}-${index}`}
-                                  >
-                                    <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
-                                      <span>
-                                        {bin.bin_start.toFixed(1)} -{" "}
-                                        {bin.bin_end.toFixed(1)}
-                                      </span>
-                                      <span>
-                                        E {bin.expected_count.toFixed(0)} / S{" "}
-                                        {bin.synthetic_count.toFixed(0)}
-                                      </span>
-                                    </div>
-                                    <div className="relative h-3 rounded bg-border/40">
-                                      <div
-                                        className="absolute left-0 top-0 h-3 rounded bg-cyan-400/50"
-                                        style={{ width: `${expectedWidth}%` }}
-                                      />
-                                      <div
-                                        className="absolute left-0 top-0 h-2 rounded bg-amber-300/70"
-                                        style={{ width: `${syntheticWidth}%` }}
-                                      />
-                                    </div>
-                                  </div>
-                                );
-                              },
-                            )
-                          ) : (
-                            <p className="text-xs text-muted-foreground">
-                              Not enough data to render histogram bins.
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="mt-3 text-xs text-muted-foreground">
-                      Detailed statistical comparison is currently available for
-                      numeric columns.
-                    </p>
-                  )}
-                </Card>
-              )}
-
-              {compareResult && (
-                <Card className="mb-6 border-border bg-card/70 p-4">
-                  <p className="text-sm font-semibold text-foreground">
-                    Iterative Refinement
-                  </p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Drift score: {compareResult.overall_drift_score.toFixed(3)}
-                  </p>
-                  <div className="mt-3 space-y-2 text-xs text-muted-foreground">
-                    {compareResult.metrics.slice(0, 6).map((metric) => (
-                      <div
-                        key={metric.column}
-                        className="rounded-md border border-border/60 bg-background/60 px-3 py-2"
-                      >
-                        <p className="font-medium text-foreground">
-                          {metric.column}
-                        </p>
-                        <p>
-                          mean diff {metric.mean_diff.toFixed(3)} · variance diff{" "}
-                          {metric.variance_diff.toFixed(3)} · KL{" "}
-                          {metric.kl_divergence.toFixed(3)}
-                        </p>
-                      </div>
-                    ))}
-                    {compareResult.recommendations.length > 0 ? (
-                      <p>
-                        Recommendations: {compareResult.recommendations.length} (use
-                        Improve to apply).
-                      </p>
-                    ) : (
-                      <p>No recommendations were generated for this preview.</p>
-                    )}
-                  </div>
-                </Card>
-              )}
-
-              {/* Preview table */}
-              {isRefreshing ? (
-                <div className="flex h-60 flex-col items-center justify-center gap-3 rounded-lg border border-border bg-background/70">
-                  <LoaderCircle className="h-8 w-8 animate-spin text-primary" />
-                  <span className="text-sm text-muted-foreground">
-                    Generating sample…
-                  </span>
-                </div>
-              ) : previewRows.length > 0 ? (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-                    <span>
-                      {previewRows.length.toLocaleString()} rows ·{" "}
-                      {previewCols.length} columns
-                    </span>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={explainMode ? "default" : "outline"}
-                      onClick={() => {
-                        setExplainMode((prev) => !prev);
-                        setSelectedExplainCell(null);
-                        setSelectedExplainTrace(null);
-                      }}
-                    >
-                      {explainMode ? "Explain Mode On" : "Explain Mode"}
-                    </Button>
-                  </div>
-
-                  <div className="space-y-3 md:hidden">
-                    {previewRows.slice(0, 60).map((row, index) => (
-                      <Card
-                        key={`preview-card-${index}`}
-                        className="border-border bg-background/60 p-3"
-                      >
-                        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          Row {index + 1}
-                        </p>
-                        <div className="space-y-1.5 text-sm">
-                          {previewCols.map((col) => (
-                            <div
-                              key={`preview-card-${index}-${col}`}
-                              className="flex items-start justify-between gap-3"
-                            >
-                              <span className="min-w-0 flex-1 text-xs text-muted-foreground">
-                                {col}
-                              </span>
-                              <span className="min-w-0 flex-1 truncate text-right text-foreground">
-                                <button
-                                  type="button"
-                                  className={`w-full truncate text-right ${
-                                    explainMode
-                                      ? "cursor-pointer rounded px-1 py-0.5 hover:bg-primary/10"
-                                      : "cursor-default"
-                                  }`}
-                                  onClick={() => {
-                                    if (!explainMode) return;
-                                    void handleExplainCellClick(index, col);
-                                  }}
-                                >
-                                  {row[col] == null ? "null" : String(row[col])}
-                                </button>
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      </Card>
-                    ))}
-                  </div>
-
-                  <div className="hidden rounded-lg border border-border md:block">
-                    <div className="max-h-[460px] overflow-auto">
-                      <div
-                        className="sticky top-0 z-10 grid border-b border-border/50 bg-background/95"
-                        style={{ gridTemplateColumns: previewColumnTemplate }}
-                      >
-                        {previewCols.map((col) => (
-                          <div
-                            key={`preview-header-${col}`}
-                            className="truncate px-4 py-3 text-left text-sm font-medium text-muted-foreground"
-                          >
-                            {col}
-                          </div>
-                        ))}
-                      </div>
-                      <List
-                        style={{
-                          height: Math.min(
-                            420,
-                            Math.max(
-                              220,
-                              previewRows.length * PREVIEW_ROW_HEIGHT,
-                            ),
-                          ),
-                          width: "100%",
-                        }}
-                        rowCount={previewRows.length}
-                        rowHeight={PREVIEW_ROW_HEIGHT}
-                        rowComponent={renderPreviewRow}
-                        rowProps={{}}
-                      />
-                    </div>
-                  </div>
-
-                  {explainMode && (
-                    <Card className="border-border bg-card/70 p-4">
-                      <p className="text-sm font-semibold text-foreground">
-                        Cell Explanation
-                      </p>
-                      {explainBusy ? (
-                        <p className="mt-2 text-xs text-muted-foreground">
-                          Fetching explanation...
-                        </p>
-                      ) : selectedExplainCell && selectedExplainTrace ? (
-                        <div className="mt-3 space-y-2 text-xs text-muted-foreground">
-                          <p>
-                            Row {selectedExplainCell.rowIndex + 1} · Column{" "}
-                            {selectedExplainCell.column}
-                          </p>
-                          <p>
-                            Value: {String(selectedExplainTrace.row[selectedExplainCell.column] ?? "null")}
-                          </p>
-                          <p>
-                            Source: {selectedExplainTrace.trace[selectedExplainCell.column]?.source ?? "unknown"}
-                          </p>
-                          <p>
-                            Generator: {selectedExplainTrace.trace[selectedExplainCell.column]?.generator ?? "n/a"}
-                          </p>
-                          <p>
-                            Rule: {selectedExplainTrace.trace[selectedExplainCell.column]?.rule ?? "none"}
-                          </p>
-                          <p>
-                            Depends On: {(selectedExplainTrace.trace[selectedExplainCell.column]?.depends_on ?? []).join(", ") || "none"}
-                          </p>
-                        </div>
-                      ) : (
-                        <p className="mt-2 text-xs text-muted-foreground">
-                          Click any cell to see why its value was generated.
-                        </p>
-                      )}
-                    </Card>
-                  )}
-                </div>
-              ) : (
-                <div className="flex h-60 items-center justify-center rounded-lg border-2 border-dashed border-border/50 text-sm text-muted-foreground">
-                  No preview data yet — click Regenerate.
-                </div>
-              )}
-
-              {/* Quick‑adjust cards */}
-              <div className="mt-12">
-                <div className="mb-4 flex items-center justify-between">
-                  <h2 className="font-display text-2xl font-bold">
-                    Quick Adjustments
-                  </h2>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    className="h-9 px-3 text-xs"
-                    disabled={isRefreshing}
-                    onClick={() => void handleRegenerate()}
-                  >
-                    {isRefreshing ? "…" : "↺ Apply & Regenerate"}
-                  </Button>
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {attrs.map((attr, i) => (
-                    <QuickAdjustCard
-                      key={attr._id}
-                      attr={attr}
-                      index={i}
-                      onUpdate={updateAttr}
-                    />
-                  ))}
-                </div>
-              </div>
-            </div>
+            <Step3PreviewRefine
+              optimisticSaving={optimisticSaving}
+              isRefreshing={isRefreshing}
+              compareBusy={compareBusy}
+              compareResult={compareResult}
+              previewRows={previewRows}
+              explainMode={explainMode}
+              explainBusy={explainBusy}
+              selectedExplainCell={selectedExplainCell}
+              selectedExplainTrace={selectedExplainTrace}
+              realismMetadata={realismMetadata}
+              previewComparisonCols={previewComparisonCols}
+              selectedPreviewComparison={selectedPreviewComparison}
+              selectedNumericComparison={selectedNumericComparison}
+              selectedComparisonCol={selectedComparisonCol}
+              previewCols={previewCols}
+              previewColumnTemplate={previewColumnTemplate}
+              previewRowHeight={PREVIEW_ROW_HEIGHT}
+              attrs={attrs}
+              onSetStep={setStep}
+              onRegenerate={handleRegenerate}
+              onCompareDrift={handleCompareDrift}
+              onApplyRefinementRecommendations={
+                handleApplyRefinementRecommendations
+              }
+              onSetSelectedComparisonCol={setSelectedComparisonCol}
+              onToggleExplainMode={() => {
+                setExplainMode((prev) => !prev);
+                setSelectedExplainCell(null);
+                setSelectedExplainTrace(null);
+              }}
+              onExplainCellClick={handleExplainCellClick}
+              renderPreviewRow={renderPreviewRow}
+              onUpdateAttr={updateAttr}
+            />
           )}
 
           {/* ════════════════ STEP 4 ════════════════ */}
           {step === 4 && (
-            <div>
-              {generatedFiles.length === 0 ? (
-                <>
-                  <header className="mb-8">
-                    <h1 className="font-display text-4xl font-bold">
-                      Generate Your Dataset
-                    </h1>
-                    <p className="mt-2 text-muted-foreground">
-                      Choose how many rows you need and which formats to export.
-                    </p>
-                  </header>
-
-                  <div className="max-w-xl space-y-8">
-                    {/* Row count */}
-                    <div className="space-y-2">
-                      <label
-                        htmlFor="row-count"
-                        className="text-sm font-medium text-muted-foreground"
-                      >
-                        Number of Rows
-                      </label>
-                      <div className="flex items-center gap-4">
-                        <input
-                          id="row-count"
-                          type="range"
-                          min={100}
-                          max={100000}
-                          step={100}
-                          value={rowCount}
-                          onChange={(e) => setRowCount(Number(e.target.value))}
-                          className="h-2 flex-1 cursor-pointer appearance-none rounded-lg bg-border accent-primary"
-                        />
-                        <input
-                          type="number"
-                          min={1}
-                          max={10000000}
-                          className="w-32 text-center font-semibold"
-                          value={rowCount}
-                          onChange={(e) =>
-                            setRowCount(
-                              Math.max(1, Number(e.target.value) || 1),
-                            )
-                          }
-                        />
-                      </div>
-                    </div>
-
-                    {/* Format selection */}
-                    <div className="space-y-2">
-                      <label className="text-sm font-medium text-muted-foreground">
-                        Output Format
-                      </label>
-                      <div className="mt-1 flex flex-wrap gap-3">
-                        {FORMAT_OPTIONS.map(({ value, label, icon: Icon }) => (
-                          <button
-                            key={value}
-                            type="button"
-                            onClick={() => toggleFormat(value)}
-                            className={`flex h-24 w-24 flex-col items-center justify-center gap-1.5 rounded-lg border-2 text-sm font-semibold transition-all duration-150 ${
-                              formats.includes(value)
-                                ? "border-primary bg-primary/10 text-primary shadow-lg shadow-primary/10"
-                                : "border-border bg-card/70 text-muted-foreground hover:border-primary/50 hover:bg-primary/5"
-                            }`}
-                          >
-                            <Icon className="h-6 w-6" />
-                            <span>{label}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <label
-                        htmlFor="generation-seed"
-                        className="text-sm font-medium text-muted-foreground"
-                      >
-                        Reproducibility Seed (optional)
-                      </label>
-                      <input
-                        id="generation-seed"
-                        type="number"
-                        min={0}
-                        className="w-48"
-                        value={seed}
-                        placeholder="e.g. 42"
-                        onChange={(e) => setSeed(e.target.value)}
-                      />
-                      <p className="pt-1 text-xs text-muted-foreground/70">
-                        Use the same seed to regenerate identical datasets.
-                      </p>
-                    </div>
-
-                    <div className="space-y-3 rounded-lg border border-border bg-card/70 p-4">
-                      <p className="text-sm font-medium text-foreground">
-                        Generation mode:{" "}
-                        {shouldUseAsyncGeneration
-                          ? "Background job"
-                          : "Immediate"}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Auto-selected by thresholds (
-                        {AUTO_ASYNC_ROW_THRESHOLD.toLocaleString()} rows or{" "}
-                        {AUTO_ASYNC_CELL_THRESHOLD.toLocaleString()} estimated
-                        cells).
-                      </p>
-
-                      {(preflightBusy || preflightResult?.issues?.length) && (
-                        <div className="rounded border border-border/60 bg-background/40 p-3 text-xs text-muted-foreground">
-                          {preflightBusy ? (
-                            <p>Running preflight checks...</p>
-                          ) : (
-                            <>
-                              <p className="font-medium text-foreground">
-                                Preflight checks
-                              </p>
-                              {preflightResult?.issues?.length ? (
-                                <ul className="mt-1 space-y-1">
-                                  {preflightResult.issues.map((issue) => (
-                                    <li key={`${issue.code}-${issue.message}`}>
-                                      {issue.message}
-                                    </li>
-                                  ))}
-                                </ul>
-                              ) : (
-                                <p className="mt-1">
-                                  No blocking risks detected.
-                                </p>
-                              )}
-                            </>
-                          )}
-                        </div>
-                      )}
-
-                      {jobId && (
-                        <div className="space-y-2 text-xs text-muted-foreground">
-                          <div>
-                            <span className="text-foreground">Job ID:</span>{" "}
-                            {jobId}
-                          </div>
-                          <div>
-                            <span className="text-foreground">Status:</span>{" "}
-                            {jobStatus || "queued"}
-                          </div>
-                          <div>
-                            <span className="text-foreground">Stage:</span>{" "}
-                            {jobStage || "queued"}
-                          </div>
-                          <div>
-                            <span className="text-foreground">Progress:</span>{" "}
-                            {jobProgress}%
-                          </div>
-                          <div className="h-2 w-full overflow-hidden rounded bg-border">
-                            <div
-                              className="h-full bg-primary transition-all"
-                              style={{
-                                width: `${Math.max(0, Math.min(100, jobProgress))}%`,
-                              }}
-                            />
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="space-y-3 rounded-lg border border-border bg-card/70 p-4">
-                      <label className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4"
-                          checked={driftEnabled}
-                          onChange={(e) => setDriftEnabled(e.target.checked)}
-                        />
-                        Drift simulator
-                      </label>
-                      {driftEnabled && (
-                        <>
-                          <div className="space-y-2">
-                            <label className="text-xs text-muted-foreground">
-                              Drift intensity ({driftIntensity.toFixed(2)})
-                            </label>
-                            <input
-                              type="range"
-                              min={0}
-                              max={1}
-                              step={0.05}
-                              value={driftIntensity}
-                              onChange={(e) =>
-                                setDriftIntensity(Number(e.target.value))
-                              }
-                              className="h-2 w-full cursor-pointer appearance-none rounded-lg bg-border accent-primary"
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <label className="text-xs text-muted-foreground">
-                              Target columns (comma separated)
-                            </label>
-                            <input
-                              type="text"
-                              value={driftColumnsText}
-                              placeholder="age, income"
-                              onChange={(e) =>
-                                setDriftColumnsText(e.target.value)
-                              }
-                            />
-                          </div>
-                        </>
-                      )}
-                    </div>
-
-                    {/* Actions */}
-                    <div className="flex flex-wrap items-center gap-3 pt-4">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => setStep(3)}
-                      >
-                        ← Back to Preview
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="default"
-                        disabled={busy || formats.length === 0}
-                        onClick={() => void handleGenerate()}
-                      >
-                        {busy ? (
-                          <span className="flex items-center justify-center gap-2">
-                            <LoaderCircle className="h-4 w-4 animate-spin" />{" "}
-                            Generating…
-                          </span>
-                        ) : (
-                          `Generate ${rowCount.toLocaleString()} Rows`
-                        )}
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        disabled={streamingBusy || !versionId}
-                        onClick={() => void handleStreamCsvDownload()}
-                      >
-                        {streamingBusy
-                          ? `Streaming... ${formatBytes(streamedBytes)}`
-                          : "Live Stream CSV"}
-                      </Button>
-                      {shouldUseAsyncGeneration && jobId && busy && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="border-amber-400/50 text-amber-200 hover:bg-amber-500/10 hover:text-amber-100"
-                          onClick={() => void handleCancelJob()}
-                        >
-                          Cancel Job
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                </>
-              ) : (
-                /* Success state */
-                <div className="space-y-8">
-                  <div className="flex items-center gap-4">
-                    <div className="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-full bg-green-500/10 text-3xl text-green-400">
-                      <CheckCircle2 className="h-10 w-10" />
-                    </div>
-                    <div>
-                      <h2 className="font-display text-3xl font-bold">
-                        Dataset Ready!
-                      </h2>
-                      <p className="text-muted-foreground">
-                        {rowCount.toLocaleString()} rows · {attrs.length}{" "}
-                        columns · {generatedFiles.length}{" "}
-                        {generatedFiles.length === 1 ? "file" : "files"}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                    {generatedFiles.map((file) => (
-                      <div
-                        key={file.format}
-                        className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card/70 p-4"
-                      >
-                        <div>
-                          <p className="font-bold uppercase">{file.format}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {formatBytes(file.size_bytes)}
-                          </p>
-                        </div>
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          size="sm"
-                          className="h-9 px-3 text-xs"
-                          disabled={
-                            !guardrailsPassed && !allowLowQualityDownloads
-                          }
-                          onClick={() => void handleDownload(file.format)}
-                        >
-                          <Download className="mr-1.5 h-3 w-3" />
-                          Download
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-
-                  <Card className="border-border bg-card/70 p-4">
-                    <p className="text-sm font-semibold text-foreground">
-                      Feedback Learning
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Rate this generation to improve future recommendations.
-                    </p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {[1, 2, 3, 4, 5].map((rating) => (
-                        <button
-                          key={`feedback-${rating}`}
-                          type="button"
-                          className={`rounded-md border px-3 py-1 text-sm ${
-                            feedbackRating === rating
-                              ? "border-primary bg-primary/20 text-primary"
-                              : "border-border text-muted-foreground hover:border-primary/50"
-                          }`}
-                          onClick={() => setFeedbackRating(rating)}
-                        >
-                          {rating}
-                        </button>
-                      ))}
-                    </div>
-                    <textarea
-                      className="mt-3 h-20 w-full"
-                      placeholder="Optional feedback about quality or realism"
-                      value={feedbackComment}
-                      onChange={(e) => setFeedbackComment(e.target.value)}
-                    />
-                    <div className="mt-3">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        disabled={feedbackBusy || feedbackRating < 1}
-                        onClick={() => void handleSubmitFeedback()}
-                      >
-                        {feedbackBusy ? "Submitting..." : "Submit Feedback"}
-                      </Button>
-                    </div>
-                  </Card>
-
-                  {!guardrailsPassed && (
-                    <Alert>
-                      <AlertTriangle className="h-5 w-5" />
-                      <AlertDescription className="space-y-2">
-                        <p>
-                          Quality guardrails reported warnings above threshold.
-                          Review diagnostics before downloading.
-                        </p>
-                        <label className="inline-flex items-center gap-2 text-xs">
-                          <input
-                            type="checkbox"
-                            checked={allowLowQualityDownloads}
-                            onChange={(e) =>
-                              setAllowLowQualityDownloads(e.target.checked)
-                            }
-                          />
-                          I understand the risk and want to download anyway.
-                        </label>
-                      </AlertDescription>
-                    </Alert>
-                  )}
-
-                  {qualityDashboard && (
-                    <Card className="border-border bg-card/70 p-4">
-                      <h3 className="font-semibold text-foreground">
-                        Data Quality Score Dashboard
-                      </h3>
-                      <div className="mt-3 grid gap-4 lg:grid-cols-[220px_1fr]">
-                        <div className="rounded-lg border border-border/60 bg-background/40 p-4 text-center">
-                          <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                            Overall Score
-                          </p>
-                          <p className="mt-2 text-4xl font-bold text-foreground">
-                            {qualityDashboard.overall_score}
-                            <span className="text-lg text-muted-foreground">
-                              /100
-                            </span>
-                          </p>
-                          <div className="mt-3 h-2 w-full rounded bg-border/50">
-                            <div
-                              className="h-2 rounded bg-emerald-400"
-                              style={{
-                                width: `${Math.max(0, Math.min(100, qualityDashboard.overall_score))}%`,
-                              }}
-                            />
-                          </div>
-                        </div>
-
-                        <div className="space-y-3">
-                          {[
-                            [
-                              "Distribution Fidelity",
-                              qualityDashboard.metrics.distribution_fidelity,
-                            ],
-                            [
-                              "Relationship Integrity",
-                              qualityDashboard.metrics.relationship_integrity,
-                            ],
-                            [
-                              "Null Pattern Match",
-                              qualityDashboard.metrics.null_pattern_match,
-                            ],
-                            ["Uniqueness", qualityDashboard.metrics.uniqueness],
-                            ["Freshness", qualityDashboard.metrics.freshness],
-                          ].map(([label, value]) => (
-                            <div key={String(label)}>
-                              <div className="mb-1 flex items-center justify-between text-xs">
-                                <span className="text-muted-foreground">
-                                  {String(label)}
-                                </span>
-                                <span className="font-medium text-foreground">
-                                  {Number(value)}/100
-                                </span>
-                              </div>
-                              <div className="h-2 rounded bg-border/50">
-                                <div
-                                  className="h-2 rounded bg-cyan-400"
-                                  style={{
-                                    width: `${Math.max(0, Math.min(100, Number(value)))}%`,
-                                  }}
-                                />
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      {(qualityDashboard.warnings.length > 0 ||
-                        qualityDashboard.recommendations.length > 0) && (
-                        <div className="mt-4 grid gap-3 md:grid-cols-2">
-                          <div className="rounded border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-100">
-                            <p className="font-semibold">Warnings</p>
-                            {qualityDashboard.warnings.length > 0 ? (
-                              <ul className="mt-2 space-y-1">
-                                {qualityDashboard.warnings.map(
-                                  (warning, index) => (
-                                    <li key={`warn-${index}`}>- {warning}</li>
-                                  ),
-                                )}
-                              </ul>
-                            ) : (
-                              <p className="mt-2">No warnings reported.</p>
-                            )}
-                          </div>
-
-                          <div className="rounded border border-cyan-500/40 bg-cyan-500/10 p-3 text-xs text-cyan-100">
-                            <p className="font-semibold">Recommendations</p>
-                            {qualityDashboard.recommendations.length > 0 ? (
-                              <ul className="mt-2 space-y-1">
-                                {qualityDashboard.recommendations.map(
-                                  (recommendation, index) => (
-                                    <li key={`rec-${index}`}>
-                                      - {recommendation}
-                                    </li>
-                                  ),
-                                )}
-                              </ul>
-                            ) : (
-                              <p className="mt-2">No action needed.</p>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </Card>
-                  )}
-
-                  {validationSummary && (
-                    <ValidationDashboard report={validationSummary} />
-                  )}
-
-                  <div className="rounded-lg border border-border bg-card/70 p-4">
-                    <h3 className="font-semibold text-foreground">
-                      Generation Diagnostics
-                    </h3>
-                    <div className="mt-3 grid gap-3 text-xs text-muted-foreground sm:grid-cols-2">
-                      <div>
-                        <span className="text-foreground">Run ID:</span>{" "}
-                        {generationRunId || "n/a"}
-                      </div>
-                      <div>
-                        <span className="text-foreground">Signature:</span>{" "}
-                        {generationSignature
-                          ? `${generationSignature.slice(0, 16)}...`
-                          : "n/a"}
-                      </div>
-                      <div>
-                        <span className="text-foreground">
-                          Rows affected by realism:
-                        </span>{" "}
-                        {String(
-                          ((
-                            qualityReport?.realism as
-                              | Record<string, unknown>
-                              | undefined
-                          )?.total_rows_affected as number | undefined) ?? 0,
-                        )}
-                      </div>
-                      <div>
-                        <span className="text-foreground">Quality alerts:</span>{" "}
-                        {Array.isArray(qualityReport?.alerts)
-                          ? qualityReport.alerts.length
-                          : 0}
-                      </div>
-                      <div>
-                        <span className="text-foreground">
-                          Semantic applied rows:
-                        </span>{" "}
-                        {String(
-                          ((
-                            semanticRuleMetrics?.totals as
-                              | Record<string, unknown>
-                              | undefined
-                          )?.applied_rows as number | undefined) ?? 0,
-                        )}
-                      </div>
-                      <div>
-                        <span className="text-foreground">Guardrails:</span>{" "}
-                        {qualityGuardrails
-                          ? String(
-                              qualityGuardrails.passed ? "passed" : "failed",
-                            )
-                          : "n/a"}
-                      </div>
-                    </div>
-
-                    {qualityGuardrails && (
-                      <div className="mt-3 rounded border border-border/60 bg-background/40 p-3 text-xs text-muted-foreground">
-                        <p className="font-medium text-foreground">
-                          Quality Guardrails
-                        </p>
-                        <p className="mt-1">
-                          {String(qualityGuardrails.message ?? "")}
-                        </p>
-                        <p>
-                          Alerts: {String(qualityGuardrails.actual_alerts ?? 0)}{" "}
-                          / {String(qualityGuardrails.max_alerts ?? 0)}
-                        </p>
-                      </div>
-                    )}
-
-                    <div className="mt-3 rounded border border-border/60 bg-background/40 p-3 text-xs text-muted-foreground">
-                      <p className="font-medium text-foreground">
-                        Drift Simulation
-                      </p>
-                      <p className="mt-1">
-                        {driftEnabled
-                          ? `Enabled (intensity ${driftIntensity.toFixed(2)})`
-                          : "Disabled"}
-                      </p>
-                    </div>
-
-                    <div className="mt-3">
-                      <p className="text-xs font-medium text-foreground">
-                        Rule Impacts
-                      </p>
-                      <div className="mt-1 flex flex-wrap gap-2">
-                        {Object.entries(
-                          ((
-                            qualityReport?.realism as
-                              | Record<string, unknown>
-                              | undefined
-                          )?.rule_impacts as
-                            | Record<string, number>
-                            | undefined) ?? {},
-                        ).map(([ruleType, count]) => (
-                          <span
-                            key={ruleType}
-                            className="rounded border border-border bg-background/50 px-2 py-1 text-[11px] text-muted-foreground"
-                          >
-                            {ruleType}: {count}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-
-                    {semanticRuleMetrics && (
-                      <div className="mt-3 rounded border border-border/60 bg-background/40 p-3 text-xs text-muted-foreground">
-                        <p className="font-medium text-foreground">
-                          Semantic Rule Metrics
-                        </p>
-                        <div className="mt-2 space-y-1">
-                          {Object.entries(
-                            (semanticRuleMetrics.rule_metrics as
-                              | Record<string, Record<string, unknown>>
-                              | undefined) ?? {},
-                          ).map(([ruleId, metric]) => (
-                            <p key={ruleId}>
-                              {ruleId}: applied{" "}
-                              {String(metric.applied_rows ?? 0)}, skipped{" "}
-                              {String(metric.skipped_rows ?? 0)}, errors{" "}
-                              {String(metric.error_rows ?? 0)}
-                            </p>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {runComparison && (
-                      <div className="mt-3 rounded border border-border/60 bg-background/40 p-3 text-xs text-muted-foreground">
-                        <p className="font-medium text-foreground">
-                          Comparison With Previous Run
-                        </p>
-                        <p className="mt-1">
-                          Delta realism-affected rows:{" "}
-                          {String(runComparison.delta_rows_affected ?? 0)}
-                        </p>
-                        <p>
-                          Previous run id:{" "}
-                          {String(runComparison.previous_run_id ?? "n/a")}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="flex flex-wrap gap-3">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => {
-                        setGeneratedFiles([]);
-                        setQualityReport(null);
-                        setQualityDashboard(null);
-                        setQualityGuardrails(null);
-                        setValidationSummary(null);
-                        setSemanticRuleMetrics(null);
-                        setGenerationSignature("");
-                        setGenerationRunId("");
-                        setRunComparison(null);
-                        setJobId("");
-                        setJobStatus("");
-                        setJobStage("");
-                        setJobProgress(0);
-                        setRowCount(1000);
-                        setFormats(["csv"]);
-                      }}
-                    >
-                      Generate Again
-                    </Button>
-                    <Button asChild variant="default">
-                      <Link href="/dashboard">Back to Dashboard</Link>
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
+            <Step4Generate
+              generatedFiles={generatedFiles}
+              rowCount={rowCount}
+              formats={formats}
+              seed={seed}
+              attrsCount={attrs.length}
+              busy={busy}
+              streamingBusy={streamingBusy}
+              streamedBytes={streamedBytes}
+              versionId={versionId}
+              shouldUseAsyncGeneration={shouldUseAsyncGeneration}
+              preflightBusy={preflightBusy}
+              preflightResult={preflightResult}
+              jobId={jobId}
+              jobStatus={jobStatus}
+              jobStage={jobStage}
+              jobProgress={jobProgress}
+              driftEnabled={driftEnabled}
+              driftIntensity={driftIntensity}
+              driftColumnsText={driftColumnsText}
+              guardrailsPassed={guardrailsPassed}
+              allowLowQualityDownloads={allowLowQualityDownloads}
+              feedbackRating={feedbackRating}
+              feedbackComment={feedbackComment}
+              feedbackBusy={feedbackBusy}
+              qualityDashboard={qualityDashboard}
+              validationSummary={validationSummary}
+              qualityReport={qualityReport}
+              qualityGuardrails={qualityGuardrails}
+              semanticRuleMetrics={semanticRuleMetrics}
+              runComparison={runComparison}
+              generationRunId={generationRunId}
+              generationSignature={generationSignature}
+              autoAsyncRowThreshold={AUTO_ASYNC_ROW_THRESHOLD}
+              autoAsyncCellThreshold={AUTO_ASYNC_CELL_THRESHOLD}
+              onSetStep={setStep}
+              onSetRowCount={setRowCount}
+              onToggleFormat={toggleFormat}
+              onSetSeed={setSeed}
+              onGenerate={handleGenerate}
+              onStreamCsvDownload={handleStreamCsvDownload}
+              onCancelJob={handleCancelJob}
+              onSetDriftEnabled={setDriftEnabled}
+              onSetDriftIntensity={setDriftIntensity}
+              onSetDriftColumnsText={setDriftColumnsText}
+              onDownload={handleDownload}
+              onSetAllowLowQualityDownloads={setAllowLowQualityDownloads}
+              onFeedbackRatingSelect={setFeedbackRating}
+              onFeedbackCommentChange={setFeedbackComment}
+              onSubmitFeedback={handleSubmitFeedback}
+              onGenerateAgain={() => {
+                setGeneratedFiles([]);
+                setQualityReport(null);
+                setQualityDashboard(null);
+                setQualityGuardrails(null);
+                setValidationSummary(null);
+                setSemanticRuleMetrics(null);
+                setGenerationSignature("");
+                setGenerationRunId("");
+                setRunComparison(null);
+                setJobId("");
+                setJobStatus("");
+                setJobStage("");
+                setJobProgress(0);
+                setRowCount(1000);
+                setFormats(["csv"]);
+              }}
+            />
           )}
         </div>
       </div>

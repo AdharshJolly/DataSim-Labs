@@ -265,7 +265,9 @@ class GenerationOrchestrator:
                 entry["source"] = f"semantic_{transform_type}"
                 entry["generator"] = transform_type
                 entry["rule"] = str(
-                    applied_rule.get("id") or applied_rule.get("type") or "semantic_rule"
+                    applied_rule.get("id")
+                    or applied_rule.get("type")
+                    or "semantic_rule"
                 )
                 entry["depends_on"] = [
                     str(source)

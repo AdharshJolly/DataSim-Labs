@@ -117,7 +117,9 @@ export function TemplateGrid({
                 </p>
                 {template.recommended_row_range && (
                   <p className="text-[11px] text-muted-foreground">
-                    Recommended rows: {template.recommended_row_range.min.toLocaleString()} - {template.recommended_row_range.max.toLocaleString()}
+                    Recommended rows:{" "}
+                    {template.recommended_row_range.min.toLocaleString()} -{" "}
+                    {template.recommended_row_range.max.toLocaleString()}
                   </p>
                 )}
                 <div className="flex flex-wrap gap-1">

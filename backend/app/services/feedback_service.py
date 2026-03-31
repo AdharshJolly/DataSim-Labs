@@ -30,7 +30,9 @@ class FeedbackService:
             "_id": str(uuid.uuid4()),
             "user_id": str(user_id),
             "dataset_id": str(dataset_id),
-            "dataset_version_id": str(dataset_version_id) if dataset_version_id else None,
+            "dataset_version_id": (
+                str(dataset_version_id) if dataset_version_id else None
+            ),
             "rating": int(rating),
             "comment": (comment or "").strip() or None,
             "generation_signature": generation_signature,
@@ -66,7 +68,9 @@ class FeedbackService:
                 "recent": [],
             }
 
-        ratings = [int(row.get("rating", 0)) for row in rows if row.get("rating") is not None]
+        ratings = [
+            int(row.get("rating", 0)) for row in rows if row.get("rating") is not None
+        ]
         average = round(sum(ratings) / len(ratings), 3) if ratings else None
 
         recent = []
