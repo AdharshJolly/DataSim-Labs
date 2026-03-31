@@ -545,6 +545,14 @@ export interface DatasetTemplate {
   description: string;
   columns?: Record<string, unknown>;
   dependency_graph?: unknown[];
+  domain?: string;
+  complexity?: "low" | "medium" | "high" | string;
+  recommended_row_range?: {
+    min: number;
+    max: number;
+  };
+  tags?: string[];
+  quality_targets?: Record<string, number>;
 }
 
 export interface DatasetTemplatesResponse {

@@ -96,6 +96,18 @@ export function TemplateGrid({
               <p className="mt-2 line-clamp-3 text-sm text-muted-foreground">
                 {template.description}
               </p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {template.domain && (
+                  <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[11px] text-primary">
+                    {template.domain}
+                  </span>
+                )}
+                {template.complexity && (
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                    {template.complexity}
+                  </span>
+                )}
+              </div>
             </div>
 
             {template.columns && (
@@ -103,6 +115,11 @@ export function TemplateGrid({
                 <p className="text-xs font-medium text-muted-foreground">
                   Columns: {Object.keys(template.columns).length}
                 </p>
+                {template.recommended_row_range && (
+                  <p className="text-[11px] text-muted-foreground">
+                    Recommended rows: {template.recommended_row_range.min.toLocaleString()} - {template.recommended_row_range.max.toLocaleString()}
+                  </p>
+                )}
                 <div className="flex flex-wrap gap-1">
                   {Object.keys(template.columns)
                     .slice(0, 4)
@@ -120,6 +137,18 @@ export function TemplateGrid({
                     </span>
                   )}
                 </div>
+                {template.tags && template.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-1 pt-1">
+                    {template.tags.slice(0, 3).map((tag) => (
+                      <span
+                        key={`${template.id}-${tag}`}
+                        className="inline-block rounded-full bg-cyan-500/15 px-2 py-0.5 text-[11px] text-cyan-300"
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 

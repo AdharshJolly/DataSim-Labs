@@ -6,7 +6,7 @@ class TemplateService:
     @staticmethod
     def get_all_templates() -> List[Dict[str, Any]]:
         """Return prebuilt dataset templates."""
-        return [
+        templates = [
             {
                 "id": "tpl-ecommerce",
                 "name": "E-Commerce Transactions",
@@ -325,6 +325,70 @@ class TemplateService:
                 "dependency_graph": [],
             },
         ]
+
+        return [TemplateService._enrich_template(template) for template in templates]
+
+    @staticmethod
+    def _enrich_template(template: Dict[str, Any]) -> Dict[str, Any]:
+        """Attach smart-template metadata while preserving backward compatibility."""
+        template_id = str(template.get("id", "")).strip()
+        metadata_by_template = {
+            "tpl-ecommerce": {
+                "domain": "E-Commerce",
+                "complexity": "medium",
+                "recommended_row_range": {"min": 1000, "max": 1000000},
+                "tags": ["orders", "pricing", "fraud"],
+                "quality_targets": {
+                    "null_rate_max": 0.05,
+                    "uniqueness_min": 0.85,
+                },
+            },
+            "tpl-healthcare": {
+                "domain": "Healthcare",
+                "complexity": "high",
+                "recommended_row_range": {"min": 500, "max": 500000},
+                "tags": ["patients", "diagnosis", "vitals"],
+                "quality_targets": {
+                    "null_rate_max": 0.03,
+                    "uniqueness_min": 0.9,
+                },
+            },
+            "tpl-finance": {
+                "domain": "Banking",
+                "complexity": "high",
+                "recommended_row_range": {"min": 1000, "max": 2000000},
+                "tags": ["transactions", "risk", "accounts"],
+                "quality_targets": {
+                    "null_rate_max": 0.02,
+                    "uniqueness_min": 0.92,
+                },
+            },
+            "tpl-saas": {
+                "domain": "SaaS",
+                "complexity": "medium",
+                "recommended_row_range": {"min": 2000, "max": 3000000},
+                "tags": ["events", "plans", "engagement"],
+                "quality_targets": {
+                    "null_rate_max": 0.04,
+                    "uniqueness_min": 0.88,
+                },
+            },
+            "tpl-social": {
+                "domain": "Social",
+                "complexity": "medium",
+                "recommended_row_range": {"min": 5000, "max": 5000000},
+                "tags": ["posts", "followers", "engagement"],
+                "quality_targets": {
+                    "null_rate_max": 0.06,
+                    "uniqueness_min": 0.85,
+                },
+            },
+        }
+
+        metadata = metadata_by_template.get(template_id, {})
+        merged = dict(template)
+        merged.update(metadata)
+        return merged
 
     @staticmethod
     def get_all_personas() -> List[Dict[str, Any]]:
