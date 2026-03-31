@@ -6,6 +6,8 @@ from typing import Any, Dict
 
 import numpy as np
 
+from app.engine.context.generation_context import GenerationContext
+
 
 CONFIDENCE_THRESHOLD = 0.7
 CONFIDENCE_STRICT_THRESHOLD = 0.85
@@ -351,10 +353,26 @@ class SemanticRuleEngine:
 
 
 def filter_rules_by_confidence(
-    rules: list[Dict[str, Any]], threshold: float = CONFIDENCE_THRESHOLD
+    rules: list[Dict[str, Any]] | None = None,
+    threshold: float = CONFIDENCE_THRESHOLD,
+    context: GenerationContext | None = None,
 ) -> list[Dict[str, Any]]:
     """Filter rules by confidence threshold."""
-    return [r for r in rules if r.get("confidence", 0) >= threshold]
+    resolved_rules = rules or []
+    resolved_threshold = threshold
+
+    if context is not None:
+        if not resolved_rules:
+            resolved_rules = context.semantic_rules
+
+        threshold_from_context = context.config.get("semantic_confidence_threshold")
+        if threshold_from_context is not None:
+            try:
+                resolved_threshold = float(threshold_from_context)
+            except (ValueError, TypeError):
+                resolved_threshold = threshold
+
+    return [r for r in resolved_rules if r.get("confidence", 0) >= resolved_threshold]
 
 
 def sort_rules_by_priority(rules: list[Dict[str, Any]]) -> list[Dict[str, Any]]:

@@ -6,6 +6,8 @@ from typing import Any, Protocol
 
 import pandas as pd
 
+from app.engine.context.generation_context import GenerationContext
+
 
 class RuleEngineInterface(Protocol):
     """Contract for rule engines that mutate/derive dataframe values."""
@@ -19,11 +21,12 @@ class GeneratorInterface(Protocol):
 
     def generate_dataframe(
         self,
-        attributes: list[Any],
-        row_count: int,
+        attributes: list[Any] | None = None,
+        row_count: int | None = None,
         realism_rules: list[dict[str, Any]] | None = None,
         semantic_groups: list[dict[str, Any]] | None = None,
         semantic_rules: list[dict[str, Any]] | None = None,
+        context: GenerationContext | None = None,
     ) -> pd.DataFrame:
         """Generate a dataframe from attribute specs."""
 
@@ -31,5 +34,9 @@ class GeneratorInterface(Protocol):
 class SuggestionInterface(Protocol):
     """Contract for deterministic suggestion engines."""
 
-    def suggest(self, attributes: list[Any]) -> dict[str, Any]:
+    def suggest(
+        self,
+        attributes: list[Any] | None = None,
+        context: GenerationContext | None = None,
+    ) -> dict[str, Any]:
         """Return suggestions for provided attributes."""

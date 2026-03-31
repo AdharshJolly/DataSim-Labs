@@ -13,12 +13,14 @@ from app.auth.models import User
 from app.db.session import get_db
 from app.engine.dataset_generator import AttributeSpec, DatasetGenerator
 from app.engine.semantic_rule_inference import infer_semantic_rules
-from app.engine.semantic_rule_engine import (
-    SemanticRuleEngine,
+from app.engine.rules.rule_engine import SemanticRuleEngine
+from app.engine.rules.rule_executor import (
     build_deterministic_execution_order,
     filter_rules_by_confidence,
-    normalize_conflict_policy,
     sort_rules_by_priority,
+)
+from app.engine.rules.rule_utils import normalize_conflict_policy
+from app.engine.rules.rule_validator import (
     validate_semantic_rules as engine_validate_semantic_rules,
 )
 from app.engine.semantic_rule_validator import SemanticRuleValidator

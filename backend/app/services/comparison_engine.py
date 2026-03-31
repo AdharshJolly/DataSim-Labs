@@ -7,14 +7,31 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from app.engine.context.generation_context import GenerationContext
+
 
 class ComparisonEngine:
     """Computes drift metrics and actionable refinement suggestions."""
 
     @staticmethod
     def compare(
-        expected_df: pd.DataFrame, generated_df: pd.DataFrame
+        expected_df: pd.DataFrame | None = None,
+        generated_df: pd.DataFrame | None = None,
+        context: GenerationContext | None = None,
     ) -> dict[str, Any]:
+        if context is not None:
+            if expected_df is None:
+                configured_expected = context.config.get("expected_df")
+                if isinstance(configured_expected, pd.DataFrame):
+                    expected_df = configured_expected
+            if generated_df is None:
+                configured_generated = context.config.get("generated_df")
+                if isinstance(configured_generated, pd.DataFrame):
+                    generated_df = configured_generated
+
+        if expected_df is None or generated_df is None:
+            raise ValueError("expected_df and generated_df are required for comparison")
+
         if expected_df.empty or generated_df.empty:
             return {
                 "overall_drift_score": 0.0,

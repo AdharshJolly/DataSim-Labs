@@ -7,7 +7,7 @@ Validates generated data against inferred semantic rules to ensure data quality.
 import pandas as pd
 from typing import Any, Dict, List
 
-from app.engine.semantic_rule_engine import SemanticRuleEngine
+from app.engine.rules.rule_engine import SemanticRuleEngine
 
 
 CONFIDENCE_THRESHOLD = 0.7

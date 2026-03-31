@@ -5,4 +5,7 @@ from app.services.orchestration.version_config import (
     resolve_version_generation_config,
 )
 
-__all__ = ["VersionGenerationConfig", "resolve_version_generation_config"]
+__all__ = [
+    "VersionGenerationConfig",
+    "resolve_version_generation_config",
+]

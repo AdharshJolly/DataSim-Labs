@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.engine.contracts import SuggestionInterface
+from app.engine.context.generation_context import GenerationContext
 from app.schemas.dataset import AttributeConfig
 
 
@@ -13,8 +14,14 @@ class SuggestionEngine(SuggestionInterface):
 
     @staticmethod
     def suggest(
-        attributes: list[AttributeConfig],
+        attributes: list[AttributeConfig] | None = None,
+        context: GenerationContext | None = None,
     ) -> dict[str, Any]:
+        if attributes is None and context is not None:
+            attributes = context.attributes
+        if attributes is None:
+            raise ValueError("attributes are required for suggestions")
+
         attribute_suggestions: list[dict[str, Any]] = []
 
         normalized_names = [attr.name.strip().lower() for attr in attributes]

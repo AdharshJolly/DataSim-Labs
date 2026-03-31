@@ -3,8 +3,10 @@ from pathlib import Path
 
 from app.core.config import settings
 from app.db.session import database
-from app.services.generation_orchestrator import GenerationOrchestrator
 from app.services.job_manager import JobManager
+from app.services.orchestration.generation_orchestrator import (
+    GenerationWorkflowOrchestrator,
+)
 from app.worker.celery_app import celery_app
 
 
@@ -27,7 +29,7 @@ def generate_dataset_async_task(job_id: str) -> None:
         return
 
     try:
-        result = GenerationOrchestrator.generate_dataset_files(
+        result = GenerationWorkflowOrchestrator.run(
             db=database,
             user_id=uuid.UUID(str(running_job["user_id"])),
             dataset_id=uuid.UUID(str(running_job["dataset_id"])),

@@ -3,7 +3,6 @@
 import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  AlertTriangle,
   Check,
   Download,
   HelpCircle,
@@ -60,7 +59,6 @@ import {
 } from "@/lib/api-client";
 import { AuthGuard } from "@/components/auth/auth-guard";
 import { Button } from "@/components/ui/button";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useFeedback } from "@/components/ui/feedback-provider";
 import { useErrorNotifier } from "@/lib/use-error-notifier";
 import { KeyboardShortcutsModal } from "@/components/keyboard-shortcuts-modal";
@@ -69,6 +67,9 @@ import {
   StudioCommandGroup,
   StudioCommandItem,
 } from "@/components/studio-command-palette";
+import { useStudioShellState } from "@/app/studio/hooks/use-studio-shell-state";
+import { resolveGenerationMode } from "@/app/studio/logic/generation-mode";
+import { StudioErrorAlert } from "@/app/studio/ui/studio-error-alert";
 
 const ASYNC_POLL_INTERVAL_MS = 1500;
 const ASYNC_POLL_MAX_ATTEMPTS = 1200;
@@ -82,12 +83,20 @@ export default function StudioPage() {
   const router = useRouter();
   const { pushToast } = useFeedback();
   const [step, setStep] = useState<Step>(1);
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-  const [keyboardHelpOpen, setKeyboardHelpOpen] = useState(false);
-  const [optimisticSaving, setOptimisticSaving] = useState(false);
+  const {
+    error,
+    setError,
+    busy,
+    setBusy,
+    mobileSidebarOpen,
+    setMobileSidebarOpen,
+    commandPaletteOpen,
+    setCommandPaletteOpen,
+    keyboardHelpOpen,
+    setKeyboardHelpOpen,
+    optimisticSaving,
+    setOptimisticSaving,
+  } = useStudioShellState();
 
   // Step 1
   const [dsName, setDsName] = useState("");
@@ -194,12 +203,14 @@ export default function StudioPage() {
   const [feedbackBusy, setFeedbackBusy] = useState(false);
   const { notifyError } = useErrorNotifier(setError);
 
-  const estimatedCells = rowCount * Math.max(1, attrs.length);
-  const useAsyncGeneration =
-    rowCount >= AUTO_ASYNC_ROW_THRESHOLD ||
-    estimatedCells >= AUTO_ASYNC_CELL_THRESHOLD;
-  const shouldUseAsyncGeneration =
-    useAsyncGeneration || Boolean(preflightResult?.requires_async);
+  const { estimatedCells, useAsyncGeneration, shouldUseAsyncGeneration } =
+    resolveGenerationMode(
+      rowCount,
+      attrs.length,
+      AUTO_ASYNC_ROW_THRESHOLD,
+      AUTO_ASYNC_CELL_THRESHOLD,
+      Boolean(preflightResult?.requires_async),
+    );
   const guardrailsPassed =
     qualityGuardrails == null
       ? true
@@ -1281,22 +1292,7 @@ export default function StudioPage() {
           </div>
 
           {/* Error banner */}
-          {error && (
-            <Alert variant="destructive" className="mb-6">
-              <AlertTriangle className="h-5 w-5" />
-              <AlertDescription className="flex items-center justify-between">
-                <span>{error}</span>
-                <button
-                  type="button"
-                  onClick={() => setError("")}
-                  className="rounded-full p-1 transition-colors hover:bg-destructive/20"
-                  aria-label="Dismiss error"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </AlertDescription>
-            </Alert>
-          )}
+          <StudioErrorAlert error={error} onDismiss={() => setError("")} />
 
           {/* ════════════════ STEP 1 ════════════════ */}
           {step === 1 && (

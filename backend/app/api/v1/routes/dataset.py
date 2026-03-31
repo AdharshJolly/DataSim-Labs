@@ -5,7 +5,6 @@ from typing import Any
 from fastapi import APIRouter
 from fastapi import Depends, HTTPException, Query
 from fastapi.responses import FileResponse, StreamingResponse
-import pandas as pd
 from pymongo.database import Database
 
 from app.auth.dependencies import get_current_user
@@ -48,14 +47,17 @@ from app.schemas.dataset import (
 )
 from app.engine.dataset_generator import DatasetGenerator
 from app.services.dataset_repository import DatasetRepository
-from app.services.comparison_engine import ComparisonEngine
+from app.services.dataset_service import DatasetService
 from app.services.generation_orchestrator import GenerationOrchestrator
-from app.services.orchestration.version_config import resolve_version_generation_config
+from app.services.orchestration.explain_orchestrator import ExplainOrchestrator
+from app.services.orchestration.generation_orchestrator import (
+    GenerationWorkflowOrchestrator,
+)
+from app.services.orchestration.preflight_orchestrator import PreflightOrchestrator
+from app.services.orchestration.preview_orchestrator import PreviewOrchestrator
 from app.services.feedback_service import FeedbackService
 from app.services.job_manager import JobManager
-from app.services.suggestion_engine import SuggestionEngine
 from app.services.template_service import TemplateService
-from app.utils.attribute_utils import model_attributes_to_specs
 from app.utils.response_builder import (
     build_generation_response,
     build_preview_response,
@@ -83,7 +85,7 @@ def generation_preflight(
     current_user: User = Depends(get_current_user),
 ) -> GenerationPreflightResponse:
     try:
-        preflight = GenerationOrchestrator.preflight_generation(
+        preflight = PreflightOrchestrator.run(
             db=db,
             user_id=current_user.id,
             dataset_id=payload.dataset_id,
@@ -152,7 +154,7 @@ def preview_dataset(
     current_user: User = Depends(get_current_user),
 ) -> PreviewResponse:
     try:
-        preview_data = GenerationOrchestrator.generate_preview(
+        preview_data = PreviewOrchestrator.run(
             db=db,
             user_id=current_user.id,
             dataset_version_id=payload.dataset_version_id,
@@ -177,7 +179,7 @@ def explain_dataset_row(
     current_user: User = Depends(get_current_user),
 ) -> ExplainResponse:
     try:
-        explanation = GenerationOrchestrator.explain_dataset_row(
+        explanation = ExplainOrchestrator.run(
             db=db,
             user_id=current_user.id,
             dataset_version_id=payload.dataset_version_id,
@@ -197,52 +199,17 @@ def suggest_dataset_settings(
     db: Database = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> SuggestionResponse:
-    if payload.attributes:
-        suggestion = SuggestionEngine.suggest(payload.attributes)
-        return SuggestionResponse(
-            dataset_version_id=payload.dataset_version_id,
-            attribute_suggestions=suggestion.get("attribute_suggestions", []),
-            relationship_suggestions=suggestion.get("relationship_suggestions", []),
-            metadata=suggestion.get("metadata", {}),
-        )
-
-    if payload.dataset_version_id is None:
-        raise HTTPException(
-            status_code=400,
-            detail="dataset_version_id is required when attributes are not provided",
-        )
-
     try:
-        DatasetRepository.get_dataset_version_for_user(
+        suggestion = DatasetService.suggest_dataset_settings(
             db=db,
             user_id=current_user.id,
             dataset_version_id=payload.dataset_version_id,
+            attributes=payload.attributes,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        status_code = 400 if "required" in str(exc).lower() else 404
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
-    attrs = DatasetRepository.load_version_attributes(
-        db=db,
-        dataset_version_id=payload.dataset_version_id,
-    )
-
-    attributes = [
-        {
-            "name": item.name,
-            "type": item.data_type,
-            "description": item.description or "",
-            "constraints": item.constraints_json or {},
-            "distribution": item.distribution,
-            "null_percentage": item.null_percentage,
-        }
-        for item in attrs
-    ]
-
-    validated_attributes = [
-        AttributeConfig.model_validate(attribute) for attribute in attributes
-    ]
-
-    suggestion = SuggestionEngine.suggest(validated_attributes)
     return SuggestionResponse(
         dataset_version_id=payload.dataset_version_id,
         attribute_suggestions=suggestion.get("attribute_suggestions", []),
@@ -258,52 +225,17 @@ def compare_dataset_output(
     current_user: User = Depends(get_current_user),
 ) -> CompareResponse:
     try:
-        version = DatasetRepository.get_dataset_version_for_user(
+        comparison = DatasetService.compare_dataset_output(
             db=db,
             user_id=current_user.id,
             dataset_version_id=payload.dataset_version_id,
+            sample_rows=payload.sample_rows,
+            seed=payload.seed,
+            generated_data=payload.generated_data,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-    attributes = DatasetRepository.load_version_attributes(
-        db=db,
-        dataset_version_id=payload.dataset_version_id,
-    )
-    if not attributes:
-        raise HTTPException(status_code=400, detail="Dataset version has no attributes")
-
-    attribute_specs = model_attributes_to_specs(attributes)
-
-    row_count = (
-        len(payload.generated_data) if payload.generated_data else payload.sample_rows
-    )
-    generator_seed = payload.seed if payload.seed is not None else version.seed
-    baseline_generator = DatasetGenerator(seed=generator_seed)
-    expected_df = baseline_generator.generate_dataframe(
-        attributes=attribute_specs,
-        row_count=row_count,
-        semantic_rules=[],
-    )
-
-    if payload.generated_data:
-        generated_df = pd.DataFrame(payload.generated_data)
-    else:
-        version_config = resolve_version_generation_config(
-            config_json=version.config_json,
-            available_columns=[attribute.name for attribute in attribute_specs],
-        )
-        generated_generator = DatasetGenerator(seed=generator_seed)
-        generated_df = generated_generator.generate_dataframe(
-            attributes=attribute_specs,
-            row_count=row_count,
-            realism_rules=version_config.realism_rules,
-            semantic_rules=version_config.semantic_rules,
-        )
-
-    comparison = ComparisonEngine.compare(
-        expected_df=expected_df, generated_df=generated_df
-    )
+        status_code = 400 if "no attributes" in str(exc).lower() else 404
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
     return CompareResponse(
         dataset_version_id=payload.dataset_version_id,
@@ -389,7 +321,7 @@ def generate_dataset(
 ) -> GenerateResponse:
     output_root = Path(settings.artifacts_dir)
     try:
-        generation_result = GenerationOrchestrator.generate_dataset_files(
+        generation_result = GenerationWorkflowOrchestrator.run(
             db=db,
             user_id=current_user.id,
             dataset_id=payload.dataset_id,

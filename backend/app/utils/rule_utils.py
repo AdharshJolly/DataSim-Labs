@@ -4,11 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.engine.semantic_rule_engine import (
-    build_deterministic_execution_order,
-    normalize_conflict_policy,
-    validate_semantic_rules,
-)
+from app.engine.rules.rule_executor import build_deterministic_execution_order
+from app.engine.rules.rule_utils import normalize_conflict_policy
+from app.engine.rules.rule_validator import validate_semantic_rules
 
 
 def resolve_conflict_policy(value: str | None) -> str:

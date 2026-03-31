@@ -13,36 +13,12 @@ import pandas as pd
 from faker import Faker
 
 from app.engine.contracts import GeneratorInterface
-from app.engine.generators.boolean_generator import generate_boolean
-from app.engine.generators.categorical_generator import generate_categorical
-from app.engine.generators.date_generator import generate_date
-from app.engine.generators.faker_generator import (
-    generate_address,
-    generate_city,
-    generate_company,
-    generate_country,
-    generate_email,
-    generate_gender,
-    generate_name,
-    generate_phone,
-    generate_url,
-    generate_zip,
-)
-from app.engine.generators.identity_generator import (
-    detect_semantic_type,
-    generate_identity_batch,
-)
-from app.engine.generators.float_generator import generate_float
-from app.engine.generators.integer_generator import generate_integer
-from app.engine.generators.text_generator import generate_text
-from app.engine.null_injector import inject_nulls
-from app.engine.semantic_rule_engine import (
-    CONFIDENCE_THRESHOLD,
-    SemanticRuleEngine,
-    filter_rules_by_confidence,
-    sort_rules_by_priority,
-)
-from app.utils.dataframe_utils import effective_chunk_size, iter_chunks
+from app.engine.context.generation_context import GenerationContext
+from app.engine.generation.chunk_processor import ChunkProcessor
+from app.engine.generation.core_generator import CoreGenerator
+from app.engine.generation.pipeline import GenerationPipeline
+from app.engine.rules.rule_engine import SemanticRuleEngine
+from app.engine.rules.rule_executor import sort_rules_by_priority
 
 
 @dataclass(slots=True)
@@ -65,39 +41,70 @@ class DatasetGenerator(GeneratorInterface):
         self.faker = Faker()
         if seed is not None:
             self.faker.seed_instance(seed)
+        self.core_generator = CoreGenerator(rng=self.rng, faker=self.faker)
+        self.chunk_processor = ChunkProcessor()
+        self.generation_pipeline = GenerationPipeline(
+            core_generator=self.core_generator,
+            rng=self.rng,
+            faker=self.faker,
+            apply_semantic_rules=self._apply_semantic_rules,
+            topological_sort_rules=self._topological_sort_semantic_rules,
+            extract_dependencies=self._extract_dependencies,
+        )
 
     def generate_dataframe(
         self,
-        attributes: list[AttributeSpec],
-        row_count: int,
+        attributes: list[AttributeSpec] | None = None,
+        row_count: int | None = None,
         realism_rules: list[dict] | None = None,
         semantic_groups: list[dict[str, Any]] | None = None,
         semantic_rules: list[dict[str, Any]] | None = None,
+        context: GenerationContext | None = None,
     ) -> pd.DataFrame:
         """Generate a dataframe for the provided attributes and row count."""
-        frame, _ = self._generate_dataframe_with_stats(
+        (
+            resolved_attributes,
+            resolved_row_count,
+            resolved_realism_rules,
+            resolved_semantic_rules,
+        ) = self._resolve_generation_request(
             attributes=attributes,
             row_count=row_count,
             realism_rules=realism_rules,
-            semantic_groups=semantic_groups,
             semantic_rules=semantic_rules,
+            context=context,
+        )
+        frame, _ = self._generate_dataframe_with_stats(
+            attributes=resolved_attributes,
+            row_count=resolved_row_count,
+            realism_rules=resolved_realism_rules,
+            semantic_groups=semantic_groups,
+            semantic_rules=resolved_semantic_rules,
         )
         return frame
 
     def generate_preview(
         self,
-        attributes: list[AttributeSpec],
+        attributes: list[AttributeSpec] | None = None,
         realism_rules: list[dict] | None = None,
         semantic_groups: list[dict[str, Any]] | None = None,
         semantic_rules: list[dict[str, Any]] | None = None,
+        context: GenerationContext | None = None,
     ) -> list[dict[str, Any]]:
         """Generate a fixed-size 10-row preview payload."""
+        preview_row_count = 10
+        if context is not None:
+            configured_preview_rows = context.config.get("preview_row_count")
+            if isinstance(configured_preview_rows, int) and configured_preview_rows > 0:
+                preview_row_count = configured_preview_rows
+
         frame = self.generate_dataframe(
             attributes=attributes,
-            row_count=10,
+            row_count=preview_row_count,
             realism_rules=realism_rules,
             semantic_groups=semantic_groups,
             semantic_rules=semantic_rules,
+            context=context,
         )
         return frame.to_dict(orient="records")
 
@@ -114,8 +121,22 @@ class DatasetGenerator(GeneratorInterface):
         semantic_rules: list[dict[str, Any]] | None = None,
         min_chunk_size: int = 10_000,
         target_cells_per_chunk: int = 1_500_000,
+        context: GenerationContext | None = None,
     ) -> dict[str, Any]:
         """Export datasets in one consistent pass and return files + quality report."""
+        (
+            resolved_attributes,
+            resolved_row_count,
+            resolved_realism_rules,
+            resolved_semantic_rules,
+        ) = self._resolve_generation_request(
+            attributes=attributes,
+            row_count=row_count,
+            realism_rules=realism_rules,
+            semantic_rules=semantic_rules,
+            context=context,
+        )
+
         clean_formats = [
             fmt.lower()
             for fmt in formats
@@ -137,10 +158,10 @@ class DatasetGenerator(GeneratorInterface):
         for export_format in clean_formats:
             file_paths[export_format].unlink(missing_ok=True)
 
-        resolved_chunk_size = effective_chunk_size(
+        resolved_chunk_size = self.chunk_processor.resolve_chunk_size(
             base_chunk_size=chunk_size,
-            attribute_count=max(1, len(attributes)),
-            row_count=row_count,
+            attribute_count=max(1, len(resolved_attributes)),
+            row_count=resolved_row_count,
             min_chunk_size=min_chunk_size,
             target_cells_per_chunk=target_cells_per_chunk,
         )
@@ -164,16 +185,18 @@ class DatasetGenerator(GeneratorInterface):
         if "excel" in clean_formats:
             excel_writer = pd.ExcelWriter(file_paths["excel"], engine="openpyxl")
 
-        quality = self._init_quality_state(attributes=attributes)
+        quality = self._init_quality_state(attributes=resolved_attributes)
 
         try:
-            for current_chunk_size in iter_chunks(row_count, resolved_chunk_size):
+            for current_chunk_size in self.chunk_processor.iterate_chunks(
+                resolved_row_count, resolved_chunk_size
+            ):
                 frame, chunk_stats = self._generate_dataframe_with_stats(
-                    attributes=attributes,
+                    attributes=resolved_attributes,
                     row_count=current_chunk_size,
-                    realism_rules=realism_rules,
+                    realism_rules=resolved_realism_rules,
                     semantic_groups=semantic_groups,
-                    semantic_rules=semantic_rules,
+                    semantic_rules=resolved_semantic_rules,
                 )
                 self._update_quality_state(quality, frame, chunk_stats)
 
@@ -224,7 +247,7 @@ class DatasetGenerator(GeneratorInterface):
 
         quality_report = self._finalize_quality_report(
             quality,
-            row_count=row_count,
+            row_count=resolved_row_count,
             chunk_size_used=resolved_chunk_size,
             requested_chunk_size=chunk_size,
         )
@@ -237,65 +260,56 @@ class DatasetGenerator(GeneratorInterface):
             "validation_summary": validation_summary,
         }
 
+    def _resolve_generation_request(
+        self,
+        attributes: list[AttributeSpec] | None,
+        row_count: int | None,
+        realism_rules: list[dict] | None,
+        semantic_rules: list[dict[str, Any]] | None,
+        context: GenerationContext | None,
+    ) -> tuple[
+        list[AttributeSpec],
+        int,
+        list[dict] | None,
+        list[dict[str, Any]] | None,
+    ]:
+        """Resolve legacy args plus optional generation context into one request."""
+        resolved_attributes = attributes
+        resolved_realism_rules = realism_rules
+        resolved_semantic_rules = semantic_rules
+
+        configured_row_count: int | None = None
+        if context is not None:
+            if resolved_attributes is None:
+                resolved_attributes = context.attributes
+            if resolved_realism_rules is None:
+                resolved_realism_rules = context.realism_rules
+            if resolved_semantic_rules is None:
+                resolved_semantic_rules = context.semantic_rules
+
+            config_row_count = context.config.get("row_count")
+            if isinstance(config_row_count, int):
+                configured_row_count = config_row_count
+
+        resolved_row_count = (
+            row_count if row_count is not None else configured_row_count
+        )
+
+        if resolved_attributes is None:
+            raise ValueError("attributes are required for dataframe generation")
+        if resolved_row_count is None or resolved_row_count <= 0:
+            raise ValueError("row_count must be a positive integer")
+
+        return (
+            resolved_attributes,
+            resolved_row_count,
+            resolved_realism_rules,
+            resolved_semantic_rules,
+        )
+
     def _generate_column(self, attr: AttributeSpec, row_count: int) -> pd.Series:
         """Dispatch one attribute to its dedicated generator."""
-        data_type = attr.data_type
-        distribution = attr.distribution
-        constraints = attr.constraints
-
-        if data_type == "integer":
-            return generate_integer(
-                attr.name, constraints, distribution, row_count, self.rng
-            )
-        if data_type == "float":
-            return generate_float(
-                attr.name, constraints, distribution, row_count, self.rng
-            )
-        if data_type == "categorical":
-            return generate_categorical(attr.name, constraints, row_count, self.rng)
-        if data_type == "boolean":
-            return generate_boolean(attr.name, constraints, row_count, self.rng)
-        if data_type == "date":
-            return generate_date(
-                attr.name, constraints, distribution, row_count, self.rng
-            )
-        if data_type == "text":
-            return generate_text(
-                attr.name, constraints, row_count, self.rng, self.faker
-            )
-        if data_type == "email":
-            return generate_email(attr.name, row_count, self.faker)
-        if data_type == "name":
-            return generate_name(attr.name, row_count, self.faker)
-        if data_type == "address":
-            return generate_address(attr.name, row_count, self.faker)
-        if data_type == "semantic":
-            semantic_kind = str(constraints.get("semantic_type", "")).lower()
-            if semantic_kind == "email":
-                return generate_email(attr.name, row_count, self.faker)
-            if semantic_kind == "name":
-                return generate_name(attr.name, row_count, self.faker)
-            if semantic_kind == "address":
-                return generate_address(attr.name, row_count, self.faker)
-            if semantic_kind == "phone":
-                return generate_phone(attr.name, row_count, self.faker)
-            if semantic_kind == "url":
-                return generate_url(attr.name, row_count, self.faker)
-            if semantic_kind == "company":
-                return generate_company(attr.name, row_count, self.faker)
-            if semantic_kind == "city":
-                return generate_city(attr.name, row_count, self.faker)
-            if semantic_kind == "country":
-                return generate_country(attr.name, row_count, self.faker)
-            if semantic_kind == "zip":
-                return generate_zip(attr.name, row_count, self.faker)
-            if semantic_kind == "gender":
-                return generate_gender(attr.name, row_count, self.faker)
-            return generate_text(
-                attr.name, constraints, row_count, self.rng, self.faker
-            )
-
-        raise ValueError(f"Unsupported data type: {data_type}")
+        return self.core_generator.generate_column(attr=attr, row_count=row_count)
 
     def _generate_dataframe_with_stats(
         self,
@@ -306,76 +320,13 @@ class DatasetGenerator(GeneratorInterface):
         semantic_rules: list[dict[str, Any]] | None,
     ) -> tuple[pd.DataFrame, dict[str, Any]]:
         """Generate one chunk, apply realism, then inject nulls to preserve targets."""
-        resolved_groups = semantic_groups or self._detect_semantic_groups(attributes)
-        filtered_semantic_rules = filter_rules_by_confidence(
-            semantic_rules or [], CONFIDENCE_THRESHOLD
-        )
-        sorted_semantic_rules = self._topological_sort_semantic_rules(
-            filtered_semantic_rules
-        )
-        _, dependent_columns = self._extract_dependencies(sorted_semantic_rules)
-
-        data: dict[str, pd.Series] = {}
-        grouped_columns: set[str] = set()
-        grouped_data = self._generate_semantic_group_columns(
-            groups=resolved_groups,
+        return self.generation_pipeline.generate_chunk(
             attributes=attributes,
             row_count=row_count,
+            realism_rules=realism_rules,
+            semantic_groups=semantic_groups,
+            semantic_rules=semantic_rules,
         )
-        for column_name, values in grouped_data.items():
-            grouped_columns.add(column_name)
-            data[column_name] = pd.Series(values, name=column_name)
-
-        for attr in attributes:
-            if attr.name in grouped_columns:
-                continue
-            if attr.name in dependent_columns:
-                continue
-            data[attr.name] = self._generate_column(attr=attr, row_count=row_count)
-
-        frame = pd.DataFrame(data)
-
-        semantic_stats: dict[str, Any] = {
-            "rule_metrics": {},
-            "totals": {
-                "rules_considered": 0,
-                "attempted_rows": 0,
-                "applied_rows": 0,
-                "skipped_rows": 0,
-                "error_rows": 0,
-            },
-        }
-        if sorted_semantic_rules:
-            frame, semantic_stats = self._apply_semantic_rules(
-                frame=frame,
-                rules=sorted_semantic_rules,
-                attributes=attributes,
-            )
-        realism_stats: dict[str, Any] = {
-            "rule_impacts": {},
-            "total_rows_affected": 0,
-            "rule_count": 0,
-        }
-
-        if realism_rules:
-            from app.engine.realism_processor import RealismProcessor  # deferred
-
-            processor = RealismProcessor(faker=self.faker, rng=self.rng)
-            frame, realism_stats = processor.apply_with_stats(frame, realism_rules)
-
-        for attr in attributes:
-            if attr.name not in frame.columns:
-                frame[attr.name] = pd.Series([None] * row_count, name=attr.name)
-            frame[attr.name] = inject_nulls(
-                series=frame[attr.name],
-                null_percentage=attr.null_percentage,
-                rng=self.rng,
-            )
-
-        return frame, {
-            **realism_stats,
-            "semantic_rules": semantic_stats,
-        }
 
     def _extract_dependencies(
         self,
@@ -525,38 +476,7 @@ class DatasetGenerator(GeneratorInterface):
         attributes: list[AttributeSpec],
     ) -> list[dict[str, Any]]:
         """Infer identity groups from configured attributes using semantic type heuristics."""
-        column_type_map: dict[str, str] = {}
-        for attribute in attributes:
-            inferred_type = detect_semantic_type(attribute.name)
-            if inferred_type:
-                column_type_map[attribute.name] = inferred_type
-
-        name_columns = [
-            column
-            for column, semantic_type in column_type_map.items()
-            if semantic_type == "name"
-        ]
-        email_columns = [
-            column
-            for column, semantic_type in column_type_map.items()
-            if semantic_type == "email"
-        ]
-
-        if not name_columns or not email_columns:
-            return []
-
-        columns = [*name_columns, *email_columns]
-        return [
-            {
-                "type": "identity",
-                "columns": columns,
-                "column_type_map": {
-                    column: column_type_map[column]
-                    for column in columns
-                    if column in column_type_map
-                },
-            }
-        ]
+        return self.core_generator.detect_semantic_groups(attributes=attributes)
 
     def _generate_semantic_group_columns(
         self,
@@ -564,42 +484,18 @@ class DatasetGenerator(GeneratorInterface):
         attributes: list[AttributeSpec],
         row_count: int,
     ) -> dict[str, list[str]]:
-        allowed_columns = {attribute.name for attribute in attributes}
-        grouped_data: dict[str, list[str]] = {}
-        already_bound: set[str] = set()
-
-        for group in groups:
-            if str(group.get("type", "")).lower() != "identity":
-                continue
-
-            requested_columns = [
-                str(column)
-                for column in group.get("columns", [])
-                if str(column) in allowed_columns
-            ]
-            if not requested_columns or any(
-                column in already_bound for column in requested_columns
-            ):
-                continue
-
-            batch = generate_identity_batch(
-                row_count=row_count,
-                faker=self.faker,
-                rng=self.rng,
-                columns=requested_columns,
-                email_domains=group.get("observed_domains"),
-                email_domain_weights=group.get("observed_domain_weights"),
-                column_type_map=group.get("column_type_map"),
-            )
-            for column in requested_columns:
-                grouped_data[column] = batch.get(column, [""] * row_count)
-                already_bound.add(column)
-
-        return grouped_data
+        return self.core_generator.generate_semantic_group_columns(
+            groups=groups,
+            attributes=attributes,
+            row_count=row_count,
+        )
 
     def _iter_chunks(self, row_count: int, chunk_size: int) -> list[int]:
         """Backward-compatible wrapper for shared chunk helper."""
-        return iter_chunks(row_count=row_count, chunk_size=chunk_size)
+        return self.chunk_processor.iterate_chunks(
+            row_count=row_count,
+            chunk_size=chunk_size,
+        )
 
     def _effective_chunk_size(
         self,
@@ -610,7 +506,7 @@ class DatasetGenerator(GeneratorInterface):
         target_cells_per_chunk: int,
     ) -> int:
         """Backward-compatible wrapper for shared chunk-size helper."""
-        return effective_chunk_size(
+        return self.chunk_processor.resolve_chunk_size(
             base_chunk_size=base_chunk_size,
             attribute_count=attribute_count,
             row_count=row_count,

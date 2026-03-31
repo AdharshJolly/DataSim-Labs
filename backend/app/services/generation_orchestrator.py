@@ -18,6 +18,7 @@ from pymongo.database import Database
 from scipy.stats import anderson_ksamp, ks_2samp
 
 from app.core.config import settings
+from app.engine.context.generation_context import GenerationContext
 from app.engine.dataset_generator import AttributeSpec, DatasetGenerator
 from app.engine.trace.trace_manager import TraceManager
 from app.models.dataset import DatasetStatus, DatasetVersion
@@ -129,12 +130,16 @@ class GenerationOrchestrator:
         )
 
         generator_seed = seed if seed is not None else version.seed
-        generator = DatasetGenerator(seed=generator_seed)
-        frame = generator.generate_dataframe(
+        generation_context = GenerationContext(
             attributes=attributes,
-            row_count=10,
             realism_rules=version_config.realism_rules,
             semantic_rules=version_config.semantic_rules,
+            seed=generator_seed,
+            config={"row_count": 10, "preview_row_count": 10},
+        )
+        generator = DatasetGenerator(seed=generator_seed)
+        frame = generator.generate_dataframe(
+            context=generation_context,
         )
         return {
             "data": frame.to_dict(orient="records"),
@@ -173,20 +178,28 @@ class GenerationOrchestrator:
         )
 
         generator_seed = seed if seed is not None else version.seed
-        base_generator = DatasetGenerator(seed=generator_seed)
-        base_frame = base_generator.generate_dataframe(
+        base_context = GenerationContext(
             attributes=attributes,
-            row_count=10,
             realism_rules=version_config.realism_rules,
             semantic_rules=[],
+            seed=generator_seed,
+            config={"row_count": 10},
+        )
+        base_generator = DatasetGenerator(seed=generator_seed)
+        base_frame = base_generator.generate_dataframe(
+            context=base_context,
         )
 
-        final_generator = DatasetGenerator(seed=generator_seed)
-        final_frame = final_generator.generate_dataframe(
+        final_context = GenerationContext(
             attributes=attributes,
-            row_count=10,
             realism_rules=version_config.realism_rules,
             semantic_rules=version_config.semantic_rules,
+            seed=generator_seed,
+            config={"row_count": 10},
+        )
+        final_generator = DatasetGenerator(seed=generator_seed)
+        final_frame = final_generator.generate_dataframe(
+            context=final_context,
         )
 
         if row_index >= len(final_frame.index):
@@ -275,6 +288,13 @@ class GenerationOrchestrator:
             max_age_hours=retention_hours,
         )
         generator_seed = seed if seed is not None else owned_version.seed
+        generation_context = GenerationContext(
+            attributes=attributes,
+            realism_rules=version_config.realism_rules,
+            semantic_rules=version_config.semantic_rules,
+            seed=generator_seed,
+            config={"row_count": row_count},
+        )
         generator = DatasetGenerator(seed=generator_seed)
         generation_signature = GenerationOrchestrator._build_generation_signature(
             dataset_id=dataset.id,
@@ -297,10 +317,7 @@ class GenerationOrchestrator:
         )
 
         generation_result = generator.export_dataset_files(
-            realism_rules=version_config.realism_rules,
-            semantic_rules=version_config.semantic_rules,
-            attributes=attributes,
-            row_count=row_count,
+            context=generation_context,
             formats=formats,
             output_root=output_root,
             chunk_size=chunk_size,

@@ -9,13 +9,27 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
 from pymongo.database import Database
 
+from app.engine.context.generation_context import GenerationContext
+from app.engine.dataset_generator import DatasetGenerator
+from app.engine.pipeline.dataframe_builder import DataFrameBuilder
+from app.engine.pipeline.dataset_pipeline import DatasetPipeline
 from app.models.dataset import Dataset, DatasetStatus, DatasetVersion
 from app.schemas.dataset import AttributeConfig
+from app.services.comparison_engine import ComparisonEngine
 from app.services.dataset_repository import DatasetRepository
 from app.services.generation_orchestrator import GenerationOrchestrator
 from app.services.job_manager import JobManager
+from app.services.orchestration.generation_orchestrator import (
+    GenerationWorkflowOrchestrator,
+)
+from app.services.orchestration.preflight_orchestrator import PreflightOrchestrator
+from app.services.orchestration.preview_orchestrator import PreviewOrchestrator
+from app.services.orchestration.version_config import resolve_version_generation_config
+from app.services.suggestion_engine import SuggestionEngine
+from app.utils.attribute_utils import model_attributes_to_specs
 
 
 class DatasetService:
@@ -108,7 +122,7 @@ class DatasetService:
         dataset_version_id: uuid.UUID,
         seed: int | None = None,
     ) -> dict[str, Any]:
-        return GenerationOrchestrator.generate_preview(
+        return PreviewOrchestrator.run(
             db=db,
             user_id=user_id,
             dataset_version_id=dataset_version_id,
@@ -124,7 +138,7 @@ class DatasetService:
         formats: list[str],
         dataset_version_id: uuid.UUID | None = None,
     ) -> dict[str, Any]:
-        return GenerationOrchestrator.preflight_generation(
+        return PreflightOrchestrator.run(
             db=db,
             user_id=user_id,
             dataset_id=dataset_id,
@@ -147,7 +161,7 @@ class DatasetService:
         retention_hours: int = 24,
         enforce_sync_limits: bool = True,
     ) -> dict[str, Any]:
-        return GenerationOrchestrator.generate_dataset_files(
+        return GenerationWorkflowOrchestrator.run(
             db=db,
             user_id=user_id,
             dataset_id=dataset_id,
@@ -233,6 +247,108 @@ class DatasetService:
         job_id: str,
     ) -> dict[str, Any]:
         return JobManager.cancel_generation_job(db=db, user_id=user_id, job_id=job_id)
+
+    @staticmethod
+    def suggest_dataset_settings(
+        db: Database,
+        user_id: uuid.UUID,
+        dataset_version_id: uuid.UUID | None = None,
+        attributes: list[AttributeConfig] | None = None,
+    ) -> dict[str, Any]:
+        if attributes:
+            return SuggestionEngine.suggest(attributes)
+
+        if dataset_version_id is None:
+            raise ValueError(
+                "dataset_version_id is required when attributes are not provided"
+            )
+
+        DatasetRepository.get_dataset_version_for_user(
+            db=db,
+            user_id=user_id,
+            dataset_version_id=dataset_version_id,
+        )
+
+        attrs = DatasetRepository.load_version_attributes(
+            db=db,
+            dataset_version_id=dataset_version_id,
+        )
+        validated_attributes = [
+            AttributeConfig.model_validate(
+                {
+                    "name": item.name,
+                    "type": item.data_type,
+                    "description": item.description or "",
+                    "constraints": item.constraints_json or {},
+                    "distribution": item.distribution,
+                    "null_percentage": item.null_percentage,
+                }
+            )
+            for item in attrs
+        ]
+        return SuggestionEngine.suggest(validated_attributes)
+
+    @staticmethod
+    def compare_dataset_output(
+        db: Database,
+        user_id: uuid.UUID,
+        dataset_version_id: uuid.UUID,
+        sample_rows: int,
+        seed: int | None = None,
+        generated_data: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        version = DatasetRepository.get_dataset_version_for_user(
+            db=db,
+            user_id=user_id,
+            dataset_version_id=dataset_version_id,
+        )
+
+        attributes = DatasetRepository.load_version_attributes(
+            db=db,
+            dataset_version_id=dataset_version_id,
+        )
+        if not attributes:
+            raise ValueError("Dataset version has no attributes")
+
+        attribute_specs = model_attributes_to_specs(attributes)
+        row_count = len(generated_data) if generated_data else sample_rows
+        generator_seed = seed if seed is not None else version.seed
+
+        baseline_generator = DatasetGenerator(seed=generator_seed)
+        expected_context = GenerationContext(
+            attributes=attribute_specs,
+            semantic_rules=[],
+            seed=generator_seed,
+            config={"row_count": row_count},
+        )
+        expected_df = DatasetPipeline.generate_dataframe(
+            generator=baseline_generator,
+            context=expected_context,
+        )
+
+        if generated_data:
+            generated_df = DataFrameBuilder.from_records(generated_data)
+        else:
+            version_config = resolve_version_generation_config(
+                config_json=version.config_json,
+                available_columns=[attribute.name for attribute in attribute_specs],
+            )
+            generated_generator = DatasetGenerator(seed=generator_seed)
+            generated_context = GenerationContext(
+                attributes=attribute_specs,
+                realism_rules=version_config.realism_rules,
+                semantic_rules=version_config.semantic_rules,
+                seed=generator_seed,
+                config={"row_count": row_count},
+            )
+            generated_df = DatasetPipeline.generate_dataframe(
+                generator=generated_generator,
+                context=generated_context,
+            )
+
+        return ComparisonEngine.compare(
+            expected_df=expected_df, generated_df=generated_df
+        )
 
     @staticmethod
     def mark_job_running(db: Database, job_id: str) -> dict[str, Any] | None:
