@@ -26,7 +26,7 @@ export function LegalPageTemplate({
 }: LegalPageTemplateProps) {
   return (
     <div className="space-y-10">
-      <section className="relative overflow-hidden rounded-2xl border border-white/10 bg-white/[0.02] p-8 md:p-10">
+      <section className="relative overflow-hidden rounded-2xl border border-border/70 bg-card/75 p-8 md:p-10">
         <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-glow-primary blur-3xl" />
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary/90">
           {eyebrow}
@@ -43,7 +43,7 @@ export function LegalPageTemplate({
       </section>
 
       <section className="grid gap-8 lg:grid-cols-[280px_1fr]">
-        <aside className="h-fit rounded-xl border border-white/10 bg-white/[0.02] p-5 lg:sticky lg:top-24">
+        <aside className="h-fit rounded-xl border border-border/70 bg-card/75 p-5 lg:sticky lg:top-24">
           <h2 className="text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">
             On this page
           </h2>
@@ -52,14 +52,14 @@ export function LegalPageTemplate({
               <a
                 key={section.id}
                 href={`#${section.id}`}
-                className="block rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-white/5 hover:text-primary"
+                className="block rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted/60 hover:text-primary"
               >
                 {section.title}
               </a>
             ))}
           </nav>
 
-          <div className="mt-6 rounded-lg border border-white/10 bg-black/20 p-3">
+          <div className="mt-6 rounded-lg border border-border/70 bg-muted/35 p-3">
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
               Related
             </p>
@@ -90,7 +90,7 @@ export function LegalPageTemplate({
         </aside>
 
         <div className="space-y-6">
-          <article className="rounded-xl border border-white/10 bg-white/[0.02] p-6 md:p-7">
+          <article className="rounded-xl border border-border/70 bg-card/75 p-6 md:p-7">
             <h2 className="font-display text-xl font-semibold">Policy scope</h2>
             <ul className="mt-4 space-y-2 text-sm leading-7 text-muted-foreground">
               {scope.map((item) => (
@@ -103,7 +103,7 @@ export function LegalPageTemplate({
             <article
               key={section.id}
               id={section.id}
-              className="scroll-mt-28 rounded-xl border border-white/10 bg-white/[0.02] p-6 md:p-7"
+              className="scroll-mt-28 rounded-xl border border-border/70 bg-card/75 p-6 md:p-7"
             >
               <h2 className="font-display text-xl font-semibold">
                 {section.title}

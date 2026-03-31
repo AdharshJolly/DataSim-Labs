@@ -38,6 +38,7 @@ pnpm-debug.log*
 # Logs and runtime files
 *.log
 *.pid
+backend/.worker-health.json
 
 # Data and generated artifacts
 artifacts/

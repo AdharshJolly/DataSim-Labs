@@ -1,2 +1,0 @@
-web: /opt/venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}
-worker: /opt/venv/bin/python -m celery -A app.worker.celery_app:celery_app worker --pool=solo --concurrency=1 --loglevel=info --without-mingle --without-gossip --without-heartbeat

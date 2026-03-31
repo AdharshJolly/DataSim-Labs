@@ -4,33 +4,33 @@
 
 @layer base {
   :root {
-    --background: 222 84% 4.9%;
-    --foreground: 210 40% 98%;
+    --background: 44 33% 98%;
+    --foreground: 220 30% 14%;
 
-    --card: 222 84% 4.9%;
-    --card-foreground: 210 40% 98%;
+    --card: 0 0% 100%;
+    --card-foreground: 220 30% 14%;
 
-    --popover: 222 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 30% 14%;
 
-    --primary: 180 100% 50%;
-    --primary-foreground: 222.2 47.4% 11.2%;
+    --primary: 195 90% 42%;
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 259 87% 69%;
-    --secondary-foreground: 210 40% 98%;
+    --secondary: 25 92% 56%;
+    --secondary-foreground: 220 30% 14%;
 
-    --muted: 217 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
+    --muted: 42 20% 93%;
+    --muted-foreground: 220 12% 40%;
 
-    --accent: 300 100% 50%;
-    --accent-foreground: 210 40% 98%;
+    --accent: 200 75% 92%;
+    --accent-foreground: 220 30% 14%;
 
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 210 40% 98%;
 
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    --ring: 180 100% 50%;
+    --border: 220 18% 84%;
+    --input: 220 18% 84%;
+    --ring: 195 90% 42%;
 
     --radius: 0.5rem;
   }
@@ -45,16 +45,16 @@
     --popover: 222 84% 4.9%;
     --popover-foreground: 210 40% 98%;
 
-    --primary: 180 100% 50%;
+    --primary: 188 96% 52%;
     --primary-foreground: 222.2 47.4% 11.2%;
 
-    --secondary: 259 87% 69%;
+    --secondary: 26 90% 60%;
     --secondary-foreground: 210 40% 98%;
 
     --muted: 217 32.6% 17.5%;
     --muted-foreground: 215 20.2% 65.1%;
 
-    --accent: 300 100% 50%;
+    --accent: 210 34% 24%;
     --accent-foreground: 210 40% 98%;
 
     --destructive: 0 62.8% 30.6%;
@@ -62,7 +62,7 @@
 
     --border: 240 3.7% 15.9%;
     --input: 240 3.7% 15.9%;
-    --ring: 180 100% 50%;
+    --ring: 188 96% 52%;
   }
 }
 
@@ -93,6 +93,7 @@
     @apply bg-background text-foreground;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: "ss01", "cv02", "cv03";
   }
 }
 
@@ -103,22 +104,55 @@
 }
 
 @layer utilities {
-  .bg-grid-white {
+  .bg-grid-white,
+  .bg-app-grid {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' width='32' height='32' fill='none' stroke='rgb(255 255 255 / 0.04)'%3E%3Cpath d='M0 .5H31.5V32'/%3E%3C/svg%3E");
   }
-  
+
+  .dark .bg-app-grid {
+    opacity: 0.2;
+  }
+
+  .bg-app-grid {
+    opacity: 0.38;
+  }
+
   .bg-glow-primary {
-    background: radial-gradient(circle at center, hsl(var(--primary) / 0.15) 0%, transparent 70%);
+    background: radial-gradient(
+      circle at center,
+      hsl(var(--primary) / 0.15) 0%,
+      transparent 70%
+    );
   }
 
   .bg-glow-secondary {
-    background: radial-gradient(circle at center, hsl(var(--secondary) / 0.1) 0%, transparent 70%);
+    background: radial-gradient(
+      circle at center,
+      hsl(var(--secondary) / 0.1) 0%,
+      transparent 70%
+    );
   }
 }
 
 body {
-  background-color: #0b0b13;
   @apply relative overflow-x-hidden;
+  background:
+    radial-gradient(
+      circle at 15% 12%,
+      hsl(var(--primary) / 0.1),
+      transparent 34%
+    ),
+    radial-gradient(
+      circle at 90% 9%,
+      hsl(var(--secondary) / 0.09),
+      transparent 38%
+    ),
+    radial-gradient(
+      circle at 50% 100%,
+      hsl(var(--accent) / 0.2),
+      transparent 32%
+    ),
+    hsl(var(--background));
 }
 
 body::before {
@@ -128,23 +162,46 @@ body::before {
   left: 0;
   right: 0;
   height: 100vh;
-  background: radial-gradient(circle at 50% -20%, hsl(var(--primary) / 0.08) 0%, transparent 60%);
+  background: radial-gradient(
+    circle at 50% -20%,
+    hsl(var(--primary) / 0.08) 0%,
+    transparent 60%
+  );
   pointer-events: none;
   z-index: -1;
 }
 
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  background: linear-gradient(
+    110deg,
+    hsl(var(--primary) / 0.05),
+    transparent 30%,
+    hsl(var(--secondary) / 0.05)
+  );
+}
+
 @layer components {
   /* Step 3: Better Form Inputs */
-  input:not([type="checkbox"]):not([type="range"]), 
-  textarea, 
+  input:not([type="checkbox"]):not([type="range"]),
+  textarea,
   select {
     @apply rounded-lg border border-border bg-white/[0.03] px-3 py-2 text-sm text-foreground transition-all placeholder:text-muted-foreground/40 focus:border-primary/50 focus:bg-white/[0.06] focus:outline-none focus:ring-1 focus:ring-primary/40;
   }
 }
 
 @keyframes flicker {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.8; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.8;
+  }
 }
 
 .animate-flicker {
@@ -152,10 +209,93 @@ body::before {
 }
 
 @keyframes subtle-float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-5px); }
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
 }
 
 .animate-subtle-float {
   animation: subtle-float 6s ease-in-out infinite;
+}
+
+@keyframes orb-drift {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  33% {
+    transform: translate3d(4vw, -3vh, 0) scale(1.08);
+  }
+  66% {
+    transform: translate3d(-3vw, 5vh, 0) scale(0.94);
+  }
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.orb {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(72px);
+  opacity: 0.4;
+  animation: orb-drift 14s ease-in-out infinite;
+}
+
+.dark .orb {
+  opacity: 0.3;
+}
+
+.orb-primary {
+  top: 10%;
+  left: -5%;
+  width: 360px;
+  height: 360px;
+  background: hsl(var(--primary) / 0.42);
+}
+
+.orb-secondary {
+  top: 55%;
+  right: -8%;
+  width: 420px;
+  height: 420px;
+  background: hsl(var(--secondary) / 0.38);
+  animation-delay: 1.6s;
+}
+
+.orb-accent {
+  bottom: -16%;
+  left: 28%;
+  width: 320px;
+  height: 320px;
+  background: hsl(var(--accent) / 0.44);
+  animation-delay: 3.4s;
+}
+
+.reveal-on-scroll {
+  opacity: 0;
+  transform: translateY(18px);
+  transition:
+    opacity 500ms ease,
+    transform 500ms ease;
+}
+
+.is-revealed {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orb,
+  .reveal-on-scroll,
+  .animate-subtle-float,
+  .animate-flicker {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+    opacity: 1 !important;
+  }
 }

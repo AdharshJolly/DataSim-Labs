@@ -169,7 +169,7 @@ export function ThemedDropdown({
       {isOpen && !disabled && (
         <div
           className={cn(
-            "absolute z-50 mt-2 max-h-72 w-full overflow-auto rounded-xl border border-border bg-[#0c0f1d] p-1 shadow-2xl shadow-black/50",
+            "absolute z-50 mt-2 max-h-72 w-full overflow-auto rounded-xl border border-border bg-popover p-1 shadow-2xl shadow-black/20",
             menuClassName,
           )}
           role="listbox"

@@ -23,10 +23,9 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { useFeedback } from "@/components/ui/feedback-provider";
+import { useErrorNotifier } from "@/lib/use-error-notifier";
 
 export default function DownloadPage() {
-  const { pushToast, showErrorDialog } = useFeedback();
   const [datasetId, setDatasetId] = useState("");
   const [files, setFiles] = useState<GeneratedFileInfo[]>([]);
   const [status, setStatus] = useState("");
@@ -36,20 +35,10 @@ export default function DownloadPage() {
     useState<ValidationSummary | null>(null);
   const [allowLowQualityDownloads, setAllowLowQualityDownloads] =
     useState(false);
+  const { notifyError } = useErrorNotifier(setError);
 
   const hasFiles = useMemo(() => files.length > 0, [files.length]);
   const validationPassed = validationSummary?.passed ?? true;
-
-  const notifyError = (title: string, err: unknown, fallback: string) => {
-    const message = err instanceof Error ? err.message : fallback;
-    setError(message);
-    pushToast({ title, message, intent: "error" });
-    showErrorDialog({
-      title,
-      message,
-      details: err instanceof Error ? err.stack : undefined,
-    });
-  };
 
   const loadFiles = async () => {
     if (!datasetId.trim()) {
@@ -154,7 +143,7 @@ export default function DownloadPage() {
       )}
 
       {/* Dataset Selector */}
-      <Card className="max-w-xl space-y-4 rounded-xl border-border bg-white/5 p-6 backdrop-blur-sm">
+      <Card className="max-w-xl space-y-4 rounded-xl border-border bg-card/70 p-6 backdrop-blur-sm">
         <div className="space-y-2">
           <label
             htmlFor="dataset-id"
@@ -196,9 +185,9 @@ export default function DownloadPage() {
           <p className="font-medium">Searching for artifacts...</p>
         </div>
       ) : hasFiles ? (
-        <Card className="overflow-hidden rounded-xl border-border bg-white/5 backdrop-blur-sm">
+        <Card className="overflow-hidden rounded-xl border-border bg-card/70 backdrop-blur-sm">
           <table className="w-full text-left text-sm">
-            <thead className="border-b border-border bg-white/5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            <thead className="border-b border-border bg-card/70 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               <tr>
                 <th className="px-6 py-4">Format</th>
                 <th className="px-6 py-4">Filename</th>
@@ -210,7 +199,7 @@ export default function DownloadPage() {
               {files.map((file) => (
                 <tr
                   key={file.file_name}
-                  className="transition-colors hover:bg-white/5"
+                  className="transition-colors hover:bg-card/70"
                 >
                   <td className="px-6 py-4">
                     <Badge

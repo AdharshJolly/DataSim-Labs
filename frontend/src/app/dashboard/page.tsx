@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   me,
   listDatasets,
@@ -26,6 +27,11 @@ import {
   Archive,
   RefreshCw,
   Clock3,
+  ChevronDown,
+  HelpCircle,
+  Menu,
+  Search,
+  Keyboard,
 } from "lucide-react";
 
 import { AuthGuard } from "@/components/auth/auth-guard";
@@ -33,10 +39,111 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { useFeedback } from "@/components/ui/feedback-provider";
+import { TemplateGrid } from "@/components/studio/template-grid";
+import { useErrorNotifier } from "@/lib/use-error-notifier";
+import { KeyboardShortcutsModal } from "@/components/keyboard-shortcuts-modal";
+import {
+  StudioCommandPalette,
+  StudioCommandGroup,
+  StudioCommandItem,
+} from "@/components/studio-command-palette";
+
+interface CreateDatasetChooserProps {
+  buttonLabel: string;
+  onChooseTemplate: () => void;
+  fullWidth?: boolean;
+}
+
+function CreateDatasetChooser({
+  buttonLabel,
+  onChooseTemplate,
+  fullWidth = false,
+}: CreateDatasetChooserProps) {
+  const router = useRouter();
+  const [isOpen, setIsOpen] = useState(false);
+  const chooserRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!chooserRef.current) return;
+      if (!chooserRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isOpen]);
+
+  const chooseBlank = () => {
+    setIsOpen(false);
+    router.push("/studio?new=true");
+  };
+
+  const chooseTemplate = () => {
+    setIsOpen(false);
+    onChooseTemplate();
+  };
+
+  return (
+    <div
+      ref={chooserRef}
+      className={fullWidth ? "relative w-full" : "relative"}
+    >
+      <Button
+        type="button"
+        variant="cyber"
+        className={fullWidth ? "min-h-12 w-full" : "min-h-12"}
+        onClick={() => setIsOpen((prev) => !prev)}
+      >
+        <Plus className="mr-2 h-4 w-4" />
+        {buttonLabel}
+      </Button>
+
+      {isOpen && (
+        <Card className="absolute right-0 z-40 mt-2 w-72 border-border bg-background p-2 shadow-2xl">
+          <button
+            type="button"
+            onClick={chooseBlank}
+            className="flex w-full items-start gap-2 rounded-md px-3 py-2 text-left transition-colors hover:bg-card/70"
+          >
+            <Plus className="mt-0.5 h-4 w-4 text-primary" />
+            <span>
+              <span className="block text-sm font-medium text-foreground">
+                Blank Dataset
+              </span>
+              <span className="block text-xs text-muted-foreground">
+                Start from scratch in Studio
+              </span>
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={chooseTemplate}
+            className="flex w-full items-start gap-2 rounded-md px-3 py-2 text-left transition-colors hover:bg-card/70"
+          >
+            <Database className="mt-0.5 h-4 w-4 text-primary" />
+            <span>
+              <span className="block text-sm font-medium text-foreground">
+                Choose From Template
+              </span>
+              <span className="block text-xs text-muted-foreground">
+                Pick a domain template first
+              </span>
+            </span>
+          </button>
+        </Card>
+      )}
+    </div>
+  );
+}
 
 export default function DashboardPage() {
-  const { pushToast, showErrorDialog } = useFeedback();
+  const router = useRouter();
   const [datasets, setDatasets] = useState<DatasetSummary[]>([]);
   const [jobs, setJobs] = useState<GenerationJobResponse[]>([]);
   const [showJobsPanel, setShowJobsPanel] = useState(false);
@@ -45,17 +152,11 @@ export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [retryingJobId, setRetryingJobId] = useState<string | null>(null);
-
-  const notifyError = (title: string, err: unknown, fallback: string) => {
-    const message = err instanceof Error ? err.message : fallback;
-    setError(message);
-    pushToast({ title, message, intent: "error" });
-    showErrorDialog({
-      title,
-      message,
-      details: err instanceof Error ? err.stack : undefined,
-    });
-  };
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [keyboardHelpOpen, setKeyboardHelpOpen] = useState(false);
+  const { notifyError } = useErrorNotifier(setError);
 
   const loadData = async () => {
     try {
@@ -74,6 +175,71 @@ export default function DashboardPage() {
       setIsLoading(false);
     }
   };
+
+  // Keyboard shortcuts handler
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const isModifier = event.metaKey || event.ctrlKey;
+      const isAltShortcut =
+        event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
+      const target = event.target as HTMLElement | null;
+      const isTypingTarget =
+        target != null &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable);
+      const key = event.key.toLowerCase();
+
+      // Escape key - close all overlays
+      if (event.key === "Escape") {
+        setCommandPaletteOpen(false);
+        setKeyboardHelpOpen(false);
+        setMobileMenuOpen(false);
+        setShowTemplatePicker(false);
+        setShowJobsPanel(false);
+        return;
+      }
+
+      // Cmd/Ctrl+K - Open command palette
+      if (isModifier && key === "k") {
+        event.preventDefault();
+        setCommandPaletteOpen(true);
+        return;
+      }
+
+      // Alt+N - Create new dataset (Ctrl/Cmd+N is browser-reserved)
+      if (isAltShortcut && key === "n" && !isTypingTarget) {
+        event.preventDefault();
+        router.push("/studio?new=true");
+        return;
+      }
+
+      // Alt+T - Choose template (Ctrl/Cmd+T is browser-reserved)
+      if (isAltShortcut && key === "t" && !isTypingTarget) {
+        event.preventDefault();
+        setShowTemplatePicker(true);
+        return;
+      }
+
+      // Cmd/Ctrl+J - Toggle jobs panel
+      if (isModifier && key === "j") {
+        event.preventDefault();
+        setShowJobsPanel((prev) => !prev);
+        return;
+      }
+
+      // Cmd/Ctrl+/ - Show keyboard help
+      if (isModifier && key === "/") {
+        event.preventDefault();
+        setKeyboardHelpOpen(true);
+        return;
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [router, datasets]);
 
   useEffect(() => {
     void loadData();
@@ -186,9 +352,33 @@ export default function DashboardPage() {
             )}
           </div>
           <div className="flex items-center gap-2">
+            {/* Keyboard shortcut hint */}
+            <button
+              type="button"
+              onClick={() => setCommandPaletteOpen(true)}
+              className="hidden gap-2 rounded-lg border border-border/50 bg-card/70 px-3 py-2.5 text-sm text-muted-foreground transition-all hover:border-primary/50 hover:bg-primary/10 hover:text-foreground md:flex items-center"
+              aria-label="Open command palette"
+            >
+              <Search className="h-4 w-4" />
+              <span>Quick search</span>
+              <kbd className="ml-auto rounded bg-muted/70 px-1.5 font-mono text-xs">
+                Ctrl+K
+              </kbd>
+            </button>
             <Button
               type="button"
               variant="outline"
+              size="icon"
+              className="h-12 w-12 md:hidden"
+              aria-label="Open dashboard menu"
+              onClick={() => setMobileMenuOpen(true)}
+            >
+              <Menu className="h-5 w-5" />
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="min-h-12"
               onClick={() => setShowJobsPanel((prev) => !prev)}
             >
               {showJobsPanel ? "Hide Jobs" : "My Jobs"}
@@ -196,22 +386,77 @@ export default function DashboardPage() {
                 {jobs.length}
               </Badge>
             </Button>
-            <Button asChild variant="cyber" className="!h-11">
-              <Link href="/studio?new=true">
-                <Plus className="mr-2 h-4 w-4" />
-                New Dataset
-              </Link>
-            </Button>
             <Button
               type="button"
               variant="outline"
-              className="group hover:border-red-500/50 hover:bg-red-500/10 hover:text-red-400"
+              size="icon"
+              className="min-h-12"
+              onClick={() => setKeyboardHelpOpen(true)}
+              aria-label="Show keyboard shortcuts"
+              title="Keyboard shortcuts (Ctrl+/)"
+            >
+              <Keyboard className="h-4 w-4" />
+            </Button>
+            <CreateDatasetChooser
+              buttonLabel="Create Dataset"
+              onChooseTemplate={() => setShowTemplatePicker(true)}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              className="group min-h-12 hover:border-red-500/50 hover:bg-red-500/10 hover:text-red-400"
               onClick={handleLogout}
             >
               <LogOut className="h-4 w-4 transition-transform group-hover:scale-110" />
             </Button>
           </div>
         </div>
+
+        {mobileMenuOpen && (
+          <>
+            <button
+              type="button"
+              className="fixed inset-0 z-40 bg-card/70 md:hidden"
+              aria-label="Close mobile dashboard menu"
+              onClick={() => setMobileMenuOpen(false)}
+            />
+            <Card className="fixed right-4 top-24 z-50 w-[min(320px,90vw)] border-border bg-background p-2 md:hidden">
+              <button
+                type="button"
+                className="flex min-h-12 w-full items-center gap-3 rounded-md px-3 py-3 text-left text-sm text-foreground transition-colors hover:bg-card/70"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  window.scrollTo({ top: 0, behavior: "smooth" });
+                }}
+              >
+                <Database className="h-4 w-4 text-primary" />
+                Dataset List
+              </button>
+              <button
+                type="button"
+                className="flex min-h-12 w-full items-center gap-3 rounded-md px-3 py-3 text-left text-sm text-foreground transition-colors hover:bg-card/70"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  router.push("/studio?new=true");
+                }}
+              >
+                <Plus className="h-4 w-4 text-primary" />
+                Create New Dataset
+              </button>
+              <button
+                type="button"
+                className="flex min-h-12 w-full items-center gap-3 rounded-md px-3 py-3 text-left text-sm text-foreground transition-colors hover:bg-card/70"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  router.push("/terms");
+                }}
+              >
+                <HelpCircle className="h-4 w-4 text-primary" />
+                Help
+              </button>
+            </Card>
+          </>
+        )}
 
         {error && (
           <Alert variant="destructive">
@@ -245,19 +490,20 @@ export default function DashboardPage() {
                 Create your first synthetic dataset to get started.
               </p>
             </div>
-            <Button asChild variant="cyber" className="!h-12">
-              <Link href="/studio?new=true">
-                <Plus className="mr-2 h-4 w-4" />
-                Create Your First Dataset
-              </Link>
-            </Button>
+            <div className="w-full max-w-sm">
+              <CreateDatasetChooser
+                buttonLabel="Create Your First Dataset"
+                onChooseTemplate={() => setShowTemplatePicker(true)}
+                fullWidth
+              />
+            </div>
           </div>
         ) : (
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {datasets.map((dataset) => (
               <Card
                 key={dataset.id}
-                className="group flex flex-col gap-4 rounded-2xl bg-gradient-to-br from-white/[0.05] to-transparent p-5 backdrop-blur-sm transition-all duration-300 hover:-translate-y-1 hover:border-primary/50 hover:shadow-xl hover:shadow-primary/5"
+                className="group flex flex-col gap-4 rounded-2xl bg-gradient-to-br from-card/90 to-transparent p-5 backdrop-blur-sm transition-all duration-300 hover:-translate-y-1 hover:border-primary/50 hover:shadow-xl hover:shadow-primary/10"
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
@@ -335,6 +581,46 @@ export default function DashboardPage() {
           </div>
         )}
       </section>
+      {showTemplatePicker && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Choose a dataset template"
+        >
+          <Card className="max-h-[85vh] w-full max-w-5xl overflow-y-auto border-border bg-background p-6">
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <h2 className="font-display text-2xl font-bold text-foreground">
+                  Choose a Template
+                </h2>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Select a schema and continue in Studio.
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={() => setShowTemplatePicker(false)}
+                aria-label="Close template picker"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+
+            <TemplateGrid
+              showCreateLink={false}
+              onSelectTemplate={async (template) => {
+                setShowTemplatePicker(false);
+                router.push(
+                  `/studio?new=true&template=${encodeURIComponent(template.id)}`,
+                );
+              }}
+            />
+          </Card>
+        </div>
+      )}
 
       {datasets.length !== 0 && (
         <>
@@ -343,7 +629,7 @@ export default function DashboardPage() {
               type="button"
               aria-label="Close jobs panel"
               onClick={() => setShowJobsPanel(false)}
-              className="fixed inset-0 z-[70] bg-black/20 backdrop-blur-[1px]"
+              className="fixed inset-0 z-[70] bg-muted/35 backdrop-blur-[1px]"
             />
           )}
 
@@ -439,6 +725,113 @@ export default function DashboardPage() {
           </aside>
         </>
       )}
+
+      {/* Command Palette */}
+      <StudioCommandPalette
+        open={commandPaletteOpen}
+        onOpenChange={setCommandPaletteOpen}
+      >
+        <StudioCommandGroup heading="Navigation">
+          <StudioCommandItem
+            onSelect={() => {
+              setCommandPaletteOpen(false);
+              router.push("/dashboard");
+            }}
+          >
+            <Search className="h-4 w-4 text-cyan-300" />
+            Dataset List
+          </StudioCommandItem>
+          <StudioCommandItem
+            onSelect={() => {
+              setCommandPaletteOpen(false);
+              router.push("/studio?new=true");
+            }}
+          >
+            <Plus className="h-4 w-4 text-cyan-300" />
+            Create New Dataset
+          </StudioCommandItem>
+          <StudioCommandItem
+            onSelect={() => {
+              setCommandPaletteOpen(false);
+              setShowTemplatePicker(true);
+            }}
+          >
+            <Database className="h-4 w-4 text-cyan-300" />
+            Choose Template
+          </StudioCommandItem>
+          <StudioCommandItem
+            onSelect={() => {
+              setCommandPaletteOpen(false);
+              router.push("/terms");
+            }}
+          >
+            <HelpCircle className="h-4 w-4 text-cyan-300" />
+            Help
+          </StudioCommandItem>
+        </StudioCommandGroup>
+
+        <StudioCommandGroup heading="Actions">
+          <StudioCommandItem
+            onSelect={() => {
+              setCommandPaletteOpen(false);
+              setShowJobsPanel((prev) => !prev);
+            }}
+          >
+            <LoaderCircle className="h-4 w-4 text-cyan-300" />
+            Toggle Jobs Panel
+          </StudioCommandItem>
+          <StudioCommandItem
+            onSelect={() => {
+              setCommandPaletteOpen(false);
+              setKeyboardHelpOpen(true);
+            }}
+          >
+            <Keyboard className="h-4 w-4 text-cyan-300" />
+            Keyboard Shortcuts
+          </StudioCommandItem>
+          <StudioCommandItem
+            onSelect={() => {
+              setCommandPaletteOpen(false);
+              handleLogout();
+            }}
+          >
+            <LogOut className="h-4 w-4 text-cyan-300" />
+            Logout
+          </StudioCommandItem>
+        </StudioCommandGroup>
+
+        {datasets.length > 0 && (
+          <StudioCommandGroup heading="Datasets">
+            {datasets.slice(0, 8).map((dataset) => (
+              <StudioCommandItem
+                key={dataset.id}
+                onSelect={() => {
+                  setCommandPaletteOpen(false);
+                  router.push(`/studio?datasetId=${dataset.id}`);
+                }}
+              >
+                <Database className="h-4 w-4 text-cyan-300" />
+                {dataset.name}
+              </StudioCommandItem>
+            ))}
+          </StudioCommandGroup>
+        )}
+      </StudioCommandPalette>
+
+      {/* Keyboard Help Modal */}
+      <KeyboardShortcutsModal
+        open={keyboardHelpOpen}
+        onClose={() => setKeyboardHelpOpen(false)}
+        shortcuts={[
+          { keys: "Cmd/Ctrl + K", description: "Open command palette" },
+          { keys: "Alt + N", description: "Create new dataset" },
+          { keys: "Alt + T", description: "Choose template" },
+          { keys: "Cmd/Ctrl + J", description: "Toggle jobs panel" },
+          { keys: "Cmd/Ctrl + /", description: "Show keyboard help" },
+          { keys: "Esc", description: "Close dialogs and menus" },
+          { keys: "Tab / Enter", description: "Navigate and confirm controls" },
+        ]}
+      />
     </AuthGuard>
   );
 }

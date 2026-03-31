@@ -6,6 +6,11 @@ from celery import Celery  # pyright: ignore[reportMissingImports]
 from app.core.config import settings
 
 
+def _is_upstash(url: str) -> bool:
+    parsed = urlparse(url)
+    return bool(parsed.hostname and parsed.hostname.endswith("upstash.io"))
+
+
 celery_app = Celery(
     "datasim_lab",
     broker=settings.celery_broker_url,
@@ -17,11 +22,21 @@ celery_app.conf.update(
     result_serializer="json",
     accept_content=["json"],
     timezone="UTC",
-    task_track_started=True,
+    # Job lifecycle is tracked in MongoDB; skipping Celery result writes reduces Redis usage.
+    task_track_started=False,
+    task_ignore_result=True,
     task_time_limit=60 * 60,
     worker_prefetch_multiplier=1,
     broker_connection_retry_on_startup=True,
+    broker_connection_max_retries=settings.celery_broker_connection_max_retries,
 )
+
+if _is_upstash(settings.celery_broker_url):
+    # Upstash is request-metered; slower polling dramatically reduces idle command volume.
+    celery_app.conf.broker_transport_options = {
+        "polling_interval": settings.celery_redis_polling_interval_seconds,
+        "visibility_timeout": settings.celery_redis_visibility_timeout_seconds,
+    }
 
 if urlparse(settings.celery_broker_url).scheme == "rediss":
     celery_app.conf.broker_use_ssl = {"ssl_cert_reqs": ssl.CERT_REQUIRED}

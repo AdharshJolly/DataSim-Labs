@@ -47,7 +47,7 @@ function LoginContent() {
           <p className="mt-2 text-muted-foreground">Welcome back, agent.</p>
         </div>
 
-        <Card className="rounded-xl border-border bg-gradient-to-br from-white/[0.05] to-transparent p-8 backdrop-blur-[2px] shadow-xl shadow-primary/5">
+        <Card className="rounded-xl border-border bg-gradient-to-br from-card/90 to-transparent p-8 backdrop-blur-[2px] shadow-xl shadow-primary/10">
           <div className="relative z-10">
             <form onSubmit={onSubmit} className="space-y-6">
               <div className="space-y-2">

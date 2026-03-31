@@ -1,2 +1,0 @@
-web: venv\Scripts\python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000
-worker: venv\Scripts\python.exe -m celery -A app.worker.celery_app:celery_app worker --pool=solo --loglevel=info --without-mingle --without-gossip --without-heartbeat

@@ -97,70 +97,15 @@ async def get_semantic_rules(
 ) -> SemanticRulesResponseDto:
     """Get semantic rules for a dataset.
 
-    Rules are read from dataset_version.config_json.semantic_rules.
+    Profiling-backed semantic rules have been removed, so this endpoint now
+    returns an empty ruleset until semantic rules are reintroduced.
     """
-    try:
-        version = DatasetService.get_dataset_version_for_user(
-            db=db,
-            user_id=current_user.id,
-            dataset_version_id=dataset_version_id,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-    raw_rules = version.config_json.get("semantic_rules", [])
-    if not isinstance(raw_rules, list):
-        raw_rules = []
-
-    typed_rules: list[SemanticRuleDto] = []
-    for rule in raw_rules:
-        if not isinstance(rule, dict):
-            continue
-        try:
-            typed_rules.append(SemanticRuleDto.model_validate(rule))
-        except Exception:
-            continue
-
     return SemanticRulesResponseDto(
         dataset_version_id=dataset_version_id,
-        rules=typed_rules,
+        rules=[],
         metadata={
-            "rule_count": len(typed_rules),
-            "source": "dataset_version.config_json.semantic_rules",
-        },
-    )
-
-
-@router.put("/dataset/{dataset_version_id}", response_model=SemanticRulesResponseDto)
-async def upsert_semantic_rules(
-    dataset_version_id: uuid.UUID,
-    request: UpsertSemanticRulesRequestDto,
-    db: Database = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-) -> SemanticRulesResponseDto:
-    """Upsert semantic rules for a dataset version."""
-    typed_rules = [rule.model_dump(mode="json") for rule in request.rules]
-
-    try:
-        version = DatasetService.update_dataset_version_semantic_rules(
-            db=db,
-            user_id=current_user.id,
-            dataset_version_id=dataset_version_id,
-            semantic_rules=typed_rules,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-    stored_rules = version.config_json.get("semantic_rules", [])
-    if not isinstance(stored_rules, list):
-        stored_rules = []
-
-    return SemanticRulesResponseDto(
-        dataset_version_id=dataset_version_id,
-        rules=[SemanticRuleDto.model_validate(rule) for rule in stored_rules],
-        metadata={
-            "rule_count": len(stored_rules),
-            "updated": True,
+            "rule_count": 0,
+            "profiling_removed": True,
         },
     )
 
