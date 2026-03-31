@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import APIRouter
 from fastapi import Depends, HTTPException, Query
 from fastapi.responses import FileResponse
+import pandas as pd
 from pymongo.database import Database
 
 from app.auth.dependencies import get_current_user
@@ -37,10 +38,14 @@ from app.schemas.dataset import (
     ExplainResponse,
     SuggestionRequest,
     SuggestionResponse,
+    CompareRequest,
+    CompareResponse,
     PreviewRequest,
     PreviewResponse,
 )
+from app.engine.dataset_generator import AttributeSpec, DatasetGenerator
 from app.services.dataset_repository import DatasetRepository
+from app.services.comparison_engine import ComparisonEngine
 from app.services.generation_orchestrator import GenerationOrchestrator
 from app.services.job_manager import JobManager
 from app.services.suggestion_engine import SuggestionEngine
@@ -232,6 +237,72 @@ def suggest_dataset_settings(
         attribute_suggestions=suggestion.get("attribute_suggestions", []),
         relationship_suggestions=suggestion.get("relationship_suggestions", []),
         metadata=suggestion.get("metadata", {}),
+    )
+
+
+@router.post("/compare", response_model=CompareResponse)
+def compare_dataset_output(
+    payload: CompareRequest,
+    db: Database = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> CompareResponse:
+    try:
+        version = DatasetRepository.get_dataset_version_for_user(
+            db=db,
+            user_id=current_user.id,
+            dataset_version_id=payload.dataset_version_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    attributes = DatasetRepository.load_version_attributes(
+        db=db,
+        dataset_version_id=payload.dataset_version_id,
+    )
+    if not attributes:
+        raise HTTPException(status_code=400, detail="Dataset version has no attributes")
+
+    attribute_specs = [
+        AttributeSpec(
+            name=attribute.name,
+            data_type=attribute.data_type.value,
+            constraints=attribute.constraints_json,
+            distribution=attribute.distribution.value,
+            null_percentage=attribute.null_percentage,
+        )
+        for attribute in attributes
+    ]
+
+    row_count = (
+        len(payload.generated_data)
+        if payload.generated_data
+        else payload.sample_rows
+    )
+    generator_seed = payload.seed if payload.seed is not None else version.seed
+    baseline_generator = DatasetGenerator(seed=generator_seed)
+    expected_df = baseline_generator.generate_dataframe(
+        attributes=attribute_specs,
+        row_count=row_count,
+        semantic_rules=[],
+    )
+
+    if payload.generated_data:
+        generated_df = pd.DataFrame(payload.generated_data)
+    else:
+        generated_generator = DatasetGenerator(seed=generator_seed)
+        generated_df = generated_generator.generate_dataframe(
+            attributes=attribute_specs,
+            row_count=row_count,
+            semantic_rules=version.config_json.get("semantic_rules", []),
+        )
+
+    comparison = ComparisonEngine.compare(expected_df=expected_df, generated_df=generated_df)
+
+    return CompareResponse(
+        dataset_version_id=payload.dataset_version_id,
+        overall_drift_score=float(comparison.get("overall_drift_score", 0.0)),
+        metrics=comparison.get("metrics", []),
+        recommendations=comparison.get("recommendations", []),
     )
 
 

@@ -53,6 +53,7 @@ import {
   previewDataset,
   explainDatasetRow,
   suggestDatasetSettings,
+  compareDatasetOutput,
   saveAttributes,
   getSemanticRules,
   inferSemanticRules,
@@ -64,6 +65,7 @@ import {
   type GenerationPreflightResponse,
   type ExplainResponse,
   type AttributeSuggestion,
+  type CompareResponse,
 } from "@/lib/api-client";
 
 import { ValidationDashboard } from "@/components/studio/validation-dashboard";
@@ -195,6 +197,10 @@ export default function StudioPage() {
   const [selectedExplainTrace, setSelectedExplainTrace] = useState<
     ExplainResponse | null
   >(null);
+  const [compareBusy, setCompareBusy] = useState(false);
+  const [compareResult, setCompareResult] = useState<CompareResponse | null>(
+    null,
+  );
   const [previewComparisonCols, setPreviewComparisonCols] = useState<
     PreviewColumnComparison[]
   >([]);
@@ -1072,6 +1078,7 @@ export default function StudioPage() {
       setPreviewCols(res.data.length > 0 ? Object.keys(res.data[0]) : []);
       setSelectedExplainCell(null);
       setSelectedExplainTrace(null);
+      setCompareResult(null);
 
       const nextComparisonCols = res.comparison?.columns ?? [];
       setPreviewComparisonCols(nextComparisonCols);
@@ -1121,6 +1128,76 @@ export default function StudioPage() {
     } finally {
       setExplainBusy(false);
     }
+  };
+
+  const handleCompareDrift = async () => {
+    if (!versionId) {
+      setError("Save attributes first before comparing drift.");
+      return;
+    }
+    if (previewRows.length === 0) {
+      setError("Generate preview rows before running comparison.");
+      return;
+    }
+
+    setCompareBusy(true);
+    setError("");
+    try {
+      const result = await compareDatasetOutput({
+        dataset_version_id: versionId,
+        generated_data: previewRows,
+        seed: seed.trim() ? Number(seed) : undefined,
+        sample_rows: previewRows.length,
+      });
+      setCompareResult(result);
+      pushToast({
+        title: "Comparison Completed",
+        message: `Overall drift score: ${result.overall_drift_score.toFixed(3)}`,
+        intent: "success",
+      });
+    } catch (e) {
+      notifyError(
+        "Comparison Failed",
+        e,
+        "Unable to compare generated rows against expected distribution.",
+      );
+    } finally {
+      setCompareBusy(false);
+    }
+  };
+
+  const handleApplyRefinementRecommendations = () => {
+    if (!compareResult || compareResult.recommendations.length === 0) {
+      setError("No refinement recommendations available to apply.");
+      return;
+    }
+
+    const recommendationMap = new Map(
+      compareResult.recommendations.map((item) => [item.attribute_name, item]),
+    );
+
+    setAttrs((prev) =>
+      prev.map((attr) => {
+        const recommendation = recommendationMap.get(attr.name);
+        if (!recommendation) {
+          return attr;
+        }
+        return {
+          ...attr,
+          distribution: recommendation.suggested_distribution,
+          skew_direction:
+            recommendation.suggested_distribution === "skewed"
+              ? "right"
+              : attr.skew_direction,
+        };
+      }),
+    );
+
+    pushToast({
+      title: "Refinement Applied",
+      message: `Applied ${compareResult.recommendations.length} recommendation(s). Regenerate preview to evaluate impact.`,
+      intent: "success",
+    });
   };
 
   // ── Step 4: Generate ─────────────────────────────────────────
@@ -1818,6 +1895,26 @@ export default function StudioPage() {
                   </Button>
                   <Button
                     type="button"
+                    variant="outline"
+                    className="min-h-12"
+                    disabled={compareBusy || previewRows.length === 0}
+                    onClick={() => void handleCompareDrift()}
+                  >
+                    {compareBusy ? "Comparing..." : "Compare Drift"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="min-h-12"
+                    disabled={
+                      !compareResult || compareResult.recommendations.length === 0
+                    }
+                    onClick={handleApplyRefinementRecommendations}
+                  >
+                    Improve
+                  </Button>
+                  <Button
+                    type="button"
                     variant="default"
                     className="min-h-12"
                     onClick={() => setStep(4)}
@@ -2110,6 +2207,42 @@ export default function StudioPage() {
                       numeric columns.
                     </p>
                   )}
+                </Card>
+              )}
+
+              {compareResult && (
+                <Card className="mb-6 border-border bg-card/70 p-4">
+                  <p className="text-sm font-semibold text-foreground">
+                    Iterative Refinement
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Drift score: {compareResult.overall_drift_score.toFixed(3)}
+                  </p>
+                  <div className="mt-3 space-y-2 text-xs text-muted-foreground">
+                    {compareResult.metrics.slice(0, 6).map((metric) => (
+                      <div
+                        key={metric.column}
+                        className="rounded-md border border-border/60 bg-background/60 px-3 py-2"
+                      >
+                        <p className="font-medium text-foreground">
+                          {metric.column}
+                        </p>
+                        <p>
+                          mean diff {metric.mean_diff.toFixed(3)} · variance diff{" "}
+                          {metric.variance_diff.toFixed(3)} · KL{" "}
+                          {metric.kl_divergence.toFixed(3)}
+                        </p>
+                      </div>
+                    ))}
+                    {compareResult.recommendations.length > 0 ? (
+                      <p>
+                        Recommendations: {compareResult.recommendations.length} (use
+                        Improve to apply).
+                      </p>
+                    ) : (
+                      <p>No recommendations were generated for this preview.</p>
+                    )}
+                  </div>
                 </Card>
               )}
 

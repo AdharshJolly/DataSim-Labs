@@ -297,6 +297,39 @@ class SuggestionResponse(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class CompareRequest(BaseModel):
+    dataset_version_id: UUID
+    generated_data: list[dict[str, Any]] = Field(default_factory=list)
+    seed: int | None = Field(default=None, ge=0)
+    sample_rows: int = Field(default=100, ge=10, le=1000)
+
+
+class CompareMetric(BaseModel):
+    column: str
+    mean_diff: float
+    variance_diff: float
+    kl_divergence: float
+    expected_mean: float
+    generated_mean: float
+    expected_variance: float
+    generated_variance: float
+
+
+class RefinementRecommendation(BaseModel):
+    attribute_name: str
+    action: str
+    reason: str
+    suggested_distribution: str
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
+class CompareResponse(BaseModel):
+    dataset_version_id: UUID
+    overall_drift_score: float
+    metrics: list[CompareMetric] = Field(default_factory=list)
+    recommendations: list[RefinementRecommendation] = Field(default_factory=list)
+
+
 class GenerateRequest(BaseModel):
     dataset_id: UUID
     dataset_version_id: UUID | None = None

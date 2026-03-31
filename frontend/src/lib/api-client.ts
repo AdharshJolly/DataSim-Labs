@@ -293,6 +293,39 @@ export interface SuggestionResponse {
   metadata: Record<string, unknown>;
 }
 
+export interface CompareRequest {
+  dataset_version_id: string;
+  generated_data: Record<string, unknown>[];
+  seed?: number;
+  sample_rows?: number;
+}
+
+export interface CompareMetric {
+  column: string;
+  mean_diff: number;
+  variance_diff: number;
+  kl_divergence: number;
+  expected_mean: number;
+  generated_mean: number;
+  expected_variance: number;
+  generated_variance: number;
+}
+
+export interface RefinementRecommendation {
+  attribute_name: string;
+  action: string;
+  reason: string;
+  suggested_distribution: DistributionType;
+  confidence: number;
+}
+
+export interface CompareResponse {
+  dataset_version_id: string;
+  overall_drift_score: number;
+  metrics: CompareMetric[];
+  recommendations: RefinementRecommendation[];
+}
+
 export interface PreviewHistogramBin {
   bin_start: number;
   bin_end: number;
@@ -666,6 +699,15 @@ export function suggestDatasetSettings(
   payload: SuggestionRequest,
 ): Promise<SuggestionResponse> {
   return apiRequest<SuggestionResponse>("/api/v1/dataset/suggestions", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function compareDatasetOutput(
+  payload: CompareRequest,
+): Promise<CompareResponse> {
+  return apiRequest<CompareResponse>("/api/v1/dataset/compare", {
     method: "POST",
     body: JSON.stringify(payload),
   });
