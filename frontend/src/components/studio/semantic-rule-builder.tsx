@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { FlaskConical, Plus, Save, Trash2 } from "lucide-react";
+import { FlaskConical, Sparkles, Plus, Save, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -22,9 +22,11 @@ interface SemanticRuleBuilderProps {
   onConflictPolicyChange: (policy: SemanticConflictPolicy) => void;
   onSave: () => Promise<void>;
   onDryRun: () => Promise<void>;
+  onInfer: () => Promise<void>;
   saveDisabled?: boolean;
   saveBusy?: boolean;
   dryRunBusy?: boolean;
+  inferBusy?: boolean;
 }
 
 const defaultCityStateMap = {
@@ -63,9 +65,11 @@ export function SemanticRuleBuilder({
   onConflictPolicyChange,
   onSave,
   onDryRun,
+  onInfer,
   saveDisabled = false,
   saveBusy = false,
   dryRunBusy = false,
+  inferBusy = false,
 }: SemanticRuleBuilderProps) {
   const [domainPoolText, setDomainPoolText] = useState(
     "gmail.com, yahoo.com, outlook.com",
@@ -272,6 +276,15 @@ export function SemanticRuleBuilder({
         >
           <FlaskConical className="mr-2 h-4 w-4" />
           {dryRunBusy ? "Dry Run..." : "Dry Run"}
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={() => void onInfer()}
+          disabled={saveDisabled || inferBusy}
+        >
+          <Sparkles className="mr-2 h-4 w-4" />
+          {inferBusy ? "Inferring..." : "Infer Rules"}
         </Button>
       </div>
 

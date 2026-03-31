@@ -53,6 +53,7 @@ import {
   previewDataset,
   saveAttributes,
   getSemanticRules,
+  inferSemanticRules,
   upsertSemanticRules,
   type DryRunSemanticRulesResponse,
   type SemanticRule,
@@ -169,6 +170,7 @@ export default function StudioPage() {
   const [semanticRulesText, setSemanticRulesText] = useState("[]");
   const [semanticRulesSaving, setSemanticRulesSaving] = useState(false);
   const [semanticRulesDryRunning, setSemanticRulesDryRunning] = useState(false);
+  const [semanticRulesInferring, setSemanticRulesInferring] = useState(false);
   const [semanticConflictPolicy, setSemanticConflictPolicy] =
     useState<SemanticConflictPolicy>("priority_wins");
   const [semanticRuleMetadata, setSemanticRuleMetadata] =
@@ -657,6 +659,83 @@ export default function StudioPage() {
       );
     } finally {
       setSemanticRulesDryRunning(false);
+    }
+  };
+
+  const mergeSemanticRuleSets = (
+    existing: SemanticRule[],
+    incoming: SemanticRule[],
+  ): SemanticRule[] => {
+    const seen = new Set<string>();
+    const merged: SemanticRule[] = [];
+
+    const pushIfUnique = (rule: SemanticRule) => {
+      const key = JSON.stringify({
+        target: rule.target,
+        sources: [...rule.sources].sort(),
+        type: rule.type,
+        transform: rule.transform,
+      });
+      if (seen.has(key)) {
+        return;
+      }
+      seen.add(key);
+      merged.push(rule);
+    };
+
+    for (const rule of existing) {
+      pushIfUnique(rule);
+    }
+    for (const rule of incoming) {
+      pushIfUnique(rule);
+    }
+
+    return merged;
+  };
+
+  const handleInferSemanticRules = async () => {
+    if (!versionId) {
+      setError(
+        "Save attributes first to create a version before inferring rules.",
+      );
+      return;
+    }
+
+    setSemanticRulesInferring(true);
+    setError("");
+    try {
+      const response = await inferSemanticRules({
+        dataset_version_id: versionId,
+        sample_rows: 50,
+        max_rules: 20,
+        min_confidence: 0.7,
+        seed: seed.trim() ? Number(seed) : undefined,
+        conflict_policy: semanticConflictPolicy,
+      });
+
+      const inferred = response.rules ?? [];
+      const nextRules = mergeSemanticRuleSets(semanticRules, inferred);
+      setSemanticRulesText(JSON.stringify(nextRules, null, 2));
+      setSemanticRuleMetadata(response.metadata ?? null);
+      setSemanticDryRunResult(null);
+
+      const addedCount = Math.max(0, nextRules.length - semanticRules.length);
+      pushToast({
+        title: "Inference Completed",
+        message:
+          inferred.length === 0
+            ? "No new semantic rules were inferred from sampled rows."
+            : `Added ${addedCount} inferred rule${addedCount === 1 ? "" : "s"} (${inferred.length} returned).`,
+        intent: inferred.length === 0 ? "info" : "success",
+      });
+    } catch (e) {
+      notifyError(
+        "Semantic Inference Failed",
+        e,
+        "Unable to infer semantic rules from current dataset version.",
+      );
+    } finally {
+      setSemanticRulesInferring(false);
     }
   };
 
@@ -1463,9 +1542,11 @@ export default function StudioPage() {
                 onConflictPolicyChange={setSemanticConflictPolicy}
                 onSave={handleSaveSemanticRules}
                 onDryRun={handleDryRunSemanticRules}
+                onInfer={handleInferSemanticRules}
                 saveDisabled={!versionId}
                 saveBusy={semanticRulesSaving}
                 dryRunBusy={semanticRulesDryRunning}
+                inferBusy={semanticRulesInferring}
               />
 
               <Card className="mb-8 border-border bg-card/70 p-4">

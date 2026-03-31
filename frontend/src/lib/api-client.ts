@@ -528,6 +528,29 @@ export interface DryRunSemanticRulesResponse {
   }>;
 }
 
+export interface InferSemanticRulesRequest {
+  dataset_version_id?: string;
+  sample_data?: Record<string, unknown>[];
+  sample_rows?: number;
+  max_rules?: number;
+  min_confidence?: number;
+  seed?: number;
+  conflict_policy?: SemanticConflictPolicy;
+}
+
+export interface InferSemanticRulesResponse {
+  dataset_version_id?: string | null;
+  rules: SemanticRule[];
+  metadata: SemanticRulesMetadata & {
+    inference?: Record<string, unknown>;
+    requested_rows?: number;
+    used_rows?: number;
+    returned_rule_count?: number;
+    rule_count_before_validation?: number;
+    min_confidence?: number;
+  };
+}
+
 export function register(payload: AuthRequest): Promise<AuthResponse> {
   return apiRequest<AuthResponse>("/api/v1/auth/register", {
     method: "POST",
@@ -768,6 +791,15 @@ export function dryRunSemanticRules(
       body: JSON.stringify(payload),
     },
   );
+}
+
+export function inferSemanticRules(
+  payload: InferSemanticRulesRequest,
+): Promise<InferSemanticRulesResponse> {
+  return apiRequest<InferSemanticRulesResponse>("/api/v1/rules/infer", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 export function deleteDataset(datasetId: string): Promise<{ message: string }> {

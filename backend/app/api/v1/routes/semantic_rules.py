@@ -4,6 +4,7 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+import pandas as pd
 from pymongo.database import Database
 from pydantic import BaseModel, Field
 
@@ -11,6 +12,7 @@ from app.auth.dependencies import get_current_user
 from app.auth.models import User
 from app.db.session import get_db
 from app.engine.dataset_generator import AttributeSpec, DatasetGenerator
+from app.engine.semantic_rule_inference import infer_semantic_rules
 from app.engine.semantic_rule_engine import (
     SemanticRuleEngine,
     build_deterministic_execution_order,
@@ -106,12 +108,156 @@ class DryRunRulesResponseDto(BaseModel):
     changed_cells: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class InferRulesRequestDto(BaseModel):
+    """Request payload to infer semantic rules from a dataset version or sample rows."""
+
+    dataset_version_id: uuid.UUID | None = None
+    sample_data: list[dict[str, Any]] | None = None
+    sample_rows: int = Field(default=50, ge=5, le=500)
+    max_rules: int = Field(default=20, ge=1, le=100)
+    min_confidence: float = Field(default=0.7, ge=0.0, le=1.0)
+    seed: int | None = Field(default=None, ge=0)
+    conflict_policy: str = Field(default="priority_wins")
+
+
+class InferRulesResponseDto(BaseModel):
+    """Response payload for inferred semantic rules."""
+
+    dataset_version_id: uuid.UUID | None = None
+    rules: list[SemanticRuleDto] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 # ============ ROUTER ============
 
 router = APIRouter(prefix="/rules", tags=["semantic-rules"])
 
 
 # ============ ENDPOINTS ============
+
+
+@router.post("/infer", response_model=InferRulesResponseDto)
+async def infer_rules(
+    request: InferRulesRequestDto,
+    db: Database = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> InferRulesResponseDto:
+    """Infer semantic rules from provided sample rows or from a dataset version."""
+    if not request.dataset_version_id and not request.sample_data:
+        raise HTTPException(
+            status_code=400,
+            detail="Provide either dataset_version_id or sample_data for inference",
+        )
+
+    source = "sample_data"
+    dataset_version_id = request.dataset_version_id
+    column_names: list[str] = []
+
+    if request.sample_data is not None:
+        if len(request.sample_data) < 5:
+            raise HTTPException(
+                status_code=400,
+                detail="sample_data must include at least 5 rows",
+            )
+        frame = pd.DataFrame(request.sample_data)
+        if frame.empty:
+            raise HTTPException(
+                status_code=400,
+                detail="sample_data produced an empty dataframe",
+            )
+        column_names = list(frame.columns)
+    else:
+        try:
+            version = DatasetRepository.get_dataset_version_for_user(
+                db=db,
+                user_id=current_user.id,
+                dataset_version_id=request.dataset_version_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+        attributes = DatasetRepository.load_version_attributes(
+            db=db,
+            dataset_version_id=request.dataset_version_id,
+        )
+        if not attributes:
+            raise HTTPException(
+                status_code=400,
+                detail="Dataset version has no attributes for inference",
+            )
+
+        attribute_specs = [
+            AttributeSpec(
+                name=attribute.name,
+                data_type=attribute.data_type.value,
+                constraints=attribute.constraints_json,
+                distribution=attribute.distribution.value,
+                null_percentage=attribute.null_percentage,
+            )
+            for attribute in attributes
+        ]
+        column_names = [attribute.name for attribute in attributes]
+
+        generator_seed = request.seed if request.seed is not None else version.seed
+        generator = DatasetGenerator(seed=generator_seed)
+        frame = generator.generate_dataframe(
+            attributes=attribute_specs,
+            row_count=request.sample_rows,
+            semantic_rules=[],
+        )
+        source = "dataset_version"
+
+    inference_result = infer_semantic_rules(frame)
+    raw_rules = inference_result.get("rules", [])
+    if not isinstance(raw_rules, list):
+        raw_rules = []
+
+    min_confidence = float(request.min_confidence)
+    filtered_rules = [
+        rule
+        for rule in raw_rules
+        if isinstance(rule, dict)
+        and float(rule.get("confidence", 0.0)) >= min_confidence
+    ]
+
+    conflict_policy = normalize_conflict_policy(request.conflict_policy)
+    validation = engine_validate_semantic_rules(
+        filtered_rules,
+        available_columns=column_names,
+        conflict_policy=conflict_policy,
+    )
+    ordered_rules = build_deterministic_execution_order(
+        validation.get("sanitized_rules", []),
+        conflict_policy=conflict_policy,
+    )
+    trimmed_rules = ordered_rules[: request.max_rules]
+
+    metadata = inference_result.get("metadata", {})
+    if not isinstance(metadata, dict):
+        metadata = {}
+
+    return InferRulesResponseDto(
+        dataset_version_id=dataset_version_id,
+        rules=[SemanticRuleDto.model_validate(rule) for rule in trimmed_rules],
+        metadata={
+            "source": source,
+            "inference": metadata,
+            "conflict_policy": conflict_policy,
+            "requested_rows": request.sample_rows,
+            "used_rows": int(len(frame.index)),
+            "requested_max_rules": request.max_rules,
+            "returned_rule_count": len(trimmed_rules),
+            "rule_count_before_validation": len(filtered_rules),
+            "min_confidence": min_confidence,
+            "warnings": validation.get("warnings", []),
+            "errors": validation.get("errors", []),
+            "is_valid": bool(validation.get("is_valid", True)),
+            "execution_order": [
+                str(rule.get("id", "")) for rule in trimmed_rules if rule.get("id")
+            ],
+            "conflict_resolution": validation.get("conflict_resolution", {}),
+        },
+    )
 
 
 @router.get("/dataset/{dataset_version_id}", response_model=SemanticRulesResponseDto)
