@@ -12,6 +12,7 @@ from app.auth.models import User
 from app.core.config import settings
 from app.db.session import get_db
 from app.schemas.dataset import (
+    AttributeConfig,
     CancelGenerationJobResponse,
     DatasetAttributesRequest,
     DatasetAttributesResponse,
@@ -34,12 +35,15 @@ from app.schemas.dataset import (
     RetryGenerationJobResponse,
     ExplainRequest,
     ExplainResponse,
+    SuggestionRequest,
+    SuggestionResponse,
     PreviewRequest,
     PreviewResponse,
 )
 from app.services.dataset_repository import DatasetRepository
 from app.services.generation_orchestrator import GenerationOrchestrator
 from app.services.job_manager import JobManager
+from app.services.suggestion_engine import SuggestionEngine
 from app.services.template_service import TemplateService
 
 router = APIRouter(prefix="/dataset", tags=["dataset"])
@@ -169,6 +173,66 @@ def explain_dataset_row(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return ExplainResponse.model_validate(explanation)
+
+
+@router.post("/suggestions", response_model=SuggestionResponse)
+def suggest_dataset_settings(
+    payload: SuggestionRequest,
+    db: Database = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> SuggestionResponse:
+    if payload.attributes:
+        suggestion = SuggestionEngine.suggest(payload.attributes)
+        return SuggestionResponse(
+            dataset_version_id=payload.dataset_version_id,
+            attribute_suggestions=suggestion.get("attribute_suggestions", []),
+            relationship_suggestions=suggestion.get("relationship_suggestions", []),
+            metadata=suggestion.get("metadata", {}),
+        )
+
+    if payload.dataset_version_id is None:
+        raise HTTPException(
+            status_code=400,
+            detail="dataset_version_id is required when attributes are not provided",
+        )
+
+    try:
+        DatasetRepository.get_dataset_version_for_user(
+            db=db,
+            user_id=current_user.id,
+            dataset_version_id=payload.dataset_version_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    attrs = DatasetRepository.load_version_attributes(
+        db=db,
+        dataset_version_id=payload.dataset_version_id,
+    )
+
+    attributes = [
+        {
+            "name": item.name,
+            "type": item.data_type,
+            "description": item.description or "",
+            "constraints": item.constraints_json or {},
+            "distribution": item.distribution,
+            "null_percentage": item.null_percentage,
+        }
+        for item in attrs
+    ]
+
+    validated_attributes = [
+        AttributeConfig.model_validate(attribute) for attribute in attributes
+    ]
+
+    suggestion = SuggestionEngine.suggest(validated_attributes)
+    return SuggestionResponse(
+        dataset_version_id=payload.dataset_version_id,
+        attribute_suggestions=suggestion.get("attribute_suggestions", []),
+        relationship_suggestions=suggestion.get("relationship_suggestions", []),
+        metadata=suggestion.get("metadata", {}),
+    )
 
 
 @router.post("/generate")

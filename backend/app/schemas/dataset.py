@@ -263,6 +263,40 @@ class ExplainResponse(BaseModel):
     trace: dict[str, ExplainedCell]
 
 
+class AttributeSuggestion(BaseModel):
+    attribute_name: str
+    suggested_distribution: str
+    suggested_constraints: dict[str, Any] = Field(default_factory=dict)
+    confidence: float = Field(ge=0.0, le=1.0)
+    reason: str
+
+
+class RelationshipSuggestion(BaseModel):
+    source: str
+    target: str
+    strength: float = Field(ge=-1.0, le=1.0)
+    confidence: float = Field(ge=0.0, le=1.0)
+    reason: str
+
+
+class SuggestionRequest(BaseModel):
+    dataset_version_id: UUID | None = None
+    attributes: list[AttributeConfig] | None = None
+
+    @model_validator(mode="after")
+    def validate_source(self) -> "SuggestionRequest":
+        if self.dataset_version_id is None and not self.attributes:
+            raise ValueError("Provide dataset_version_id or attributes for suggestions")
+        return self
+
+
+class SuggestionResponse(BaseModel):
+    dataset_version_id: UUID | None = None
+    attribute_suggestions: list[AttributeSuggestion] = Field(default_factory=list)
+    relationship_suggestions: list[RelationshipSuggestion] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
 class GenerateRequest(BaseModel):
     dataset_id: UUID
     dataset_version_id: UUID | None = None

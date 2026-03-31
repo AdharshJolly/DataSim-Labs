@@ -265,6 +265,34 @@ export interface ExplainResponse {
   trace: Record<string, ExplainedCell>;
 }
 
+export interface AttributeSuggestion {
+  attribute_name: string;
+  suggested_distribution: DistributionType;
+  suggested_constraints: Record<string, unknown>;
+  confidence: number;
+  reason: string;
+}
+
+export interface RelationshipSuggestion {
+  source: string;
+  target: string;
+  strength: number;
+  confidence: number;
+  reason: string;
+}
+
+export interface SuggestionRequest {
+  dataset_version_id?: string;
+  attributes?: AttributeConfig[];
+}
+
+export interface SuggestionResponse {
+  dataset_version_id?: string | null;
+  attribute_suggestions: AttributeSuggestion[];
+  relationship_suggestions: RelationshipSuggestion[];
+  metadata: Record<string, unknown>;
+}
+
 export interface PreviewHistogramBin {
   bin_start: number;
   bin_end: number;
@@ -629,6 +657,15 @@ export function explainDatasetRow(
   payload: ExplainRequest,
 ): Promise<ExplainResponse> {
   return apiRequest<ExplainResponse>("/api/v1/dataset/explain", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function suggestDatasetSettings(
+  payload: SuggestionRequest,
+): Promise<SuggestionResponse> {
+  return apiRequest<SuggestionResponse>("/api/v1/dataset/suggestions", {
     method: "POST",
     body: JSON.stringify(payload),
   });

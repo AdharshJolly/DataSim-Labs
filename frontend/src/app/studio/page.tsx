@@ -52,6 +52,7 @@ import {
   listDatasetFiles,
   previewDataset,
   explainDatasetRow,
+  suggestDatasetSettings,
   saveAttributes,
   getSemanticRules,
   inferSemanticRules,
@@ -62,6 +63,7 @@ import {
   type SemanticRulesMetadata,
   type GenerationPreflightResponse,
   type ExplainResponse,
+  type AttributeSuggestion,
 } from "@/lib/api-client";
 
 import { ValidationDashboard } from "@/components/studio/validation-dashboard";
@@ -173,6 +175,7 @@ export default function StudioPage() {
   const [semanticRulesSaving, setSemanticRulesSaving] = useState(false);
   const [semanticRulesDryRunning, setSemanticRulesDryRunning] = useState(false);
   const [semanticRulesInferring, setSemanticRulesInferring] = useState(false);
+  const [suggestionsBusy, setSuggestionsBusy] = useState(false);
   const [semanticConflictPolicy, setSemanticConflictPolicy] =
     useState<SemanticConflictPolicy>("priority_wins");
   const [semanticRuleMetadata, setSemanticRuleMetadata] =
@@ -576,6 +579,102 @@ export default function StudioPage() {
       .filter(
         (item) => item.source && item.target && !Number.isNaN(item.strength),
       );
+  };
+
+  const applySuggestionToAttr = (
+    attr: AttrRow,
+    suggestion: AttributeSuggestion,
+  ): AttrRow => {
+    const constraints = suggestion.suggested_constraints ?? {};
+    const next: AttrRow = {
+      ...attr,
+      distribution: suggestion.suggested_distribution,
+    };
+
+    if (typeof constraints.min === "number") next.min = String(constraints.min);
+    if (typeof constraints.max === "number") next.max = String(constraints.max);
+    if (typeof constraints.precision === "number") {
+      next.precision = String(constraints.precision);
+    }
+    if (
+      constraints.skew_direction === "left" ||
+      constraints.skew_direction === "right"
+    ) {
+      next.skew_direction = constraints.skew_direction;
+    }
+    if (typeof constraints.skew_intensity === "number") {
+      next.skew_intensity = String(constraints.skew_intensity);
+    }
+    if (typeof constraints.max_length === "number") {
+      next.max_length = String(constraints.max_length);
+    }
+    if (Array.isArray(constraints.weights)) {
+      next.weights = constraints.weights
+        .map((value) => String(value))
+        .join(", ");
+    }
+
+    return next;
+  };
+
+  const handleSuggestSettings = async () => {
+    setSuggestionsBusy(true);
+    setError("");
+    try {
+      const response = await suggestDatasetSettings({
+        dataset_version_id: versionId || undefined,
+        attributes: attrs.map(toApiAttr),
+      });
+
+      const suggestionMap = new Map<string, AttributeSuggestion>();
+      for (const suggestion of response.attribute_suggestions ?? []) {
+        suggestionMap.set(suggestion.attribute_name, suggestion);
+      }
+
+      setAttrs((prev) =>
+        prev.map((attr) => {
+          const suggestion = suggestionMap.get(attr.name);
+          if (!suggestion) {
+            return attr;
+          }
+          return applySuggestionToAttr(attr, suggestion);
+        }),
+      );
+
+      const existingRules = parseCorrelationRules();
+      const relationshipSuggestions = response.relationship_suggestions ?? [];
+      const knownPairs = new Set(
+        existingRules.map((rule) => `${rule.source}=>${rule.target}`),
+      );
+      const mergedRules = [...existingRules];
+      for (const suggestion of relationshipSuggestions) {
+        const key = `${suggestion.source}=>${suggestion.target}`;
+        if (knownPairs.has(key)) {
+          continue;
+        }
+        knownPairs.add(key);
+        mergedRules.push({
+          source: suggestion.source,
+          target: suggestion.target,
+          strength: suggestion.strength,
+        });
+      }
+      setCorrelationRulesText(JSON.stringify(mergedRules, null, 2));
+
+      pushToast({
+        title: "Suggestions Applied",
+        message: `Applied ${response.attribute_suggestions.length} field suggestions and ${relationshipSuggestions.length} relationship hints.`,
+        intent: "success",
+      });
+    } catch (e) {
+      notifyError(
+        "Suggestions Failed",
+        e,
+        "Unable to compute suggestions for current field setup.",
+      );
+    } finally {
+      setSuggestionsBusy(false);
+    }
   };
 
   const handleCorrelationRulesChange = (rules: CorrelationRule[]) => {
@@ -1558,21 +1657,38 @@ export default function StudioPage() {
                     guide generation — the more detail, the better.
                   </p>
                 </div>
-                <Button
-                  type="button"
-                  variant="default"
-                  className="whitespace-nowrap"
-                  disabled={busy || attrs.length === 0}
-                  onClick={() => void handleSaveAndPreview()}
-                >
-                  {busy ? (
-                    <span className="flex items-center justify-center gap-2">
-                      <LoaderCircle className="h-4 w-4 animate-spin" /> Saving…
-                    </span>
-                  ) : (
-                    "Save & Preview →"
-                  )}
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="whitespace-nowrap"
+                    disabled={busy || suggestionsBusy || attrs.length === 0}
+                    onClick={() => void handleSuggestSettings()}
+                  >
+                    {suggestionsBusy ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <LoaderCircle className="h-4 w-4 animate-spin" /> Suggesting…
+                      </span>
+                    ) : (
+                      "Suggest Settings"
+                    )}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="default"
+                    className="whitespace-nowrap"
+                    disabled={busy || attrs.length === 0}
+                    onClick={() => void handleSaveAndPreview()}
+                  >
+                    {busy ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <LoaderCircle className="h-4 w-4 animate-spin" /> Saving…
+                      </span>
+                    ) : (
+                      "Save & Preview →"
+                    )}
+                  </Button>
+                </div>
               </header>
 
               <RelationshipBuilder
