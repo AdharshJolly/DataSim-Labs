@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.engine.contracts import SuggestionInterface
 from app.schemas.dataset import AttributeConfig
 
 
-class SuggestionEngine:
+class SuggestionEngine(SuggestionInterface):
     """Build deterministic suggestions from attribute configuration."""
 
     @staticmethod

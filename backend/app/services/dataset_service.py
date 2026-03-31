@@ -11,7 +11,6 @@ from typing import Any
 
 from pymongo.database import Database
 
-from app.engine.dataset_generator import AttributeSpec
 from app.models.dataset import Dataset, DatasetStatus, DatasetVersion
 from app.schemas.dataset import AttributeConfig
 from app.services.dataset_repository import DatasetRepository
@@ -81,51 +80,13 @@ class DatasetService:
         seed: int | None = None,
         correlations: list[dict[str, Any]] | None = None,
     ) -> DatasetVersion:
-        attr_names = [attr.name for attr in attributes]
-        if len(attr_names) != len(set(attr_names)):
-            raise ValueError("Attribute names must be unique within a version")
-
-        dataset = DatasetRepository.get_dataset(
+        return GenerationOrchestrator.create_dataset_version(
             db=db,
             user_id=user_id,
             dataset_id=dataset_id,
-        )
-
-        planner_specs = [
-            AttributeSpec(
-                name=attribute.name,
-                data_type=attribute.type.value,
-                constraints=attribute.constraints,
-                distribution=attribute.distribution.value,
-                null_percentage=attribute.null_percentage,
-            )
-            for attribute in attributes
-        ]
-
-        realism_plan = GenerationOrchestrator.plan_realism_rules(
-            attributes=planner_specs
-        )
-        realism_rules = realism_plan.get("rules", [])
-
-        config_json = {
-            "attributes": [
-                attribute.model_dump(mode="json") for attribute in attributes
-            ],
-            "seed": seed,
-            "correlations": correlations or [],
-            "realism_rules": realism_rules,
-            "realism": {
-                "rules": realism_rules,
-                "metadata": realism_plan.get("metadata", {}),
-            },
-        }
-
-        return DatasetRepository.create_dataset_version(
-            db=db,
-            dataset=dataset,
             attributes=attributes,
-            config_json=config_json,
             seed=seed,
+            correlations=correlations,
         )
 
     @staticmethod

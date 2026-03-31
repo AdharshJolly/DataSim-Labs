@@ -46,14 +46,20 @@ from app.schemas.dataset import (
     PreviewRequest,
     PreviewResponse,
 )
-from app.engine.dataset_generator import AttributeSpec, DatasetGenerator
+from app.engine.dataset_generator import DatasetGenerator
 from app.services.dataset_repository import DatasetRepository
 from app.services.comparison_engine import ComparisonEngine
 from app.services.generation_orchestrator import GenerationOrchestrator
+from app.services.orchestration.version_config import resolve_version_generation_config
 from app.services.feedback_service import FeedbackService
 from app.services.job_manager import JobManager
 from app.services.suggestion_engine import SuggestionEngine
 from app.services.template_service import TemplateService
+from app.utils.attribute_utils import model_attributes_to_specs
+from app.utils.response_builder import (
+    build_generation_response,
+    build_preview_response,
+)
 
 router = APIRouter(prefix="/dataset", tags=["dataset"])
 
@@ -156,10 +162,11 @@ def preview_dataset(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     return {
-        "dataset_version_id": payload.dataset_version_id,
-        "rows": len(preview_data.get("data", [])),
-        "data": preview_data.get("data", []),
-        "comparison": preview_data.get("comparison"),
+        **build_preview_response(
+            dataset_version_id=payload.dataset_version_id,
+            data=preview_data.get("data", []),
+            comparison=preview_data.get("comparison"),
+        )
     }
 
 
@@ -266,16 +273,7 @@ def compare_dataset_output(
     if not attributes:
         raise HTTPException(status_code=400, detail="Dataset version has no attributes")
 
-    attribute_specs = [
-        AttributeSpec(
-            name=attribute.name,
-            data_type=attribute.data_type.value,
-            constraints=attribute.constraints_json,
-            distribution=attribute.distribution.value,
-            null_percentage=attribute.null_percentage,
-        )
-        for attribute in attributes
-    ]
+    attribute_specs = model_attributes_to_specs(attributes)
 
     row_count = (
         len(payload.generated_data) if payload.generated_data else payload.sample_rows
@@ -291,11 +289,16 @@ def compare_dataset_output(
     if payload.generated_data:
         generated_df = pd.DataFrame(payload.generated_data)
     else:
+        version_config = resolve_version_generation_config(
+            config_json=version.config_json,
+            available_columns=[attribute.name for attribute in attribute_specs],
+        )
         generated_generator = DatasetGenerator(seed=generator_seed)
         generated_df = generated_generator.generate_dataframe(
             attributes=attribute_specs,
             row_count=row_count,
-            semantic_rules=version.config_json.get("semantic_rules", []),
+            realism_rules=version_config.realism_rules,
+            semantic_rules=version_config.semantic_rules,
         )
 
     comparison = ComparisonEngine.compare(
@@ -402,18 +405,11 @@ def generate_dataset(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return {
-        "dataset_id": payload.dataset_id,
-        "status": "completed",
-        "row_count": payload.row_count,
-        "files": generation_result.get("files", []),
-        "quality_report": generation_result.get("quality_report"),
-        "quality_dashboard": generation_result.get("quality_dashboard"),
-        "validation_summary": generation_result.get("validation_summary"),
-        "quality_guardrails": generation_result.get("quality_guardrails"),
-        "generation_signature": generation_result.get("generation_signature"),
-        "generation_run_id": generation_result.get("generation_run_id"),
-        "comparison": generation_result.get("comparison"),
-        "semantic_rule_metrics": generation_result.get("semantic_rule_metrics"),
+        **build_generation_response(
+            dataset_id=payload.dataset_id,
+            row_count=payload.row_count,
+            generation_result=generation_result,
+        )
     }
 
 
@@ -621,20 +617,11 @@ def stream_dataset_csv(
     if not attributes:
         raise HTTPException(status_code=400, detail="Dataset version has no attributes")
 
-    attribute_specs = [
-        AttributeSpec(
-            name=attribute.name,
-            data_type=attribute.data_type.value,
-            constraints=attribute.constraints_json,
-            distribution=attribute.distribution.value,
-            null_percentage=attribute.null_percentage,
-        )
-        for attribute in attributes
-    ]
-
-    semantic_rules = version.config_json.get("semantic_rules", [])
-    if not isinstance(semantic_rules, list):
-        semantic_rules = []
+    attribute_specs = model_attributes_to_specs(attributes)
+    version_config = resolve_version_generation_config(
+        config_json=version.config_json,
+        available_columns=[attribute.name for attribute in attribute_specs],
+    )
 
     generator_seed = seed if seed is not None else version.seed
 
@@ -648,7 +635,8 @@ def stream_dataset_csv(
             frame = streaming_generator.generate_dataframe(
                 attributes=attribute_specs,
                 row_count=current_chunk,
-                semantic_rules=semantic_rules,
+                realism_rules=version_config.realism_rules,
+                semantic_rules=version_config.semantic_rules,
             )
             csv_chunk = frame.to_csv(index=False, header=first_chunk)
             yield csv_chunk.encode("utf-8")

@@ -19,20 +19,18 @@ import {
   applySuggestionToAttr,
   mergeSemanticRuleSets,
   newAttr,
-  parseCorrelationRulesText,
-  parseSemanticRulesText,
   templateColumnsToAttrRows,
   toApiAttr,
   uid,
   validateCategoricalWeights,
 } from "@/components/studio/helpers";
-import { type CorrelationRule } from "@/components/studio/relationship-builder";
 import type { AttrRow, OutputFormat, Step } from "@/components/studio/types";
 import { Step1CreateDataset } from "@/components/studio/steps/step-1-create-dataset";
 import { Step2DefineFields } from "@/components/studio/steps/step-2-define-fields";
 import { Step3PreviewRefine } from "@/components/studio/steps/step-3-preview-refine";
 import { Step4Generate } from "@/components/studio/steps/step-4-generate";
 import { useStudioGenerationFlow } from "@/components/studio/hooks/use-studio-generation-flow";
+import { useStudioRules } from "@/components/studio/hooks/use-studio-rules";
 import {
   type AttributeConfig,
   type GeneratedFileInfo,
@@ -53,7 +51,6 @@ import {
   inferSemanticRules,
   upsertSemanticRules,
   type DryRunSemanticRulesResponse,
-  type SemanticRule,
   type SemanticConflictPolicy,
   type SemanticRulesMetadata,
   type GenerationPreflightResponse,
@@ -215,21 +212,19 @@ export default function StudioPage() {
     previewComparisonCols[0] ??
     null;
 
-  const correlationRules: CorrelationRule[] = useMemo(() => {
-    try {
-      return parseCorrelationRulesText(correlationRulesText);
-    } catch {
-      return [];
-    }
-  }, [correlationRulesText]);
-
-  const semanticRules: SemanticRule[] = useMemo(() => {
-    try {
-      return parseSemanticRulesText(semanticRulesText);
-    } catch {
-      return [];
-    }
-  }, [semanticRulesText]);
+  const {
+    correlationRules,
+    semanticRules,
+    parseCorrelationRules,
+    handleCorrelationRulesChange,
+    handleSemanticRulesChange,
+  } = useStudioRules({
+    correlationRulesText,
+    semanticRulesText,
+    setCorrelationRulesText,
+    setSemanticRulesText,
+    setSemanticDryRunResult: () => setSemanticDryRunResult(null),
+  });
   const selectedNumericComparison = selectedPreviewComparison?.numeric ?? null;
   const previewColumnTemplate = useMemo(
     () => `repeat(${Math.max(previewCols.length, 1)}, minmax(140px, 1fr))`,
@@ -438,10 +433,6 @@ export default function StudioPage() {
       .catch(() => setStep(2));
   }, []);
 
-  const parseCorrelationRules = () => {
-    return parseCorrelationRulesText(correlationRulesText);
-  };
-
   const handleSuggestSettings = async () => {
     setSuggestionsBusy(true);
     setError("");
@@ -500,15 +491,6 @@ export default function StudioPage() {
     } finally {
       setSuggestionsBusy(false);
     }
-  };
-
-  const handleCorrelationRulesChange = (rules: CorrelationRule[]) => {
-    setCorrelationRulesText(JSON.stringify(rules, null, 2));
-  };
-
-  const handleSemanticRulesChange = (rules: SemanticRule[]) => {
-    setSemanticRulesText(JSON.stringify(rules, null, 2));
-    setSemanticDryRunResult(null);
   };
 
   const persistSemanticRules = async (datasetVersionId: string) => {

@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 from faker import Faker
 
+from app.engine.contracts import GeneratorInterface
 from app.engine.generators.boolean_generator import generate_boolean
 from app.engine.generators.categorical_generator import generate_categorical
 from app.engine.generators.date_generator import generate_date
@@ -41,6 +42,7 @@ from app.engine.semantic_rule_engine import (
     filter_rules_by_confidence,
     sort_rules_by_priority,
 )
+from app.utils.dataframe_utils import effective_chunk_size, iter_chunks
 
 
 @dataclass(slots=True)
@@ -54,7 +56,7 @@ class AttributeSpec:
     null_percentage: float
 
 
-class DatasetGenerator:
+class DatasetGenerator(GeneratorInterface):
     """Generate DataFrames and export synthetic datasets in multiple formats."""
 
     def __init__(self, seed: int | None = None) -> None:
@@ -135,7 +137,7 @@ class DatasetGenerator:
         for export_format in clean_formats:
             file_paths[export_format].unlink(missing_ok=True)
 
-        effective_chunk_size = self._effective_chunk_size(
+        resolved_chunk_size = effective_chunk_size(
             base_chunk_size=chunk_size,
             attribute_count=max(1, len(attributes)),
             row_count=row_count,
@@ -165,9 +167,7 @@ class DatasetGenerator:
         quality = self._init_quality_state(attributes=attributes)
 
         try:
-            for current_chunk_size in self._iter_chunks(
-                row_count, effective_chunk_size
-            ):
+            for current_chunk_size in iter_chunks(row_count, resolved_chunk_size):
                 frame, chunk_stats = self._generate_dataframe_with_stats(
                     attributes=attributes,
                     row_count=current_chunk_size,
@@ -225,7 +225,7 @@ class DatasetGenerator:
         quality_report = self._finalize_quality_report(
             quality,
             row_count=row_count,
-            chunk_size_used=effective_chunk_size,
+            chunk_size_used=resolved_chunk_size,
             requested_chunk_size=chunk_size,
         )
 
@@ -598,12 +598,8 @@ class DatasetGenerator:
         return grouped_data
 
     def _iter_chunks(self, row_count: int, chunk_size: int) -> list[int]:
-        """Return chunk sizes that sum exactly to row_count."""
-        full_chunks, remainder = divmod(row_count, chunk_size)
-        chunks = [chunk_size] * full_chunks
-        if remainder:
-            chunks.append(remainder)
-        return chunks or [row_count]
+        """Backward-compatible wrapper for shared chunk helper."""
+        return iter_chunks(row_count=row_count, chunk_size=chunk_size)
 
     def _effective_chunk_size(
         self,
@@ -613,11 +609,14 @@ class DatasetGenerator:
         min_chunk_size: int,
         target_cells_per_chunk: int,
     ) -> int:
-        """Compute adaptive chunk size to reduce peak memory pressure."""
-        by_cells = max(1, target_cells_per_chunk // max(1, attribute_count))
-        bounded = min(base_chunk_size, by_cells)
-        bounded = max(min_chunk_size, bounded)
-        return max(1, min(bounded, row_count))
+        """Backward-compatible wrapper for shared chunk-size helper."""
+        return effective_chunk_size(
+            base_chunk_size=base_chunk_size,
+            attribute_count=attribute_count,
+            row_count=row_count,
+            min_chunk_size=min_chunk_size,
+            target_cells_per_chunk=target_cells_per_chunk,
+        )
 
     def _append_excel_chunk(
         self,

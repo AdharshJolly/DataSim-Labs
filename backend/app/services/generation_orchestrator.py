@@ -19,14 +19,11 @@ from scipy.stats import anderson_ksamp, ks_2samp
 
 from app.core.config import settings
 from app.engine.dataset_generator import AttributeSpec, DatasetGenerator
+from app.engine.trace.trace_manager import TraceManager
 from app.models.dataset import DatasetStatus, DatasetVersion
 from app.engine.realism_planner import RealismPlanner
-from app.engine.semantic_rule_engine import (
-    build_deterministic_execution_order,
-    normalize_conflict_policy,
-    validate_semantic_rules,
-)
 from app.schemas.dataset import AttributeConfig
+from app.services.orchestration.version_config import resolve_version_generation_config
 from app.services.dataset_repository import DatasetRepository
 
 
@@ -126,29 +123,9 @@ class GenerationOrchestrator:
         attributes = GenerationOrchestrator._load_attributes_as_specs(
             db, dataset_version_id
         )
-        realism_config = version.config_json.get("realism")
-        if isinstance(realism_config, dict) and isinstance(
-            realism_config.get("rules"), list
-        ):
-            realism_rules = realism_config.get("rules", [])
-        else:
-            realism_rules = version.config_json.get("realism_rules", [])
-        semantic_rules = version.config_json.get("semantic_rules", [])
-        if not isinstance(semantic_rules, list):
-            semantic_rules = []
-        semantic_settings = version.config_json.get("semantic_rule_settings", {})
-        conflict_policy = normalize_conflict_policy(
-            (semantic_settings or {}).get("conflict_policy")
-        )
-        available_columns = [attribute.name for attribute in attributes]
-        semantic_validation = validate_semantic_rules(
-            semantic_rules,
-            available_columns=available_columns,
-            conflict_policy=conflict_policy,
-        )
-        semantic_ordered_rules = build_deterministic_execution_order(
-            semantic_validation.get("sanitized_rules", []),
-            conflict_policy=conflict_policy,
+        version_config = resolve_version_generation_config(
+            config_json=version.config_json,
+            available_columns=[attribute.name for attribute in attributes],
         )
 
         generator_seed = seed if seed is not None else version.seed
@@ -156,8 +133,8 @@ class GenerationOrchestrator:
         frame = generator.generate_dataframe(
             attributes=attributes,
             row_count=10,
-            realism_rules=realism_rules,
-            semantic_rules=semantic_ordered_rules,
+            realism_rules=version_config.realism_rules,
+            semantic_rules=version_config.semantic_rules,
         )
         return {
             "data": frame.to_dict(orient="records"),
@@ -190,31 +167,9 @@ class GenerationOrchestrator:
         if not attributes:
             raise ValueError("Dataset version has no attributes")
 
-        available_columns = [attribute.name for attribute in attributes]
-
-        realism_config = version.config_json.get("realism")
-        if isinstance(realism_config, dict) and isinstance(
-            realism_config.get("rules"), list
-        ):
-            realism_rules = realism_config.get("rules", [])
-        else:
-            realism_rules = version.config_json.get("realism_rules", [])
-
-        semantic_rules = version.config_json.get("semantic_rules", [])
-        if not isinstance(semantic_rules, list):
-            semantic_rules = []
-        semantic_settings = version.config_json.get("semantic_rule_settings", {})
-        conflict_policy = normalize_conflict_policy(
-            (semantic_settings or {}).get("conflict_policy")
-        )
-        semantic_validation = validate_semantic_rules(
-            semantic_rules,
-            available_columns=available_columns,
-            conflict_policy=conflict_policy,
-        )
-        semantic_ordered_rules = build_deterministic_execution_order(
-            semantic_validation.get("sanitized_rules", []),
-            conflict_policy=conflict_policy,
+        version_config = resolve_version_generation_config(
+            config_json=version.config_json,
+            available_columns=[attribute.name for attribute in attributes],
         )
 
         generator_seed = seed if seed is not None else version.seed
@@ -222,7 +177,7 @@ class GenerationOrchestrator:
         base_frame = base_generator.generate_dataframe(
             attributes=attributes,
             row_count=10,
-            realism_rules=realism_rules,
+            realism_rules=version_config.realism_rules,
             semantic_rules=[],
         )
 
@@ -230,8 +185,8 @@ class GenerationOrchestrator:
         final_frame = final_generator.generate_dataframe(
             attributes=attributes,
             row_count=10,
-            realism_rules=realism_rules,
-            semantic_rules=semantic_ordered_rules,
+            realism_rules=version_config.realism_rules,
+            semantic_rules=version_config.semantic_rules,
         )
 
         if row_index >= len(final_frame.index):
@@ -240,53 +195,12 @@ class GenerationOrchestrator:
         base_row = base_frame.iloc[row_index].to_dict()
         final_row = final_frame.iloc[row_index].to_dict()
 
-        rules_by_target: dict[str, list[dict[str, Any]]] = {}
-        for rule in semantic_ordered_rules:
-            target = str(rule.get("target", "")).strip()
-            if not target:
-                continue
-            rules_by_target.setdefault(target, []).append(rule)
-
-        trace: dict[str, dict[str, Any]] = {}
-        for key, value in final_row.items():
-            entry: dict[str, Any] = {
-                "value": GenerationOrchestrator._normalize_explain_value(value),
-                "source": "attribute_generator",
-                "generator": "base_distribution",
-                "rule": None,
-                "depends_on": [],
-            }
-
-            target_rules = rules_by_target.get(key, [])
-            if target_rules and base_row.get(key) != value:
-                applied_rule = target_rules[-1]
-                transform = applied_rule.get("transform", {})
-                transform_type = str(transform.get("type", "rule")).strip() or "rule"
-                entry["source"] = f"semantic_{transform_type}"
-                entry["generator"] = transform_type
-                entry["rule"] = str(
-                    applied_rule.get("id")
-                    or applied_rule.get("type")
-                    or "semantic_rule"
-                )
-                entry["depends_on"] = [
-                    str(source)
-                    for source in applied_rule.get("sources", [])
-                    if isinstance(source, str) and source.strip()
-                ]
-
-            trace[key] = entry
-
-        safe_row = {
-            key: GenerationOrchestrator._normalize_explain_value(val)
-            for key, val in final_row.items()
-        }
-
-        if column:
-            if column not in safe_row:
-                raise ValueError(f"Column '{column}' not found in generated row")
-            safe_row = {column: safe_row[column]}
-            trace = {column: trace[column]}
+        safe_row, trace = TraceManager.build_row_trace(
+            base_row=base_row,
+            final_row=final_row,
+            semantic_rules=version_config.semantic_rules,
+            column=column,
+        )
 
         return {
             "dataset_version_id": dataset_version_id,
@@ -350,29 +264,9 @@ class GenerationOrchestrator:
                 "Requested generation is too large for sync mode. Use /generate-async for this payload."
             )
 
-        realism_config = owned_version.config_json.get("realism")
-        if isinstance(realism_config, dict) and isinstance(
-            realism_config.get("rules"), list
-        ):
-            realism_rules = realism_config.get("rules", [])
-        else:
-            realism_rules = owned_version.config_json.get("realism_rules", [])
-        semantic_rules = owned_version.config_json.get("semantic_rules", [])
-        if not isinstance(semantic_rules, list):
-            semantic_rules = []
-        semantic_settings = owned_version.config_json.get("semantic_rule_settings", {})
-        conflict_policy = normalize_conflict_policy(
-            (semantic_settings or {}).get("conflict_policy")
-        )
-        available_columns = [attribute.name for attribute in attributes]
-        semantic_validation = validate_semantic_rules(
-            semantic_rules,
-            available_columns=available_columns,
-            conflict_policy=conflict_policy,
-        )
-        semantic_ordered_rules = build_deterministic_execution_order(
-            semantic_validation.get("sanitized_rules", []),
-            conflict_policy=conflict_policy,
+        version_config = resolve_version_generation_config(
+            config_json=owned_version.config_json,
+            available_columns=[attribute.name for attribute in attributes],
         )
 
         GenerationOrchestrator.cleanup_old_artifacts(
@@ -389,10 +283,10 @@ class GenerationOrchestrator:
             formats=formats,
             seed=generator_seed,
             attributes=attributes,
-            realism_rules=realism_rules,
+            realism_rules=version_config.realism_rules,
             realism_metadata=(
-                realism_config.get("metadata", {})
-                if isinstance(realism_config, dict)
+                owned_version.config_json.get("realism", {}).get("metadata", {})
+                if isinstance(owned_version.config_json.get("realism"), dict)
                 else {}
             ),
             correlations=(
@@ -403,14 +297,13 @@ class GenerationOrchestrator:
         )
 
         generation_result = generator.export_dataset_files(
-            dataset_id=dataset_id,
+            realism_rules=version_config.realism_rules,
+            semantic_rules=version_config.semantic_rules,
             attributes=attributes,
             row_count=row_count,
             formats=formats,
             output_root=output_root,
             chunk_size=chunk_size,
-            realism_rules=realism_rules,
-            semantic_rules=semantic_ordered_rules,
             min_chunk_size=settings.generation_min_chunk_size,
             target_cells_per_chunk=settings.generation_target_cells_per_chunk,
         )
