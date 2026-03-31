@@ -32,6 +32,8 @@ from app.schemas.dataset import (
     GenerationPreflightRequest,
     GenerationPreflightResponse,
     RetryGenerationJobResponse,
+    ExplainRequest,
+    ExplainResponse,
     PreviewRequest,
     PreviewResponse,
 )
@@ -146,6 +148,27 @@ def preview_dataset(
         "data": preview_data.get("data", []),
         "comparison": preview_data.get("comparison"),
     }
+
+
+@router.post("/explain", response_model=ExplainResponse)
+def explain_dataset_row(
+    payload: ExplainRequest,
+    db: Database = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ExplainResponse:
+    try:
+        explanation = GenerationOrchestrator.explain_dataset_row(
+            db=db,
+            user_id=current_user.id,
+            dataset_version_id=payload.dataset_version_id,
+            row_index=payload.row_index,
+            seed=payload.seed,
+            column=payload.column,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return ExplainResponse.model_validate(explanation)
 
 
 @router.post("/generate")

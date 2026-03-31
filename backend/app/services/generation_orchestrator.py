@@ -169,6 +169,131 @@ class GenerationOrchestrator:
         }
 
     @staticmethod
+    def explain_dataset_row(
+        db: Database,
+        user_id: uuid.UUID,
+        dataset_version_id: uuid.UUID,
+        row_index: int = 0,
+        seed: int | None = None,
+        column: str | None = None,
+    ) -> dict[str, Any]:
+        """Explain generated values for a preview row with lightweight provenance."""
+        version = DatasetRepository.get_dataset_version_for_user(
+            db=db,
+            user_id=user_id,
+            dataset_version_id=dataset_version_id,
+        )
+
+        attributes = GenerationOrchestrator._load_attributes_as_specs(
+            db, dataset_version_id
+        )
+        if not attributes:
+            raise ValueError("Dataset version has no attributes")
+
+        available_columns = [attribute.name for attribute in attributes]
+
+        realism_config = version.config_json.get("realism")
+        if isinstance(realism_config, dict) and isinstance(
+            realism_config.get("rules"), list
+        ):
+            realism_rules = realism_config.get("rules", [])
+        else:
+            realism_rules = version.config_json.get("realism_rules", [])
+
+        semantic_rules = version.config_json.get("semantic_rules", [])
+        if not isinstance(semantic_rules, list):
+            semantic_rules = []
+        semantic_settings = version.config_json.get("semantic_rule_settings", {})
+        conflict_policy = normalize_conflict_policy(
+            (semantic_settings or {}).get("conflict_policy")
+        )
+        semantic_validation = validate_semantic_rules(
+            semantic_rules,
+            available_columns=available_columns,
+            conflict_policy=conflict_policy,
+        )
+        semantic_ordered_rules = build_deterministic_execution_order(
+            semantic_validation.get("sanitized_rules", []),
+            conflict_policy=conflict_policy,
+        )
+
+        generator_seed = seed if seed is not None else version.seed
+        base_generator = DatasetGenerator(seed=generator_seed)
+        base_frame = base_generator.generate_dataframe(
+            attributes=attributes,
+            row_count=10,
+            realism_rules=realism_rules,
+            semantic_rules=[],
+        )
+
+        final_generator = DatasetGenerator(seed=generator_seed)
+        final_frame = final_generator.generate_dataframe(
+            attributes=attributes,
+            row_count=10,
+            realism_rules=realism_rules,
+            semantic_rules=semantic_ordered_rules,
+        )
+
+        if row_index >= len(final_frame.index):
+            raise ValueError("row_index out of range for preview dataset")
+
+        base_row = base_frame.iloc[row_index].to_dict()
+        final_row = final_frame.iloc[row_index].to_dict()
+
+        rules_by_target: dict[str, list[dict[str, Any]]] = {}
+        for rule in semantic_ordered_rules:
+            target = str(rule.get("target", "")).strip()
+            if not target:
+                continue
+            rules_by_target.setdefault(target, []).append(rule)
+
+        trace: dict[str, dict[str, Any]] = {}
+        for key, value in final_row.items():
+            entry: dict[str, Any] = {
+                "value": GenerationOrchestrator._normalize_explain_value(value),
+                "source": "attribute_generator",
+                "generator": "base_distribution",
+                "rule": None,
+                "depends_on": [],
+            }
+
+            target_rules = rules_by_target.get(key, [])
+            if target_rules and base_row.get(key) != value:
+                applied_rule = target_rules[-1]
+                transform = applied_rule.get("transform", {})
+                transform_type = str(transform.get("type", "rule")).strip() or "rule"
+                entry["source"] = f"semantic_{transform_type}"
+                entry["generator"] = transform_type
+                entry["rule"] = str(
+                    applied_rule.get("id") or applied_rule.get("type") or "semantic_rule"
+                )
+                entry["depends_on"] = [
+                    str(source)
+                    for source in applied_rule.get("sources", [])
+                    if isinstance(source, str) and source.strip()
+                ]
+
+            trace[key] = entry
+
+        safe_row = {
+            key: GenerationOrchestrator._normalize_explain_value(val)
+            for key, val in final_row.items()
+        }
+
+        if column:
+            if column not in safe_row:
+                raise ValueError(f"Column '{column}' not found in generated row")
+            safe_row = {column: safe_row[column]}
+            trace = {column: trace[column]}
+
+        return {
+            "dataset_version_id": dataset_version_id,
+            "row_index": row_index,
+            "row": safe_row,
+            "trace": trace,
+        }
+
+    @staticmethod
     def plan_realism_rules(
         attributes: list[AttributeSpec],
         api_key: str | None = None,
@@ -797,6 +922,17 @@ class GenerationOrchestrator:
             )
             for attr in attributes
         ]
+
+    @staticmethod
+    def _normalize_explain_value(value: Any) -> Any:
+        """Convert numpy/pandas scalar values to API-safe Python primitives."""
+        if value is None:
+            return None
+        if pd.isna(value):
+            return None
+        if isinstance(value, np.generic):
+            return value.item()
+        return value
 
     @staticmethod
     def _build_generation_signature(

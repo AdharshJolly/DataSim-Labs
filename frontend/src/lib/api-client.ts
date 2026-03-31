@@ -243,6 +243,28 @@ export interface PreviewResponse {
   } | null;
 }
 
+export interface ExplainRequest {
+  dataset_version_id: string;
+  row_index?: number;
+  seed?: number;
+  column?: string;
+}
+
+export interface ExplainedCell {
+  value: unknown;
+  source: string;
+  generator?: string | null;
+  rule?: string | null;
+  depends_on: string[];
+}
+
+export interface ExplainResponse {
+  dataset_version_id: string;
+  row_index: number;
+  row: Record<string, unknown>;
+  trace: Record<string, ExplainedCell>;
+}
+
 export interface PreviewHistogramBin {
   bin_start: number;
   bin_end: number;
@@ -600,6 +622,15 @@ export function previewDataset(
   return apiRequest<PreviewResponse>("/api/v1/dataset/preview", {
     method: "POST",
     body: JSON.stringify({ dataset_version_id: datasetVersionId, seed }),
+  });
+}
+
+export function explainDatasetRow(
+  payload: ExplainRequest,
+): Promise<ExplainResponse> {
+  return apiRequest<ExplainResponse>("/api/v1/dataset/explain", {
+    method: "POST",
+    body: JSON.stringify(payload),
   });
 }
 

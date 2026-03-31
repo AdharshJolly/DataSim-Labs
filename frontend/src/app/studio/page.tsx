@@ -51,6 +51,7 @@ import {
   listDatasetTemplates,
   listDatasetFiles,
   previewDataset,
+  explainDatasetRow,
   saveAttributes,
   getSemanticRules,
   inferSemanticRules,
@@ -60,6 +61,7 @@ import {
   type SemanticConflictPolicy,
   type SemanticRulesMetadata,
   type GenerationPreflightResponse,
+  type ExplainResponse,
 } from "@/lib/api-client";
 
 import { ValidationDashboard } from "@/components/studio/validation-dashboard";
@@ -181,6 +183,15 @@ export default function StudioPage() {
   // Step 3
   const [previewRows, setPreviewRows] = useState<Record<string, unknown>[]>([]);
   const [previewCols, setPreviewCols] = useState<string[]>([]);
+  const [explainMode, setExplainMode] = useState(false);
+  const [explainBusy, setExplainBusy] = useState(false);
+  const [selectedExplainCell, setSelectedExplainCell] = useState<{
+    rowIndex: number;
+    column: string;
+  } | null>(null);
+  const [selectedExplainTrace, setSelectedExplainTrace] = useState<
+    ExplainResponse | null
+  >(null);
   const [previewComparisonCols, setPreviewComparisonCols] = useState<
     PreviewColumnComparison[]
   >([]);
@@ -363,7 +374,20 @@ export default function StudioPage() {
         {previewCols.map((col) => (
           <div
             key={`${safeIndex}-${col}`}
-            className="truncate px-4 py-2.5 text-foreground"
+            className={`truncate px-4 py-2.5 text-foreground ${
+              explainMode
+                ? "cursor-pointer hover:bg-primary/10"
+                : "cursor-default"
+            } ${
+              selectedExplainCell?.rowIndex === safeIndex &&
+              selectedExplainCell?.column === col
+                ? "bg-primary/20"
+                : ""
+            }`}
+            onClick={() => {
+              if (!explainMode) return;
+              void handleExplainCellClick(safeIndex, col);
+            }}
           >
             {row[col] == null ? (
               <span className="italic text-muted-foreground/60">null</span>
@@ -947,6 +971,8 @@ export default function StudioPage() {
       );
       setPreviewRows(res.data);
       setPreviewCols(res.data.length > 0 ? Object.keys(res.data[0]) : []);
+      setSelectedExplainCell(null);
+      setSelectedExplainTrace(null);
 
       const nextComparisonCols = res.comparison?.columns ?? [];
       setPreviewComparisonCols(nextComparisonCols);
@@ -973,6 +999,29 @@ export default function StudioPage() {
       return;
     }
     await loadPreview(versionId);
+  };
+
+  const handleExplainCellClick = async (rowIndex: number, column: string) => {
+    if (!versionId) {
+      setError("No saved version available for explanations.");
+      return;
+    }
+    setExplainBusy(true);
+    setSelectedExplainCell({ rowIndex, column });
+    setError("");
+    try {
+      const response = await explainDatasetRow({
+        dataset_version_id: versionId,
+        row_index: rowIndex,
+        seed: seed.trim() ? Number(seed) : undefined,
+        column,
+      });
+      setSelectedExplainTrace(response);
+    } catch (e) {
+      notifyError("Explain Failed", e, "Unable to explain selected cell.");
+    } finally {
+      setExplainBusy(false);
+    }
   };
 
   // ── Step 4: Generate ─────────────────────────────────────────
@@ -1958,9 +2007,23 @@ export default function StudioPage() {
                 </div>
               ) : previewRows.length > 0 ? (
                 <div className="space-y-3">
-                  <div className="text-xs text-muted-foreground">
-                    {previewRows.length.toLocaleString()} rows ·{" "}
-                    {previewCols.length} columns
+                  <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                    <span>
+                      {previewRows.length.toLocaleString()} rows ·{" "}
+                      {previewCols.length} columns
+                    </span>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={explainMode ? "default" : "outline"}
+                      onClick={() => {
+                        setExplainMode((prev) => !prev);
+                        setSelectedExplainCell(null);
+                        setSelectedExplainTrace(null);
+                      }}
+                    >
+                      {explainMode ? "Explain Mode On" : "Explain Mode"}
+                    </Button>
                   </div>
 
                   <div className="space-y-3 md:hidden">
@@ -1982,7 +2045,20 @@ export default function StudioPage() {
                                 {col}
                               </span>
                               <span className="min-w-0 flex-1 truncate text-right text-foreground">
-                                {row[col] == null ? "null" : String(row[col])}
+                                <button
+                                  type="button"
+                                  className={`w-full truncate text-right ${
+                                    explainMode
+                                      ? "cursor-pointer rounded px-1 py-0.5 hover:bg-primary/10"
+                                      : "cursor-default"
+                                  }`}
+                                  onClick={() => {
+                                    if (!explainMode) return;
+                                    void handleExplainCellClick(index, col);
+                                  }}
+                                >
+                                  {row[col] == null ? "null" : String(row[col])}
+                                </button>
                               </span>
                             </div>
                           ))}
@@ -2024,6 +2100,45 @@ export default function StudioPage() {
                       />
                     </div>
                   </div>
+
+                  {explainMode && (
+                    <Card className="border-border bg-card/70 p-4">
+                      <p className="text-sm font-semibold text-foreground">
+                        Cell Explanation
+                      </p>
+                      {explainBusy ? (
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          Fetching explanation...
+                        </p>
+                      ) : selectedExplainCell && selectedExplainTrace ? (
+                        <div className="mt-3 space-y-2 text-xs text-muted-foreground">
+                          <p>
+                            Row {selectedExplainCell.rowIndex + 1} · Column{" "}
+                            {selectedExplainCell.column}
+                          </p>
+                          <p>
+                            Value: {String(selectedExplainTrace.row[selectedExplainCell.column] ?? "null")}
+                          </p>
+                          <p>
+                            Source: {selectedExplainTrace.trace[selectedExplainCell.column]?.source ?? "unknown"}
+                          </p>
+                          <p>
+                            Generator: {selectedExplainTrace.trace[selectedExplainCell.column]?.generator ?? "n/a"}
+                          </p>
+                          <p>
+                            Rule: {selectedExplainTrace.trace[selectedExplainCell.column]?.rule ?? "none"}
+                          </p>
+                          <p>
+                            Depends On: {(selectedExplainTrace.trace[selectedExplainCell.column]?.depends_on ?? []).join(", ") || "none"}
+                          </p>
+                        </div>
+                      ) : (
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          Click any cell to see why its value was generated.
+                        </p>
+                      )}
+                    </Card>
+                  )}
                 </div>
               ) : (
                 <div className="flex h-60 items-center justify-center rounded-lg border-2 border-dashed border-border/50 text-sm text-muted-foreground">

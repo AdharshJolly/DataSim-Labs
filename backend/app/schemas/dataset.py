@@ -241,6 +241,28 @@ class PreviewResponse(BaseModel):
     comparison: PreviewComparisonPayload | None = None
 
 
+class ExplainRequest(BaseModel):
+    dataset_version_id: UUID
+    row_index: int = Field(default=0, ge=0, le=999)
+    seed: int | None = Field(default=None, ge=0)
+    column: str | None = None
+
+
+class ExplainedCell(BaseModel):
+    value: Any
+    source: str
+    generator: str | None = None
+    rule: str | None = None
+    depends_on: list[str] = Field(default_factory=list)
+
+
+class ExplainResponse(BaseModel):
+    dataset_version_id: UUID
+    row_index: int
+    row: dict[str, Any]
+    trace: dict[str, ExplainedCell]
+
+
 class GenerateRequest(BaseModel):
     dataset_id: UUID
     dataset_version_id: UUID | None = None
