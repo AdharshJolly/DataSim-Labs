@@ -21,7 +21,6 @@ from app.engine.semantic_rule_engine import (
 )
 from app.engine.semantic_rule_validator import SemanticRuleValidator
 from app.services.dataset_repository import DatasetRepository
-from app.services.dataset_service import DatasetService
 
 
 # ============ PYDANTIC SCHEMAS ============
@@ -126,7 +125,7 @@ async def get_semantic_rules(
     Rules are loaded from dataset_version.config_json.semantic_rules.
     """
     try:
-        version = DatasetService.get_dataset_version_for_user(
+        version = DatasetRepository.get_dataset_version_for_user(
             db=db,
             user_id=current_user.id,
             dataset_version_id=dataset_version_id,
@@ -142,10 +141,13 @@ async def get_semantic_rules(
         (semantic_settings or {}).get("conflict_policy")
     )
 
-    available_columns = DatasetService.get_dataset_version_attribute_names(
-        db=db,
-        dataset_version_id=dataset_version_id,
-    )
+    available_columns = [
+        attribute.name
+        for attribute in DatasetRepository.load_version_attributes(
+            db=db,
+            dataset_version_id=dataset_version_id,
+        )
+    ]
     validation = engine_validate_semantic_rules(
         raw_rules,
         available_columns=available_columns,
@@ -183,7 +185,7 @@ async def upsert_semantic_rules(
 ) -> SemanticRulesResponseDto:
     """Validate and upsert semantic rules for a dataset version."""
     try:
-        DatasetService.get_dataset_version_for_user(
+        DatasetRepository.get_dataset_version_for_user(
             db=db,
             user_id=current_user.id,
             dataset_version_id=dataset_version_id,
@@ -191,10 +193,13 @@ async def upsert_semantic_rules(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    available_columns = DatasetService.get_dataset_version_attribute_names(
-        db=db,
-        dataset_version_id=dataset_version_id,
-    )
+    available_columns = [
+        attribute.name
+        for attribute in DatasetRepository.load_version_attributes(
+            db=db,
+            dataset_version_id=dataset_version_id,
+        )
+    ]
     conflict_policy = normalize_conflict_policy(request.conflict_policy)
     raw_rules = [rule.model_dump(mode="json") for rule in request.rules]
     validation = engine_validate_semantic_rules(
@@ -218,7 +223,7 @@ async def upsert_semantic_rules(
         conflict_policy=conflict_policy,
     )
     try:
-        version = DatasetService.update_dataset_version_semantic_rules(
+        version = DatasetRepository.update_dataset_version_semantic_rules(
             db=db,
             user_id=current_user.id,
             dataset_version_id=dataset_version_id,
@@ -313,7 +318,7 @@ async def dry_run_semantic_rules(
 ) -> DryRunRulesResponseDto:
     """Validate and simulate semantic rules on deterministic sample rows."""
     try:
-        version = DatasetService.get_dataset_version_for_user(
+        version = DatasetRepository.get_dataset_version_for_user(
             db=db,
             user_id=current_user.id,
             dataset_version_id=dataset_version_id,

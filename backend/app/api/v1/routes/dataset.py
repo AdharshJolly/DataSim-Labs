@@ -35,7 +35,9 @@ from app.schemas.dataset import (
     PreviewRequest,
     PreviewResponse,
 )
-from app.services.dataset_service import DatasetService
+from app.services.dataset_repository import DatasetRepository
+from app.services.generation_orchestrator import GenerationOrchestrator
+from app.services.job_manager import JobManager
 from app.services.template_service import TemplateService
 
 router = APIRouter(prefix="/dataset", tags=["dataset"])
@@ -60,7 +62,7 @@ def generation_preflight(
     current_user: User = Depends(get_current_user),
 ) -> GenerationPreflightResponse:
     try:
-        preflight = DatasetService.preflight_generation(
+        preflight = GenerationOrchestrator.preflight_generation(
             db=db,
             user_id=current_user.id,
             dataset_id=payload.dataset_id,
@@ -80,7 +82,7 @@ def create_dataset(
     db: Database = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> DatasetCreateResponse:
-    dataset = DatasetService.create_dataset(
+    dataset = DatasetRepository.create_dataset(
         db=db,
         user_id=current_user.id,
         name=payload.name,
@@ -100,7 +102,7 @@ def save_attributes(
     current_user: User = Depends(get_current_user),
 ) -> DatasetAttributesResponse:
     try:
-        version = DatasetService.create_dataset_version(
+        version = GenerationOrchestrator.create_dataset_version(
             db=db,
             user_id=current_user.id,
             dataset_id=payload.dataset_id,
@@ -129,7 +131,7 @@ def preview_dataset(
     current_user: User = Depends(get_current_user),
 ) -> PreviewResponse:
     try:
-        preview_data = DatasetService.generate_preview(
+        preview_data = GenerationOrchestrator.generate_preview(
             db=db,
             user_id=current_user.id,
             dataset_version_id=payload.dataset_version_id,
@@ -154,7 +156,7 @@ def generate_dataset(
 ) -> GenerateResponse:
     output_root = Path(settings.artifacts_dir)
     try:
-        generation_result = DatasetService.generate_dataset_files(
+        generation_result = GenerationOrchestrator.generate_dataset_files(
             db=db,
             user_id=current_user.id,
             dataset_id=payload.dataset_id,
@@ -198,11 +200,23 @@ def generate_dataset_async(
         )
 
     try:
-        job = DatasetService.create_generation_job(
+        dataset = DatasetRepository.get_dataset(
             db=db,
             user_id=current_user.id,
             dataset_id=payload.dataset_id,
-            dataset_version_id=payload.dataset_version_id,
+        )
+        target_version_id = payload.dataset_version_id or dataset.latest_version_id
+        if target_version_id is None:
+            raise ValueError("Dataset has no attribute configuration")
+
+        if not DatasetRepository.load_version_attributes(db, target_version_id):
+            raise ValueError("Dataset version has no attributes")
+
+        job = JobManager.create_generation_job(
+            db=db,
+            user_id=current_user.id,
+            dataset_id=dataset.id,
+            dataset_version_id=target_version_id,
             row_count=payload.row_count,
             formats=payload.formats,
             seed=payload.seed,
@@ -228,13 +242,13 @@ def list_generation_jobs(
     db: Database = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> GenerationJobListResponse:
-    jobs = DatasetService.list_generation_jobs(
+    jobs = JobManager.list_generation_jobs(
         db=db,
         user_id=current_user.id,
         limit=limit,
     )
     return {
-        "jobs": [DatasetService.serialize_generation_job(job) for job in jobs],
+        "jobs": [JobManager.serialize_generation_job(job) for job in jobs],
     }
 
 
@@ -245,7 +259,7 @@ def get_generation_job(
     current_user: User = Depends(get_current_user),
 ) -> GenerationJobResponse:
     try:
-        job = DatasetService.get_generation_job(
+        job = JobManager.get_generation_job(
             db=db,
             user_id=current_user.id,
             job_id=job_id,
@@ -253,7 +267,7 @@ def get_generation_job(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    return DatasetService.serialize_generation_job(job)
+    return JobManager.serialize_generation_job(job)
 
 
 @router.post("/jobs/{job_id}/cancel", response_model=CancelGenerationJobResponse)
@@ -263,7 +277,7 @@ def cancel_generation_job(
     current_user: User = Depends(get_current_user),
 ) -> CancelGenerationJobResponse:
     try:
-        job = DatasetService.cancel_generation_job(
+        job = JobManager.cancel_generation_job(
             db=db,
             user_id=current_user.id,
             job_id=job_id,
@@ -278,7 +292,7 @@ def cancel_generation_job(
         "cancel_requested": bool(job.get("cancel_requested", False)),
         "message": (
             "Job already finished"
-            if status in DatasetService.TERMINAL_JOB_STATUSES
+            if status in JobManager.TERMINAL_JOB_STATUSES
             else "Cancellation requested"
         ),
     }
@@ -291,7 +305,7 @@ def retry_generation_job(
     current_user: User = Depends(get_current_user),
 ) -> RetryGenerationJobResponse:
     try:
-        new_job = DatasetService.retry_generation_job(
+        new_job = JobManager.retry_generation_job(
             db=db,
             user_id=current_user.id,
             job_id=job_id,
@@ -320,14 +334,14 @@ def download_dataset(
 ) -> Any:
     output_root = Path(settings.artifacts_dir)
     try:
-        DatasetService.get_dataset(
+        DatasetRepository.get_dataset(
             db=db, user_id=current_user.id, dataset_id=dataset_id
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     if format:
-        file_path = DatasetService.resolve_generated_file(
+        file_path = GenerationOrchestrator.resolve_generated_file(
             dataset_id=dataset_id,
             output_root=output_root,
             export_format=format,
@@ -340,10 +354,10 @@ def download_dataset(
         if resolved_file.parent != dataset_dir:
             raise HTTPException(status_code=400, detail="Unsafe file path")
 
-        safe_name = DatasetService.sanitize_download_filename(file_path.name)
+        safe_name = GenerationOrchestrator.sanitize_download_filename(file_path.name)
         return FileResponse(path=resolved_file, filename=safe_name)
 
-    files = DatasetService.list_generated_files(
+    files = GenerationOrchestrator.list_generated_files(
         dataset_id=dataset_id, output_root=output_root
     )
     return {
@@ -357,9 +371,9 @@ def list_datasets(
     db: Database = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> DatasetListResponse:
-    datasets = DatasetService.list_datasets(db=db, user_id=current_user.id)
+    datasets = DatasetRepository.list_datasets(db=db, user_id=current_user.id)
     output_root = Path(settings.artifacts_dir)
-    active_job_dataset_ids = DatasetService.list_active_generation_job_dataset_ids(
+    active_job_dataset_ids = JobManager.list_active_generation_job_dataset_ids(
         db=db,
         user_id=current_user.id,
     )
@@ -370,8 +384,9 @@ def list_datasets(
                 name=dataset.name,
                 description=dataset.description,
                 latest_version_id=dataset.latest_version_id,
-                status=DatasetService.resolve_effective_dataset_status(
-                    dataset=dataset,
+                status=GenerationOrchestrator.resolve_effective_dataset_status(
+                    dataset_id=dataset.id,
+                    current_status=dataset.status,
                     output_root=output_root,
                     active_job_dataset_ids=active_job_dataset_ids,
                 ),
@@ -389,7 +404,7 @@ def get_dataset(
     current_user: User = Depends(get_current_user),
 ) -> DatasetDetailResponse:
     try:
-        dataset = DatasetService.get_dataset(
+        dataset = DatasetRepository.get_dataset(
             db=db,
             user_id=current_user.id,
             dataset_id=dataset_id,
@@ -398,7 +413,7 @@ def get_dataset(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     output_root = Path(settings.artifacts_dir)
-    active_job_dataset_ids = DatasetService.list_active_generation_job_dataset_ids(
+    active_job_dataset_ids = JobManager.list_active_generation_job_dataset_ids(
         db=db,
         user_id=current_user.id,
     )
@@ -407,8 +422,9 @@ def get_dataset(
         name=dataset.name,
         description=dataset.description,
         latest_version_id=dataset.latest_version_id,
-        status=DatasetService.resolve_effective_dataset_status(
-            dataset=dataset,
+        status=GenerationOrchestrator.resolve_effective_dataset_status(
+            dataset_id=dataset.id,
+            current_status=dataset.status,
             output_root=output_root,
             active_job_dataset_ids=active_job_dataset_ids,
         ),
@@ -424,7 +440,7 @@ def get_dataset_versions(
     current_user: User = Depends(get_current_user),
 ) -> DatasetVersionsResponse:
     try:
-        versions = DatasetService.get_dataset_versions(
+        versions = DatasetRepository.get_dataset_versions(
             db=db,
             user_id=current_user.id,
             dataset_id=dataset_id,
@@ -454,7 +470,7 @@ def delete_dataset(
     current_user: User = Depends(get_current_user),
 ) -> dict[str, str]:
     try:
-        DatasetService.delete_dataset(
+        DatasetRepository.delete_dataset(
             db=db, user_id=current_user.id, dataset_id=dataset_id
         )
     except ValueError as exc:
@@ -470,7 +486,7 @@ def update_dataset_status(
     current_user: User = Depends(get_current_user),
 ) -> DatasetDetailResponse:
     try:
-        dataset = DatasetService.update_dataset_status(
+        dataset = DatasetRepository.update_dataset_status(
             db=db,
             user_id=current_user.id,
             dataset_id=dataset_id,

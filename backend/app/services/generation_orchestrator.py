@@ -19,17 +19,96 @@ from scipy.stats import anderson_ksamp, ks_2samp
 
 from app.core.config import settings
 from app.engine.dataset_generator import AttributeSpec, DatasetGenerator
+from app.models.dataset import DatasetStatus, DatasetVersion
 from app.engine.realism_planner import RealismPlanner
 from app.engine.semantic_rule_engine import (
     build_deterministic_execution_order,
     normalize_conflict_policy,
     validate_semantic_rules,
 )
+from app.schemas.dataset import AttributeConfig
 from app.services.dataset_repository import DatasetRepository
 
 
 class GenerationOrchestrator:
     """Orchestrates dataset generation workflow."""
+
+    @staticmethod
+    def create_dataset_version(
+        db: Database,
+        user_id: uuid.UUID,
+        dataset_id: uuid.UUID,
+        attributes: list[AttributeConfig],
+        seed: int | None = None,
+        correlations: list[dict[str, Any]] | None = None,
+    ) -> DatasetVersion:
+        """Create a dataset version and attach inferred realism plan metadata."""
+        attr_names = [attr.name for attr in attributes]
+        if len(attr_names) != len(set(attr_names)):
+            raise ValueError("Attribute names must be unique within a version")
+
+        dataset = DatasetRepository.get_dataset(
+            db=db,
+            user_id=user_id,
+            dataset_id=dataset_id,
+        )
+
+        planner_specs = [
+            AttributeSpec(
+                name=attribute.name,
+                data_type=attribute.type.value,
+                constraints=attribute.constraints,
+                distribution=attribute.distribution.value,
+                null_percentage=attribute.null_percentage,
+            )
+            for attribute in attributes
+        ]
+
+        realism_plan = GenerationOrchestrator.plan_realism_rules(
+            attributes=planner_specs
+        )
+        realism_rules = realism_plan.get("rules", [])
+
+        config_json = {
+            "attributes": [
+                attribute.model_dump(mode="json") for attribute in attributes
+            ],
+            "seed": seed,
+            "correlations": correlations or [],
+            "realism_rules": realism_rules,
+            "realism": {
+                "rules": realism_rules,
+                "metadata": realism_plan.get("metadata", {}),
+            },
+        }
+
+        return DatasetRepository.create_dataset_version(
+            db=db,
+            dataset=dataset,
+            attributes=attributes,
+            config_json=config_json,
+            seed=seed,
+        )
+
+    @staticmethod
+    def resolve_effective_dataset_status(
+        dataset_id: uuid.UUID,
+        current_status: DatasetStatus,
+        output_root: Path,
+        active_job_dataset_ids: set[str] | None = None,
+    ) -> DatasetStatus:
+        """Resolve dynamic status using active jobs and on-disk artifacts."""
+        if current_status is DatasetStatus.archived:
+            return DatasetStatus.archived
+
+        if active_job_dataset_ids and str(dataset_id) in active_job_dataset_ids:
+            return DatasetStatus.generating
+
+        files = GenerationOrchestrator.list_generated_files(
+            dataset_id=dataset_id,
+            output_root=output_root,
+        )
+        return DatasetStatus.active if files else DatasetStatus.draft
 
     @staticmethod
     def generate_preview(
