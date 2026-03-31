@@ -19,12 +19,96 @@ from scipy.stats import anderson_ksamp, ks_2samp
 
 from app.core.config import settings
 from app.engine.dataset_generator import AttributeSpec, DatasetGenerator
+from app.models.dataset import DatasetStatus, DatasetVersion
 from app.engine.realism_planner import RealismPlanner
+from app.engine.semantic_rule_engine import (
+    build_deterministic_execution_order,
+    normalize_conflict_policy,
+    validate_semantic_rules,
+)
+from app.schemas.dataset import AttributeConfig
 from app.services.dataset_repository import DatasetRepository
 
 
 class GenerationOrchestrator:
     """Orchestrates dataset generation workflow."""
+
+    @staticmethod
+    def create_dataset_version(
+        db: Database,
+        user_id: uuid.UUID,
+        dataset_id: uuid.UUID,
+        attributes: list[AttributeConfig],
+        seed: int | None = None,
+        correlations: list[dict[str, Any]] | None = None,
+    ) -> DatasetVersion:
+        """Create a dataset version and attach inferred realism plan metadata."""
+        attr_names = [attr.name for attr in attributes]
+        if len(attr_names) != len(set(attr_names)):
+            raise ValueError("Attribute names must be unique within a version")
+
+        dataset = DatasetRepository.get_dataset(
+            db=db,
+            user_id=user_id,
+            dataset_id=dataset_id,
+        )
+
+        planner_specs = [
+            AttributeSpec(
+                name=attribute.name,
+                data_type=attribute.type.value,
+                constraints=attribute.constraints,
+                distribution=attribute.distribution.value,
+                null_percentage=attribute.null_percentage,
+            )
+            for attribute in attributes
+        ]
+
+        realism_plan = GenerationOrchestrator.plan_realism_rules(
+            attributes=planner_specs
+        )
+        realism_rules = realism_plan.get("rules", [])
+
+        config_json = {
+            "attributes": [
+                attribute.model_dump(mode="json") for attribute in attributes
+            ],
+            "seed": seed,
+            "correlations": correlations or [],
+            "realism_rules": realism_rules,
+            "realism": {
+                "rules": realism_rules,
+                "metadata": realism_plan.get("metadata", {}),
+            },
+        }
+
+        return DatasetRepository.create_dataset_version(
+            db=db,
+            dataset=dataset,
+            attributes=attributes,
+            config_json=config_json,
+            seed=seed,
+        )
+
+    @staticmethod
+    def resolve_effective_dataset_status(
+        dataset_id: uuid.UUID,
+        current_status: DatasetStatus,
+        output_root: Path,
+        active_job_dataset_ids: set[str] | None = None,
+    ) -> DatasetStatus:
+        """Resolve dynamic status using active jobs and on-disk artifacts."""
+        if current_status is DatasetStatus.archived:
+            return DatasetStatus.archived
+
+        if active_job_dataset_ids and str(dataset_id) in active_job_dataset_ids:
+            return DatasetStatus.generating
+
+        files = GenerationOrchestrator.list_generated_files(
+            dataset_id=dataset_id,
+            output_root=output_root,
+        )
+        return DatasetStatus.active if files else DatasetStatus.draft
 
     @staticmethod
     def generate_preview(
@@ -49,6 +133,23 @@ class GenerationOrchestrator:
             realism_rules = realism_config.get("rules", [])
         else:
             realism_rules = version.config_json.get("realism_rules", [])
+        semantic_rules = version.config_json.get("semantic_rules", [])
+        if not isinstance(semantic_rules, list):
+            semantic_rules = []
+        semantic_settings = version.config_json.get("semantic_rule_settings", {})
+        conflict_policy = normalize_conflict_policy(
+            (semantic_settings or {}).get("conflict_policy")
+        )
+        available_columns = [attribute.name for attribute in attributes]
+        semantic_validation = validate_semantic_rules(
+            semantic_rules,
+            available_columns=available_columns,
+            conflict_policy=conflict_policy,
+        )
+        semantic_ordered_rules = build_deterministic_execution_order(
+            semantic_validation.get("sanitized_rules", []),
+            conflict_policy=conflict_policy,
+        )
 
         generator_seed = seed if seed is not None else version.seed
         generator = DatasetGenerator(seed=generator_seed)
@@ -56,6 +157,7 @@ class GenerationOrchestrator:
             attributes=attributes,
             row_count=10,
             realism_rules=realism_rules,
+            semantic_rules=semantic_ordered_rules,
         )
         return {
             "data": frame.to_dict(orient="records"),
@@ -128,6 +230,23 @@ class GenerationOrchestrator:
             realism_rules = realism_config.get("rules", [])
         else:
             realism_rules = owned_version.config_json.get("realism_rules", [])
+        semantic_rules = owned_version.config_json.get("semantic_rules", [])
+        if not isinstance(semantic_rules, list):
+            semantic_rules = []
+        semantic_settings = owned_version.config_json.get("semantic_rule_settings", {})
+        conflict_policy = normalize_conflict_policy(
+            (semantic_settings or {}).get("conflict_policy")
+        )
+        available_columns = [attribute.name for attribute in attributes]
+        semantic_validation = validate_semantic_rules(
+            semantic_rules,
+            available_columns=available_columns,
+            conflict_policy=conflict_policy,
+        )
+        semantic_ordered_rules = build_deterministic_execution_order(
+            semantic_validation.get("sanitized_rules", []),
+            conflict_policy=conflict_policy,
+        )
 
         GenerationOrchestrator.cleanup_old_artifacts(
             db=db,
@@ -164,6 +283,7 @@ class GenerationOrchestrator:
             output_root=output_root,
             chunk_size=chunk_size,
             realism_rules=realism_rules,
+            semantic_rules=semantic_ordered_rules,
             min_chunk_size=settings.generation_min_chunk_size,
             target_cells_per_chunk=settings.generation_target_cells_per_chunk,
         )
@@ -210,6 +330,9 @@ class GenerationOrchestrator:
         generation_result["comparison"] = comparison
         generation_result["quality_guardrails"] = quality_guardrails
         generation_result["quality_dashboard"] = quality_dashboard
+        generation_result["semantic_rule_metrics"] = (
+            generation_result.get("quality_report", {}) or {}
+        ).get("semantic_rules")
         return generation_result
 
     @staticmethod

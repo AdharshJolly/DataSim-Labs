@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -32,6 +33,12 @@ VALID_RULE_TYPES = {
     "email_domain_match",
     "salary_band",
     "name_email_alignment",
+    "date_relative_to",
+    "phone_format_by_country",
+    "credit_card_luhn",
+    "sequential_id",
+    "url_from_company",
+    "iban_format",
 }
 
 REQUIRED_KEYS: dict[str, set[str]] = {
@@ -56,9 +63,15 @@ REQUIRED_KEYS: dict[str, set[str]] = {
     "email_domain_match": {"email_column", "org_column"},
     "salary_band": {"job_column", "salary_column", "bands"},
     "name_email_alignment": {"name_column", "email_column"},
+    "date_relative_to": {"target_column", "source_column", "relation"},
+    "phone_format_by_country": {"country_column", "phone_column"},
+    "credit_card_luhn": {"card_column"},
+    "sequential_id": {"target_column", "prefix", "start", "padding"},
+    "url_from_company": {"url_column", "company_column"},
+    "iban_format": {"country_column", "iban_column"},
 }
 
-PLANNER_VERSION = "2.1.0"
+PLANNER_VERSION = "2.3.0"
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 FALLBACK_GEMINI_MODELS = ["gemini-2.5-flash-lite", "gemini-1.5-flash"]
 
@@ -158,6 +171,66 @@ Supported rule types and their exact schemas:
    name so that "Alice Johnson" gets an email like alice.johnson@domain.com
    instead of a random email.
    { "type": "name_email_alignment", "name_column": "...", "email_column": "..." }
+
+10. date_relative_to
+    Use when two date columns have a logical ordering relationship.
+    Supported relation values: "after", "before", "same_day"
+    min_offset_days and max_offset_days are optional and default to [0, 365].
+    {
+      "type": "date_relative_to",
+      "target_column": "updated_at",
+      "source_column": "created_at",
+      "relation": "after",
+      "min_offset_days": 0,
+      "max_offset_days": 365
+    }
+
+11. phone_format_by_country
+        Use when country and phone columns are present.
+        {
+            "type": "phone_format_by_country",
+            "country_column": "country",
+            "phone_column": "phone_number"
+        }
+
+12. credit_card_luhn
+        Use when a payment card number column is present.
+        length is optional (default 16), prefix is optional.
+        {
+            "type": "credit_card_luhn",
+            "card_column": "card_number",
+            "length": 16,
+            "prefix": "4"
+        }
+
+13. sequential_id
+        Use for identifier columns that should be ordered and formatted.
+        {
+            "type": "sequential_id",
+            "target_column": "order_id",
+            "prefix": "ORD",
+            "start": 1,
+            "padding": 6,
+            "separator": "-"
+        }
+
+14. url_from_company
+        Use when website/url and company columns are present.
+        {
+            "type": "url_from_company",
+            "url_column": "website",
+            "company_column": "company",
+            "protocol": "https",
+            "include_www": true
+        }
+
+15. iban_format
+        Use when country and IBAN/bank account columns are present.
+        {
+            "type": "iban_format",
+            "country_column": "country",
+            "iban_column": "iban"
+        }
 
 Rules to follow:
 - Only emit a rule if you can clearly identify both columns in the schema.
@@ -374,6 +447,108 @@ def _build_fallback_rules(attributes: list[Any]) -> list[dict[str, Any]]:
         keywords={"company", "organization", "organisation", "org", "employer"},
         allowed_types={"categorical", "text"},
     )
+    country_attr = _find_first_attribute(
+        attributes,
+        keywords={"country", "nation"},
+        allowed_types={"categorical", "text"},
+    )
+
+    phone_col = _find_first_column(
+        attributes,
+        keywords={"phone", "mobile", "telephone", "contact_number", "tel"},
+        allowed_types={"text", "categorical"},
+    )
+    if country_attr is not None and phone_col:
+        rules.append(
+            {
+                "type": "phone_format_by_country",
+                "country_column": str(getattr(country_attr, "name", "")),
+                "phone_column": phone_col,
+            }
+        )
+
+    card_col = _find_first_column(
+        attributes,
+        keywords={
+            "card_number",
+            "credit_card",
+            "payment_card",
+            "debit_card",
+            "cc_number",
+        },
+        allowed_types={"text", "categorical", "integer"},
+    )
+    if card_col:
+        rules.append(
+            {
+                "type": "credit_card_luhn",
+                "card_column": card_col,
+                "length": 16,
+                "prefix": "4",
+            }
+        )
+
+    id_col = _find_first_column(
+        attributes,
+        keywords={
+            "order_id",
+            "user_id",
+            "txn_id",
+            "transaction_id",
+            "invoice_id",
+            "record_id",
+            "identifier",
+        },
+        allowed_types={"text", "categorical", "integer"},
+    )
+    if id_col:
+        compact_name = re.sub(r"[^A-Za-z0-9]+", "", id_col).upper()
+        prefix = compact_name[:3] or "ID"
+        rules.append(
+            {
+                "type": "sequential_id",
+                "target_column": id_col,
+                "prefix": prefix,
+                "start": 1,
+                "padding": 6,
+                "separator": "-",
+            }
+        )
+
+    url_col = _find_first_column(
+        attributes,
+        keywords={"website", "url", "web", "homepage", "site"},
+        allowed_types={"text", "categorical"},
+    )
+    company_col = _find_first_column(
+        attributes,
+        keywords={"company", "organization", "organisation", "org", "employer"},
+        allowed_types={"categorical", "text"},
+    )
+    if url_col and company_col:
+        rules.append(
+            {
+                "type": "url_from_company",
+                "url_column": url_col,
+                "company_column": company_col,
+                "protocol": "https",
+                "include_www": True,
+            }
+        )
+
+    iban_col = _find_first_column(
+        attributes,
+        keywords={"iban", "bank_account", "account_number", "bank_iban"},
+        allowed_types={"text", "categorical"},
+    )
+    if country_attr is not None and iban_col:
+        rules.append(
+            {
+                "type": "iban_format",
+                "country_column": str(getattr(country_attr, "name", "")),
+                "iban_column": iban_col,
+            }
+        )
 
     # Detect if the only available org-like column is actually a department.
     dept_col = _find_first_column(
@@ -407,11 +582,83 @@ def _build_fallback_rules(attributes: list[Any]) -> list[dict[str, Any]]:
             }
         )
 
-    country_attr = _find_first_attribute(
-        attributes,
-        keywords={"country", "nation"},
-        allowed_types={"categorical", "text"},
+    date_attr_names = [
+        str(getattr(attr, "name", ""))
+        for attr in attributes
+        if str(getattr(attr, "data_type", "")).lower() == "date"
+        and str(getattr(attr, "name", "")).strip()
+    ]
+    date_name_to_lower = {name: name.lower() for name in date_attr_names}
+
+    def _find_date_pair(
+        source_keywords: set[str], target_keywords: set[str]
+    ) -> tuple[str | None, str | None]:
+        source = next(
+            (
+                name
+                for name, lowered in date_name_to_lower.items()
+                if any(keyword in lowered for keyword in source_keywords)
+            ),
+            None,
+        )
+        target = next(
+            (
+                name
+                for name, lowered in date_name_to_lower.items()
+                if any(keyword in lowered for keyword in target_keywords)
+            ),
+            None,
+        )
+        return source, target
+
+    created_col, updated_col = _find_date_pair(
+        {"created", "creation", "inserted"},
+        {"updated", "modified", "last_update", "last_modified"},
     )
+    if created_col and updated_col and created_col != updated_col:
+        rules.append(
+            {
+                "type": "date_relative_to",
+                "target_column": updated_col,
+                "source_column": created_col,
+                "relation": "after",
+                "min_offset_days": 0,
+                "max_offset_days": 365,
+            }
+        )
+
+    start_col, end_col = _find_date_pair(
+        {"start", "begin"},
+        {"end", "finish", "close"},
+    )
+    if start_col and end_col and start_col != end_col:
+        rules.append(
+            {
+                "type": "date_relative_to",
+                "target_column": end_col,
+                "source_column": start_col,
+                "relation": "after",
+                "min_offset_days": 0,
+                "max_offset_days": 365,
+            }
+        )
+
+    birth_col, hire_col = _find_date_pair(
+        {"birth", "dob"},
+        {"hire", "joining", "join_date", "employment_start"},
+    )
+    if birth_col and hire_col and birth_col != hire_col:
+        rules.append(
+            {
+                "type": "date_relative_to",
+                "target_column": hire_col,
+                "source_column": birth_col,
+                "relation": "after",
+                "min_offset_days": 18 * 365,
+                "max_offset_days": 50 * 365,
+            }
+        )
+
     state_attr = _find_first_attribute(
         attributes,
         keywords={"state", "province", "region"},
@@ -610,6 +857,12 @@ def _build_rule_explanations(
         "email_domain_match": "Email and organization fields imply domain consistency.",
         "salary_band": "Role-related field implies realistic salary range constraints.",
         "name_email_alignment": "Email local-part must be derived from the person's name for row-level realism.",
+        "date_relative_to": "Date columns indicate a directional temporal dependency that must be enforced.",
+        "phone_format_by_country": "Country information implies locale-specific phone formatting.",
+        "credit_card_luhn": "Payment card fields should contain values passing Luhn checks.",
+        "sequential_id": "Identifier fields often require deterministic sequential patterns.",
+        "url_from_company": "Website fields should align with company naming.",
+        "iban_format": "Bank account identifiers should follow IBAN format where applicable.",
     }
 
     for index, rule in enumerate(rules):
@@ -862,6 +1115,80 @@ class RealismPlanner:
                     logger.warning("mutual_exclusion requires non-empty primary_values")
                     continue
 
+            if rule_type == "date_relative_to":
+                relation = str(rule.get("relation", "")).strip().lower()
+                if relation not in {"after", "before", "same_day"}:
+                    logger.warning(
+                        "date_relative_to requires relation in {after,before,same_day}"
+                    )
+                    continue
+
+                min_offset_days = rule.get("min_offset_days", 0)
+                max_offset_days = rule.get("max_offset_days", 365)
+                try:
+                    min_offset_int = int(min_offset_days)
+                    max_offset_int = int(max_offset_days)
+                except (TypeError, ValueError):
+                    logger.warning(
+                        "date_relative_to offsets must be integers - skipping"
+                    )
+                    continue
+
+                if min_offset_int < 0 or max_offset_int < 0:
+                    logger.warning(
+                        "date_relative_to offsets must be non-negative - skipping"
+                    )
+                    continue
+
+                if max_offset_int < min_offset_int:
+                    logger.warning(
+                        "date_relative_to max_offset_days cannot be below min_offset_days - skipping"
+                    )
+                    continue
+
+                rule["relation"] = relation
+                rule["min_offset_days"] = min_offset_int
+                rule["max_offset_days"] = max_offset_int
+
+            if rule_type == "credit_card_luhn":
+                length = rule.get("length", 16)
+                try:
+                    length_int = int(length)
+                except (TypeError, ValueError):
+                    logger.warning("credit_card_luhn length must be an integer")
+                    continue
+                if length_int < 12 or length_int > 19:
+                    logger.warning("credit_card_luhn length must be between 12 and 19")
+                    continue
+                rule["length"] = length_int
+                prefix = str(rule.get("prefix", "4"))
+                rule["prefix"] = "".join(ch for ch in prefix if ch.isdigit()) or "4"
+
+            if rule_type == "sequential_id":
+                try:
+                    start_int = int(rule.get("start", 1))
+                    padding_int = int(rule.get("padding", 6))
+                except (TypeError, ValueError):
+                    logger.warning("sequential_id start/padding must be integers")
+                    continue
+                if padding_int < 1 or padding_int > 16:
+                    logger.warning("sequential_id padding must be between 1 and 16")
+                    continue
+                if start_int < 0:
+                    logger.warning("sequential_id start must be >= 0")
+                    continue
+                rule["start"] = start_int
+                rule["padding"] = padding_int
+                rule["prefix"] = str(rule.get("prefix", "ID"))
+                rule["separator"] = str(rule.get("separator", ""))
+
+            if rule_type == "url_from_company":
+                protocol = str(rule.get("protocol", "https")).strip().lower()
+                if protocol not in {"http", "https"}:
+                    protocol = "https"
+                rule["protocol"] = protocol
+                rule["include_www"] = bool(rule.get("include_www", True))
+
             referenced_columns: set[str] = set()
             for key in (
                 "name_column",
@@ -878,6 +1205,11 @@ class RealismPlanner:
                 "postal_column",
                 "primary_column",
                 "secondary_column",
+                "phone_column",
+                "card_column",
+                "url_column",
+                "company_column",
+                "iban_column",
             ):
                 if key in rule and isinstance(rule[key], str):
                     referenced_columns.add(rule[key])

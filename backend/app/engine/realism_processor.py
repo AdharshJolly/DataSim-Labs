@@ -26,23 +26,46 @@ _MALE_ALIASES = frozenset({"male", "m", "man", "männlich", "masculino"})
 _FEMALE_ALIASES = frozenset({"female", "f", "woman", "weiblich", "femenino"})
 
 _RULE_PHASES: dict[str, int] = {
+    "sequential_id": 1,
     "name_email_alignment": 1,
     "name_gender_alignment": 1,
     "age_gate": 2,
     "mutual_exclusion": 2,
     "conditional_value": 2,
+    "date_relative_to": 2,
+    "credit_card_luhn": 2,
     "country_state_alignment": 3,
     "country_postal_format": 3,
+    "phone_format_by_country": 3,
     "email_domain_match": 3,
+    "url_from_company": 3,
+    "iban_format": 3,
     "salary_band": 3,
 }
 
-_DEPARTMENT_KEYWORDS = frozenset({
-    "tech", "hr", "human resources", "marketing", "sales",
-    "engineering", "finance", "legal", "operations", "support",
-    "design", "product", "research", "it", "admin",
-    "management", "accounting", "logistics", "customer service",
-})
+_DEPARTMENT_KEYWORDS = frozenset(
+    {
+        "tech",
+        "hr",
+        "human resources",
+        "marketing",
+        "sales",
+        "engineering",
+        "finance",
+        "legal",
+        "operations",
+        "support",
+        "design",
+        "product",
+        "research",
+        "it",
+        "admin",
+        "management",
+        "accounting",
+        "logistics",
+        "customer service",
+    }
+)
 
 
 class RealismProcessor:
@@ -77,7 +100,9 @@ class RealismProcessor:
             rule_type = rule.get("type")
             try:
                 affected_rows = 0
-                if rule_type == "name_gender_alignment":
+                if rule_type == "sequential_id":
+                    affected_rows = self._apply_sequential_id(df, rule)
+                elif rule_type == "name_gender_alignment":
                     affected_rows = self._apply_name_gender_alignment(df, rule)
                 elif rule_type == "name_email_alignment":
                     affected_rows = self._apply_name_email_alignment(df, rule)
@@ -87,12 +112,22 @@ class RealismProcessor:
                     affected_rows = self._apply_mutual_exclusion(df, rule)
                 elif rule_type == "conditional_value":
                     affected_rows = self._apply_conditional_value(df, rule)
+                elif rule_type == "date_relative_to":
+                    affected_rows = self._apply_date_relative_to(df, rule)
+                elif rule_type == "credit_card_luhn":
+                    affected_rows = self._apply_credit_card_luhn(df, rule)
                 elif rule_type == "country_state_alignment":
                     affected_rows = self._apply_country_state_alignment(df, rule)
                 elif rule_type == "country_postal_format":
                     affected_rows = self._apply_country_postal_format(df, rule)
+                elif rule_type == "phone_format_by_country":
+                    affected_rows = self._apply_phone_format_by_country(df, rule)
                 elif rule_type == "email_domain_match":
                     affected_rows = self._apply_email_domain_match(df, rule)
+                elif rule_type == "url_from_company":
+                    affected_rows = self._apply_url_from_company(df, rule)
+                elif rule_type == "iban_format":
+                    affected_rows = self._apply_iban_format(df, rule)
                 elif rule_type == "salary_band":
                     affected_rows = self._apply_salary_band(df, rule)
                 else:
@@ -118,6 +153,29 @@ class RealismProcessor:
         }
 
     # ── Rule implementations ──────────────────────────────────────────────────
+
+    def _apply_sequential_id(self, df: pd.DataFrame, rule: dict) -> int:
+        target_col = str(rule.get("target_column", ""))
+        if target_col not in df.columns:
+            logger.warning(
+                "sequential_id: column '%s' not in DataFrame — skipping",
+                target_col,
+            )
+            return 0
+
+        prefix = str(rule.get("prefix", "ID"))
+        separator = str(rule.get("separator", ""))
+        start = int(rule.get("start", 1))
+        padding = max(1, int(rule.get("padding", 6)))
+
+        updates = 0
+        for offset, idx in enumerate(df.index):
+            sequence = start + offset
+            value = f"{prefix}{separator}{sequence:0{padding}d}"
+            if df.at[idx, target_col] != value:
+                df.at[idx, target_col] = value
+                updates += 1
+        return updates
 
     def _apply_name_gender_alignment(self, df: pd.DataFrame, rule: dict) -> int:
         name_col = rule["name_column"]
@@ -371,6 +429,73 @@ class RealismProcessor:
 
         return updates
 
+    def _apply_date_relative_to(self, df: pd.DataFrame, rule: dict) -> int:
+        source_col = rule.get("source_column")
+        target_col = rule.get("target_column")
+        relation = str(rule.get("relation", "after")).strip().lower()
+
+        if source_col not in df.columns or target_col not in df.columns:
+            logger.warning(
+                "date_relative_to: column '%s' or '%s' not in DataFrame — skipping",
+                source_col,
+                target_col,
+            )
+            return 0
+
+        if relation not in {"after", "before", "same_day"}:
+            logger.warning(
+                "date_relative_to: unsupported relation '%s' — skipping",
+                relation,
+            )
+            return 0
+
+        min_offset_days = max(0, int(rule.get("min_offset_days", 0)))
+        max_offset_days = max(min_offset_days, int(rule.get("max_offset_days", 365)))
+
+        source_series = pd.to_datetime(df[source_col], errors="coerce")
+        target_series = pd.to_datetime(df[target_col], errors="coerce")
+
+        updates = 0
+        for idx in df.index:
+            src_val = source_series.at[idx]
+            tgt_val = target_series.at[idx]
+            if pd.isna(src_val) or pd.isna(tgt_val):
+                continue
+
+            if relation == "same_day":
+                if pd.Timestamp(tgt_val).date() != pd.Timestamp(src_val).date():
+                    df.at[idx, target_col] = pd.Timestamp(src_val).normalize()
+                    updates += 1
+                continue
+
+            random_offset_days = int(
+                self.rng.integers(min_offset_days, max_offset_days + 1)
+            )
+            offset = pd.Timedelta(days=random_offset_days)
+
+            if relation == "after":
+                min_allowed = pd.Timestamp(src_val) + pd.Timedelta(days=min_offset_days)
+                max_allowed = pd.Timestamp(src_val) + pd.Timedelta(days=max_offset_days)
+                if (
+                    pd.Timestamp(tgt_val) < min_allowed
+                    or pd.Timestamp(tgt_val) > max_allowed
+                ):
+                    df.at[idx, target_col] = pd.Timestamp(src_val) + offset
+                    updates += 1
+                continue
+
+            # relation == "before"
+            min_allowed = pd.Timestamp(src_val) - pd.Timedelta(days=max_offset_days)
+            max_allowed = pd.Timestamp(src_val) - pd.Timedelta(days=min_offset_days)
+            if (
+                pd.Timestamp(tgt_val) < min_allowed
+                or pd.Timestamp(tgt_val) > max_allowed
+            ):
+                df.at[idx, target_col] = pd.Timestamp(src_val) - offset
+                updates += 1
+
+        return updates
+
     def _apply_country_postal_format(self, df: pd.DataFrame, rule: dict) -> int:
         country_col = rule["country_column"]
         postal_col = rule["postal_column"]
@@ -402,6 +527,54 @@ class RealismProcessor:
                 df.at[idx, postal_col] = replacement
                 updates += 1
 
+        return updates
+
+    def _apply_phone_format_by_country(self, df: pd.DataFrame, rule: dict) -> int:
+        country_col = rule["country_column"]
+        phone_col = rule["phone_column"]
+
+        if country_col not in df.columns or phone_col not in df.columns:
+            logger.warning(
+                "phone_format_by_country: column '%s' or '%s' not in DataFrame — skipping",
+                country_col,
+                phone_col,
+            )
+            return 0
+
+        updates = 0
+        for idx in df.index:
+            country = df.at[idx, country_col]
+            if pd.isna(country):
+                continue
+
+            phone_value = self._phone_for_country(str(country).strip().lower())
+            if not phone_value:
+                continue
+            if str(df.at[idx, phone_col]) != phone_value:
+                df.at[idx, phone_col] = phone_value
+                updates += 1
+
+        return updates
+
+    def _apply_credit_card_luhn(self, df: pd.DataFrame, rule: dict) -> int:
+        card_col = rule["card_column"]
+        if card_col not in df.columns:
+            logger.warning(
+                "credit_card_luhn: column '%s' not in DataFrame — skipping",
+                card_col,
+            )
+            return 0
+
+        length = max(12, min(19, int(rule.get("length", 16))))
+        prefix = "".join(ch for ch in str(rule.get("prefix", "4")) if ch.isdigit())
+        prefix = prefix or "4"
+
+        updates = 0
+        for idx in df.index:
+            card_number = self._generate_luhn_number(length=length, prefix=prefix)
+            if str(df.at[idx, card_col]) != card_number:
+                df.at[idx, card_col] = card_number
+                updates += 1
         return updates
 
     def _apply_email_domain_match(self, df: pd.DataFrame, rule: dict) -> int:
@@ -500,6 +673,69 @@ class RealismProcessor:
 
         return updates
 
+    def _apply_url_from_company(self, df: pd.DataFrame, rule: dict) -> int:
+        url_col = rule["url_column"]
+        company_col = rule["company_column"]
+        protocol = str(rule.get("protocol", "https")).lower()
+        include_www = bool(rule.get("include_www", True))
+
+        if url_col not in df.columns or company_col not in df.columns:
+            logger.warning(
+                "url_from_company: column '%s' or '%s' not in DataFrame — skipping",
+                url_col,
+                company_col,
+            )
+            return 0
+
+        if protocol not in {"http", "https"}:
+            protocol = "https"
+
+        updates = 0
+        for idx in df.index:
+            company = df.at[idx, company_col]
+            if pd.isna(company):
+                continue
+
+            slug = self._slugify_company(str(company))
+            if not slug:
+                continue
+            host = f"www.{slug}.com" if include_www else f"{slug}.com"
+            url = f"{protocol}://{host}"
+            if str(df.at[idx, url_col]) != url:
+                df.at[idx, url_col] = url
+                updates += 1
+
+        return updates
+
+    def _apply_iban_format(self, df: pd.DataFrame, rule: dict) -> int:
+        country_col = rule["country_column"]
+        iban_col = rule["iban_column"]
+
+        if country_col not in df.columns or iban_col not in df.columns:
+            logger.warning(
+                "iban_format: column '%s' or '%s' not in DataFrame — skipping",
+                country_col,
+                iban_col,
+            )
+            return 0
+
+        updates = 0
+        for idx in df.index:
+            country = df.at[idx, country_col]
+            if pd.isna(country):
+                continue
+
+            country_code = self._country_to_iban_code(str(country).strip().lower())
+            if not country_code:
+                continue
+
+            iban_value = self._generate_country_iban(country_code)
+            if str(df.at[idx, iban_col]) != iban_value:
+                df.at[idx, iban_col] = iban_value
+                updates += 1
+
+        return updates
+
     def _postal_for_country(self, normalized_country: str) -> str:
         if normalized_country in {"india", "in"}:
             return "".join(str(digit) for digit in self.rng.integers(0, 10, size=6))
@@ -518,3 +754,141 @@ class RealismProcessor:
             numbers = "".join(str(digit) for digit in self.rng.integers(0, 10, size=2))
             return f"{letters[0]}{numbers[0]}{numbers[1]} {letters[1]}{self.rng.choice(list(string.ascii_uppercase))}"
         return ""
+
+    def _phone_for_country(self, normalized_country: str) -> str:
+        if normalized_country in {"india", "in"}:
+            first = int(self.rng.integers(6, 10))
+            rest = "".join(str(digit) for digit in self.rng.integers(0, 10, size=9))
+            return f"+91 {first}{rest[:4]} {rest[4:]}"
+        if normalized_country in {"united states", "usa", "us"}:
+            area = "".join(str(digit) for digit in self.rng.integers(2, 10, size=1))
+            area += "".join(str(digit) for digit in self.rng.integers(0, 10, size=2))
+            exchange = "".join(str(digit) for digit in self.rng.integers(2, 10, size=1))
+            exchange += "".join(
+                str(digit) for digit in self.rng.integers(0, 10, size=2)
+            )
+            line = "".join(str(digit) for digit in self.rng.integers(0, 10, size=4))
+            return f"({area}) {exchange}-{line}"
+        if normalized_country in {"united kingdom", "uk", "gb", "great britain"}:
+            tail = "".join(str(digit) for digit in self.rng.integers(0, 10, size=9))
+            return f"+44 7{tail[:3]} {tail[3:]}"
+        if normalized_country in {"australia", "au"}:
+            tail = "".join(str(digit) for digit in self.rng.integers(0, 10, size=8))
+            return f"+61 4{tail[:2]} {tail[2:5]} {tail[5:]}"
+        return ""
+
+    def _generate_luhn_number(self, length: int = 16, prefix: str = "4") -> str:
+        if length < len(prefix) + 1:
+            length = len(prefix) + 1
+
+        body_len = length - 1
+        body = prefix
+        if body_len > len(prefix):
+            body += "".join(
+                str(digit)
+                for digit in self.rng.integers(0, 10, size=body_len - len(prefix))
+            )
+
+        check_digit = self._luhn_check_digit(body)
+        return f"{body}{check_digit}"
+
+    def _luhn_check_digit(self, number_without_check: str) -> str:
+        digits = [int(ch) for ch in number_without_check if ch.isdigit()]
+        total = 0
+        parity = (len(digits) + 1) % 2
+        for idx, digit in enumerate(digits):
+            if idx % 2 == parity:
+                doubled = digit * 2
+                total += doubled - 9 if doubled > 9 else doubled
+            else:
+                total += digit
+        return str((10 - (total % 10)) % 10)
+
+    def _slugify_company(self, name: str) -> str:
+        cleaned = (
+            unicodedata.normalize("NFKD", name)
+            .encode("ascii", "ignore")
+            .decode("ascii")
+        )
+        cleaned = cleaned.lower().strip()
+        cleaned = re.sub(r"[^a-z0-9\s-]", "", cleaned)
+        cleaned = re.sub(r"\s+", "-", cleaned)
+        cleaned = re.sub(r"-{2,}", "-", cleaned)
+        return cleaned.strip("-")
+
+    def _country_to_iban_code(self, normalized_country: str) -> str | None:
+        mapping = {
+            "united kingdom": "GB",
+            "uk": "GB",
+            "gb": "GB",
+            "germany": "DE",
+            "de": "DE",
+            "france": "FR",
+            "fr": "FR",
+            "spain": "ES",
+            "es": "ES",
+            "italy": "IT",
+            "it": "IT",
+            "netherlands": "NL",
+            "nl": "NL",
+            "belgium": "BE",
+            "be": "BE",
+            "switzerland": "CH",
+            "ch": "CH",
+            "austria": "AT",
+            "at": "AT",
+            "ireland": "IE",
+            "ie": "IE",
+            "poland": "PL",
+            "pl": "PL",
+            "portugal": "PT",
+            "pt": "PT",
+            "turkey": "TR",
+            "tr": "TR",
+            "united arab emirates": "AE",
+            "uae": "AE",
+            "ae": "AE",
+            "saudi arabia": "SA",
+            "sa": "SA",
+        }
+        return mapping.get(normalized_country)
+
+    def _generate_country_iban(self, country_code: str) -> str:
+        iban_lengths = {
+            "GB": 22,
+            "DE": 22,
+            "FR": 27,
+            "ES": 24,
+            "IT": 27,
+            "NL": 18,
+            "BE": 16,
+            "CH": 21,
+            "AT": 20,
+            "IE": 22,
+            "PL": 28,
+            "PT": 25,
+            "TR": 26,
+            "AE": 23,
+            "SA": 24,
+        }
+        length = iban_lengths.get(country_code, 22)
+        bban_length = length - 4
+        alphabet = list(string.ascii_uppercase + string.digits)
+        bban = "".join(self.rng.choice(alphabet, size=bban_length))
+        check = self._iban_check_digits(country_code=country_code, bban=bban)
+        return f"{country_code}{check}{bban}"
+
+    def _iban_check_digits(self, country_code: str, bban: str) -> str:
+        rearranged = f"{bban}{country_code}00"
+        numeric = ""
+        for char in rearranged:
+            if char.isdigit():
+                numeric += char
+            else:
+                numeric += str(ord(char.upper()) - 55)
+
+        remainder = 0
+        for digit_char in numeric:
+            remainder = (remainder * 10 + int(digit_char)) % 97
+
+        return f"{98 - remainder:02d}"
