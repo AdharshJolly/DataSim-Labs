@@ -12,8 +12,10 @@ from app.auth.models import User
 from app.db.session import get_db
 from app.engine.semantic_rule_engine import (
     SemanticRuleEngine,
+    build_deterministic_execution_order,
     filter_rules_by_confidence,
     sort_rules_by_priority,
+    validate_semantic_rules,
 )
 from app.engine.semantic_rule_validator import SemanticRuleValidator
 from app.services.dataset_service import DatasetService
@@ -97,15 +99,100 @@ async def get_semantic_rules(
 ) -> SemanticRulesResponseDto:
     """Get semantic rules for a dataset.
 
-    Profiling-backed semantic rules have been removed, so this endpoint now
-    returns an empty ruleset until semantic rules are reintroduced.
+    Rules are loaded from dataset_version.config_json.semantic_rules.
     """
+    try:
+        version = DatasetService.get_dataset_version_for_user(
+            db=db,
+            user_id=current_user.id,
+            dataset_version_id=dataset_version_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    raw_rules = version.config_json.get("semantic_rules", [])
+    if not isinstance(raw_rules, list):
+        raw_rules = []
+
+    available_columns = DatasetService.get_dataset_version_attribute_names(
+        db=db,
+        dataset_version_id=dataset_version_id,
+    )
+    validation = validate_semantic_rules(raw_rules, available_columns=available_columns)
+    ordered_rules = build_deterministic_execution_order(validation["sanitized_rules"])
+
     return SemanticRulesResponseDto(
         dataset_version_id=dataset_version_id,
-        rules=[],
+        rules=[SemanticRuleDto.model_validate(rule) for rule in ordered_rules],
         metadata={
-            "rule_count": 0,
-            "profiling_removed": True,
+            "rule_count": len(ordered_rules),
+            "is_valid": bool(validation.get("is_valid", True)),
+            "warnings": validation.get("warnings", []),
+            "source": "dataset_version.config_json.semantic_rules",
+        },
+    )
+
+
+@router.put("/dataset/{dataset_version_id}", response_model=SemanticRulesResponseDto)
+async def upsert_semantic_rules(
+    dataset_version_id: uuid.UUID,
+    request: UpsertSemanticRulesRequestDto,
+    db: Database = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> SemanticRulesResponseDto:
+    """Validate and upsert semantic rules for a dataset version."""
+    try:
+        DatasetService.get_dataset_version_for_user(
+            db=db,
+            user_id=current_user.id,
+            dataset_version_id=dataset_version_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    available_columns = DatasetService.get_dataset_version_attribute_names(
+        db=db,
+        dataset_version_id=dataset_version_id,
+    )
+    raw_rules = [rule.model_dump(mode="json") for rule in request.rules]
+    validation = validate_semantic_rules(raw_rules, available_columns=available_columns)
+
+    if not validation.get("is_valid", False):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "Semantic rule validation failed",
+                "errors": validation.get("errors", []),
+                "warnings": validation.get("warnings", []),
+            },
+        )
+
+    ordered_rules = build_deterministic_execution_order(validation["sanitized_rules"])
+    try:
+        version = DatasetService.update_dataset_version_semantic_rules(
+            db=db,
+            user_id=current_user.id,
+            dataset_version_id=dataset_version_id,
+            semantic_rules=ordered_rules,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    stored_rules = version.config_json.get("semantic_rules", [])
+    if not isinstance(stored_rules, list):
+        stored_rules = []
+
+    return SemanticRulesResponseDto(
+        dataset_version_id=dataset_version_id,
+        rules=[SemanticRuleDto.model_validate(rule) for rule in stored_rules],
+        metadata={
+            "rule_count": len(stored_rules),
+            "is_valid": True,
+            "warnings": validation.get("warnings", []),
+            "execution_order": [
+                str(rule.get("id", "")) for rule in stored_rules if rule.get("id")
+            ],
+            "updated": True,
         },
     )
 
@@ -170,7 +257,21 @@ async def apply_semantic_rule(
 ) -> dict:
     """Apply a single semantic rule to row data."""
     try:
-        rule_dict = rule.dict()
+        rule_dict = rule.model_dump(mode="json")
+        validation = validate_semantic_rules(
+            [rule_dict],
+            available_columns=list(row_data.keys()),
+        )
+        if not validation.get("is_valid", False):
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": "Semantic rule validation failed",
+                    "errors": validation.get("errors", []),
+                    "warnings": validation.get("warnings", []),
+                },
+            )
+
         result = SemanticRuleEngine.apply_rule(rule_dict, row_data)
 
         return {
@@ -180,5 +281,7 @@ async def apply_semantic_rule(
             "result": result,
             "input_row": row_data,
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Error applying rule: {str(e)}")

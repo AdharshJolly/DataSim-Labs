@@ -374,3 +374,40 @@ class DatasetService:
     @staticmethod
     def evaluate_quality_guardrails(quality_report: dict[str, Any]) -> dict[str, Any]:
         return GenerationOrchestrator.evaluate_quality_guardrails(quality_report)
+
+    @staticmethod
+    def get_dataset_version_for_user(
+        db: Database,
+        user_id: uuid.UUID,
+        dataset_version_id: uuid.UUID,
+    ) -> DatasetVersion:
+        return DatasetRepository.get_dataset_version_for_user(
+            db=db,
+            user_id=user_id,
+            dataset_version_id=dataset_version_id,
+        )
+
+    @staticmethod
+    def update_dataset_version_semantic_rules(
+        db: Database,
+        user_id: uuid.UUID,
+        dataset_version_id: uuid.UUID,
+        semantic_rules: list[dict[str, Any]],
+    ) -> DatasetVersion:
+        return DatasetRepository.update_dataset_version_semantic_rules(
+            db=db,
+            user_id=user_id,
+            dataset_version_id=dataset_version_id,
+            semantic_rules=semantic_rules,
+        )
+
+    @staticmethod
+    def get_dataset_version_attribute_names(
+        db: Database,
+        dataset_version_id: uuid.UUID,
+    ) -> list[str]:
+        attributes = DatasetRepository.load_version_attributes(
+            db=db,
+            dataset_version_id=dataset_version_id,
+        )
+        return [attribute.name for attribute in attributes]

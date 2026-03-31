@@ -173,6 +173,55 @@ class DatasetRepository:
         return [DatasetVersion.from_document(row) for row in rows]
 
     @staticmethod
+    def get_dataset_version_for_user(
+        db: Database,
+        user_id: uuid.UUID,
+        dataset_version_id: uuid.UUID,
+    ) -> DatasetVersion:
+        """Get one dataset version and verify it belongs to the user."""
+        version = DatasetRepository.get_dataset_version(
+            db=db,
+            dataset_version_id=dataset_version_id,
+        )
+        DatasetRepository.get_dataset(
+            db=db,
+            user_id=user_id,
+            dataset_id=version.dataset_id,
+        )
+        return version
+
+    @staticmethod
+    def update_dataset_version_semantic_rules(
+        db: Database,
+        user_id: uuid.UUID,
+        dataset_version_id: uuid.UUID,
+        semantic_rules: list[dict[str, Any]],
+    ) -> DatasetVersion:
+        """Update semantic rules in dataset version config_json."""
+        version = DatasetRepository.get_dataset_version_for_user(
+            db=db,
+            user_id=user_id,
+            dataset_version_id=dataset_version_id,
+        )
+
+        config_json = dict(version.config_json or {})
+        config_json["semantic_rules"] = semantic_rules
+
+        db["dataset_versions"].update_one(
+            {"_id": str(dataset_version_id)},
+            {"$set": {"config_json": config_json}},
+        )
+
+        return DatasetVersion(
+            id=version.id,
+            dataset_id=version.dataset_id,
+            version_number=version.version_number,
+            config_json=config_json,
+            seed=version.seed,
+            created_at=version.created_at,
+        )
+
+    @staticmethod
     def load_version_attributes(
         db: Database,
         dataset_version_id: uuid.UUID,
