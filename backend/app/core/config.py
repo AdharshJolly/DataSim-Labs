@@ -76,6 +76,18 @@ class Settings(BaseSettings):
         default="",
         validation_alias="CELERY_RESULT_BACKEND",
     )
+    celery_redis_polling_interval_seconds: int = Field(
+        default=15,
+        validation_alias="CELERY_REDIS_POLLING_INTERVAL_SECONDS",
+    )
+    celery_redis_visibility_timeout_seconds: int = Field(
+        default=60 * 60,
+        validation_alias="CELERY_REDIS_VISIBILITY_TIMEOUT_SECONDS",
+    )
+    celery_broker_connection_max_retries: int = Field(
+        default=5,
+        validation_alias="CELERY_BROKER_CONNECTION_MAX_RETRIES",
+    )
     async_generation_enabled: bool = Field(
         default=False,
         validation_alias="ASYNC_GENERATION_ENABLED",
@@ -174,6 +186,18 @@ class Settings(BaseSettings):
             raise ValueError("async_generation_cell_threshold must be >= 1")
         if self.quality_alert_threshold < 0:
             raise ValueError("quality_alert_threshold must be >= 0")
+        if not (1 <= self.celery_redis_polling_interval_seconds <= 300):
+            raise ValueError(
+                "CELERY_REDIS_POLLING_INTERVAL_SECONDS must be between 1 and 300"
+            )
+        if not (60 <= self.celery_redis_visibility_timeout_seconds <= 86400):
+            raise ValueError(
+                "CELERY_REDIS_VISIBILITY_TIMEOUT_SECONDS must be between 60 and 86400"
+            )
+        if not (0 <= self.celery_broker_connection_max_retries <= 100):
+            raise ValueError(
+                "CELERY_BROKER_CONNECTION_MAX_RETRIES must be between 0 and 100"
+            )
         return self
 
     @model_validator(mode="after")
