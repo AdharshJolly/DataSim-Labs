@@ -28,6 +28,10 @@ import {
   validateCategoricalWeights,
 } from "@/components/studio/helpers";
 import { QuickAdjustCard } from "@/components/studio/quick-adjust-card";
+import {
+  RelationshipBuilder,
+  type CorrelationRule,
+} from "@/components/studio/relationship-builder";
 import type { AttrRow, OutputFormat, Step } from "@/components/studio/types";
 import {
   type AttributeConfig,
@@ -235,6 +239,33 @@ export default function StudioPage() {
     ) ??
     previewComparisonCols[0] ??
     null;
+
+  const correlationRules: CorrelationRule[] = useMemo(() => {
+    try {
+      if (!correlationRulesText.trim()) {
+        return [];
+      }
+      const parsed = JSON.parse(correlationRulesText) as unknown;
+      if (!Array.isArray(parsed)) {
+        return [];
+      }
+      return parsed
+        .filter(
+          (item): item is Record<string, unknown> =>
+            !!item && typeof item === "object",
+        )
+        .map((item) => ({
+          source: String(item.source ?? "").trim(),
+          target: String(item.target ?? "").trim(),
+          strength: Number(item.strength ?? 0),
+        }))
+        .filter(
+          (item) => item.source && item.target && !Number.isNaN(item.strength),
+        );
+    } catch {
+      return [];
+    }
+  }, [correlationRulesText]);
   const selectedNumericComparison = selectedPreviewComparison?.numeric ?? null;
   const previewColumnTemplate = useMemo(
     () => `repeat(${Math.max(previewCols.length, 1)}, minmax(140px, 1fr))`,
@@ -426,6 +457,10 @@ export default function StudioPage() {
       .filter(
         (item) => item.source && item.target && !Number.isNaN(item.strength),
       );
+  };
+
+  const handleCorrelationRulesChange = (rules: CorrelationRule[]) => {
+    setCorrelationRulesText(JSON.stringify(rules, null, 2));
   };
 
   const scheduleOptimisticValidation = (
@@ -1206,15 +1241,18 @@ export default function StudioPage() {
                 </Button>
               </header>
 
-              <Card className="mb-8 p-4 bg-card/70 border-border">
-                <p className="text-sm font-semibold text-foreground">
-                  Correlation Builder (optional)
+              <RelationshipBuilder
+                attributeNames={attrs.map((attr) => attr.name)}
+                rules={correlationRules}
+                onChange={handleCorrelationRulesChange}
+              />
+
+              <Card className="mb-8 border-border bg-card/70 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Advanced JSON Editor (optional)
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Define correlation rules as JSON array, for example:
-                  <span className="ml-1 rounded bg-background/60 px-1 py-0.5 font-mono text-[11px]">
-                    {'[{"source":"age","target":"income","strength":0.6}]'}
-                  </span>
+                  You can still edit relationships as raw JSON.
                 </p>
                 <textarea
                   className="mt-3 h-28 w-full"
