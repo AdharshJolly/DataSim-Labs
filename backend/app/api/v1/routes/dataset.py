@@ -181,6 +181,7 @@ def generate_dataset(
         "generation_signature": generation_result.get("generation_signature"),
         "generation_run_id": generation_result.get("generation_run_id"),
         "comparison": generation_result.get("comparison"),
+        "semantic_rule_metrics": generation_result.get("semantic_rule_metrics"),
     }
 
 

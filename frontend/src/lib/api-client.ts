@@ -363,6 +363,7 @@ export interface GenerateResponse {
   generation_signature?: string | null;
   generation_run_id?: string | null;
   comparison?: Record<string, unknown> | null;
+  semantic_rule_metrics?: Record<string, unknown> | null;
 }
 
 export type GenerationJobStatus =
@@ -479,14 +480,52 @@ export interface SemanticRule {
   constraints?: Record<string, unknown> | null;
 }
 
+export type SemanticConflictPolicy = "priority_wins" | "last_write_wins";
+
+export interface SemanticRulesMetadata {
+  rule_count?: number;
+  is_valid?: boolean;
+  warnings?: string[];
+  errors?: string[];
+  conflict_policy?: SemanticConflictPolicy;
+  execution_order?: string[];
+  conflict_resolution?: Record<string, unknown>;
+  updated?: boolean;
+  source?: string;
+  changed_rows?: number;
+  changed_cells?: number;
+}
+
 export interface SemanticRulesResponse {
   dataset_version_id: string;
   rules: SemanticRule[];
-  metadata: Record<string, unknown>;
+  metadata: SemanticRulesMetadata;
 }
 
 export interface UpsertSemanticRulesRequest {
   rules: SemanticRule[];
+  conflict_policy?: SemanticConflictPolicy;
+}
+
+export interface DryRunSemanticRulesRequest {
+  rules: SemanticRule[];
+  conflict_policy?: SemanticConflictPolicy;
+  sample_rows?: number;
+  seed?: number;
+}
+
+export interface DryRunSemanticRulesResponse {
+  dataset_version_id: string;
+  sample_rows: number;
+  metadata: SemanticRulesMetadata;
+  before: Record<string, unknown>[];
+  after: Record<string, unknown>[];
+  changed_cells: Array<{
+    row: number;
+    column: string;
+    before: unknown;
+    after: unknown;
+  }>;
 }
 
 export function register(payload: AuthRequest): Promise<AuthResponse> {
@@ -680,10 +719,52 @@ export function upsertSemanticRules(
   datasetVersionId: string,
   payload: UpsertSemanticRulesRequest,
 ): Promise<SemanticRulesResponse> {
-  return apiRequest<SemanticRulesResponse>(
-    `/api/v1/rules/dataset/${datasetVersionId}`,
+  return fetchWithAuth(
+    `${API_BASE_URL}/api/v1/rules/dataset/${datasetVersionId}`,
     {
       method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+      credentials: "include",
+      cache: "no-store",
+    },
+  ).then(async (response) => {
+    if (!response.ok) {
+      let detail: unknown = null;
+      try {
+        const parsed = (await response.json()) as {
+          detail?: unknown;
+          message?: string;
+        };
+        detail = parsed.detail ?? parsed;
+      } catch {
+        detail = null;
+      }
+
+      const message = response.statusText || `HTTP ${response.status}`;
+      const error = new Error(`${message} (${response.status})`) as Error & {
+        detail?: unknown;
+        status?: number;
+      };
+      error.detail = detail;
+      error.status = response.status;
+      throw error;
+    }
+
+    return (await response.json()) as SemanticRulesResponse;
+  });
+}
+
+export function dryRunSemanticRules(
+  datasetVersionId: string,
+  payload: DryRunSemanticRulesRequest,
+): Promise<DryRunSemanticRulesResponse> {
+  return apiRequest<DryRunSemanticRulesResponse>(
+    `/api/v1/rules/dataset/${datasetVersionId}/dry-run`,
+    {
+      method: "POST",
       body: JSON.stringify(payload),
     },
   );

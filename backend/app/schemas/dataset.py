@@ -303,6 +303,7 @@ class GenerateResponse(BaseModel):
     generation_signature: str | None = None
     generation_run_id: str | None = None
     comparison: dict[str, Any] | None = None
+    semantic_rule_metrics: dict[str, Any] | None = None
 
 
 class GenerateAsyncResponse(BaseModel):

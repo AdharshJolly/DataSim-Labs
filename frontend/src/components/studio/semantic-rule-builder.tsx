@@ -1,19 +1,30 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Save, Trash2 } from "lucide-react";
+import { FlaskConical, Plus, Save, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import type { SemanticRule } from "@/lib/api-client";
+import type {
+  DryRunSemanticRulesResponse,
+  SemanticConflictPolicy,
+  SemanticRule,
+  SemanticRulesMetadata,
+} from "@/lib/api-client";
 
 interface SemanticRuleBuilderProps {
   attributeNames: string[];
   rules: SemanticRule[];
+  conflictPolicy: SemanticConflictPolicy;
+  metadata: SemanticRulesMetadata | null;
+  dryRunResult: DryRunSemanticRulesResponse | null;
   onChange: (rules: SemanticRule[]) => void;
+  onConflictPolicyChange: (policy: SemanticConflictPolicy) => void;
   onSave: () => Promise<void>;
+  onDryRun: () => Promise<void>;
   saveDisabled?: boolean;
   saveBusy?: boolean;
+  dryRunBusy?: boolean;
 }
 
 const defaultCityStateMap = {
@@ -45,10 +56,16 @@ const createRuleId = (): string => {
 export function SemanticRuleBuilder({
   attributeNames,
   rules,
+  conflictPolicy,
+  metadata,
+  dryRunResult,
   onChange,
+  onConflictPolicyChange,
   onSave,
+  onDryRun,
   saveDisabled = false,
   saveBusy = false,
+  dryRunBusy = false,
 }: SemanticRuleBuilderProps) {
   const [domainPoolText, setDomainPoolText] = useState(
     "gmail.com, yahoo.com, outlook.com",
@@ -247,7 +264,80 @@ export function SemanticRuleBuilder({
           <Save className="mr-2 h-4 w-4" />
           {saveBusy ? "Saving Rules..." : "Save Rules"}
         </Button>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => void onDryRun()}
+          disabled={saveDisabled || dryRunBusy}
+        >
+          <FlaskConical className="mr-2 h-4 w-4" />
+          {dryRunBusy ? "Dry Run..." : "Dry Run"}
+        </Button>
       </div>
+
+      <div className="mb-4 grid gap-3 rounded-lg border border-border/60 bg-background/40 p-3 md:grid-cols-[220px_1fr]">
+        <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Conflict Policy
+        </label>
+        <select
+          value={conflictPolicy}
+          onChange={(event) =>
+            onConflictPolicyChange(event.target.value as SemanticConflictPolicy)
+          }
+          className="h-10 rounded-md border border-border bg-background px-3 text-sm"
+        >
+          <option value="priority_wins">
+            priority_wins (lowest priority value wins)
+          </option>
+          <option value="last_write_wins">
+            last_write_wins (last sorted rule wins)
+          </option>
+        </select>
+      </div>
+
+      {metadata ? (
+        <div className="mb-4 rounded-lg border border-border/60 bg-background/40 p-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Validation & Execution
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Policy: {metadata.conflict_policy ?? "priority_wins"} | Rules:{" "}
+            {metadata.rule_count ?? rules.length}
+          </p>
+          {Array.isArray(metadata.execution_order) &&
+          metadata.execution_order.length > 0 ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Execution order: {metadata.execution_order.join(" -> ")}
+            </p>
+          ) : null}
+          {Array.isArray(metadata.warnings) && metadata.warnings.length > 0 ? (
+            <div className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-amber-200">
+              {metadata.warnings.map((warning) => (
+                <p key={warning}>{warning}</p>
+              ))}
+            </div>
+          ) : null}
+          {Array.isArray(metadata.errors) && metadata.errors.length > 0 ? (
+            <div className="mt-2 rounded-md border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive">
+              {metadata.errors.map((error) => (
+                <p key={error}>{error}</p>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {dryRunResult ? (
+        <div className="mb-4 rounded-lg border border-border/60 bg-background/40 p-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Dry-Run Summary
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Rows changed: {dryRunResult.metadata.changed_rows ?? 0} | Cells
+            changed: {dryRunResult.metadata.changed_cells ?? 0}
+          </p>
+        </div>
+      ) : null}
 
       <div className="grid gap-4 lg:grid-cols-[1.1fr_1fr]">
         <div className="space-y-3 rounded-lg border border-border/60 bg-background/40 p-3">

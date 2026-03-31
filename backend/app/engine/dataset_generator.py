@@ -335,8 +335,18 @@ class DatasetGenerator:
 
         frame = pd.DataFrame(data)
 
+        semantic_stats: dict[str, Any] = {
+            "rule_metrics": {},
+            "totals": {
+                "rules_considered": 0,
+                "attempted_rows": 0,
+                "applied_rows": 0,
+                "skipped_rows": 0,
+                "error_rows": 0,
+            },
+        }
         if sorted_semantic_rules:
-            frame = self._apply_semantic_rules(
+            frame, semantic_stats = self._apply_semantic_rules(
                 frame=frame,
                 rules=sorted_semantic_rules,
                 attributes=attributes,
@@ -362,7 +372,10 @@ class DatasetGenerator:
                 rng=self.rng,
             )
 
-        return frame, realism_stats
+        return frame, {
+            **realism_stats,
+            "semantic_rules": semantic_stats,
+        }
 
     def _extract_dependencies(
         self,
@@ -439,8 +452,30 @@ class DatasetGenerator:
         frame: pd.DataFrame,
         rules: list[dict[str, Any]],
         attributes: list[AttributeSpec],
-    ) -> pd.DataFrame:
+    ) -> tuple[pd.DataFrame, dict[str, Any]]:
         attribute_names = {attr.name for attr in attributes}
+        metrics: dict[str, dict[str, Any]] = {}
+        totals = {
+            "rules_considered": len(rules),
+            "attempted_rows": 0,
+            "applied_rows": 0,
+            "skipped_rows": 0,
+            "error_rows": 0,
+        }
+
+        def ensure_metric(rule: dict[str, Any], target: str) -> dict[str, Any]:
+            rule_id = str(rule.get("id", "") or "unknown_rule")
+            if rule_id not in metrics:
+                metrics[rule_id] = {
+                    "rule_id": rule_id,
+                    "target": target,
+                    "attempted_rows": 0,
+                    "applied_rows": 0,
+                    "skipped_rows": 0,
+                    "error_rows": 0,
+                }
+            return metrics[rule_id]
+
         for rule in rules:
             target = str(rule.get("target", "")).strip()
             if target and target not in frame.columns and target in attribute_names:
@@ -453,20 +488,37 @@ class DatasetGenerator:
                 target = str(rule.get("target", "")).strip()
                 if not target or target not in attribute_names:
                     continue
+                metric = ensure_metric(rule, target)
                 sources = rule.get("sources", []) or []
                 if isinstance(sources, str):
                     sources = [sources]
                 if any(str(src) not in row_context for src in sources):
+                    metric["skipped_rows"] += 1
+                    totals["skipped_rows"] += 1
                     continue
 
-                value = SemanticRuleEngine.apply_rule(rule, row_context)
+                metric["attempted_rows"] += 1
+                totals["attempted_rows"] += 1
+
+                try:
+                    value = SemanticRuleEngine.apply_rule(rule, row_context)
+                except Exception:
+                    metric["error_rows"] += 1
+                    totals["error_rows"] += 1
+                    continue
                 if value is None:
+                    metric["skipped_rows"] += 1
+                    totals["skipped_rows"] += 1
                     continue
                 frame.at[idx, target] = value
                 row_context[target] = value
-                print(f"[RULE APPLIED] {target} -> {value}")
+                metric["applied_rows"] += 1
+                totals["applied_rows"] += 1
 
-        return frame
+        return frame, {
+            "rule_metrics": metrics,
+            "totals": totals,
+        }
 
     def _detect_semantic_groups(
         self,
@@ -624,6 +676,14 @@ class DatasetGenerator:
             "rule_impacts": Counter(),
             "rules_total_rows_affected": 0,
             "rules_total_count": 0,
+            "semantic_rule_metrics": {},
+            "semantic_rule_totals": {
+                "rules_considered": 0,
+                "attempted_rows": 0,
+                "applied_rows": 0,
+                "skipped_rows": 0,
+                "error_rows": 0,
+            },
             "_last_chunk": None,
         }
 
@@ -675,6 +735,38 @@ class DatasetGenerator:
             int(quality["rules_total_count"]),
             int(chunk_stats.get("rule_count", 0)),
         )
+
+        semantic_stats = chunk_stats.get("semantic_rules", {})
+        semantic_rule_metrics = semantic_stats.get("rule_metrics", {})
+        if isinstance(semantic_rule_metrics, dict):
+            for rule_id, metric in semantic_rule_metrics.items():
+                current = quality["semantic_rule_metrics"].setdefault(
+                    str(rule_id),
+                    {
+                        "rule_id": str(rule_id),
+                        "target": metric.get("target"),
+                        "attempted_rows": 0,
+                        "applied_rows": 0,
+                        "skipped_rows": 0,
+                        "error_rows": 0,
+                    },
+                )
+                current["attempted_rows"] += int(metric.get("attempted_rows", 0))
+                current["applied_rows"] += int(metric.get("applied_rows", 0))
+                current["skipped_rows"] += int(metric.get("skipped_rows", 0))
+                current["error_rows"] += int(metric.get("error_rows", 0))
+
+        semantic_totals = semantic_stats.get("totals", {})
+        if isinstance(semantic_totals, dict):
+            for key in quality["semantic_rule_totals"].keys():
+                value = int(semantic_totals.get(key, 0))
+                if key == "rules_considered":
+                    quality["semantic_rule_totals"][key] = max(
+                        int(quality["semantic_rule_totals"][key]),
+                        value,
+                    )
+                else:
+                    quality["semantic_rule_totals"][key] += value
 
         quality["_last_chunk"] = frame  # keep reference to last chunk for validator
 
@@ -745,6 +837,10 @@ class DatasetGenerator:
                 "rule_count": rule_count,
                 "total_rows_affected": total_rows_affected,
                 "rule_impacts": dict(quality["rule_impacts"]),
+            },
+            "semantic_rules": {
+                "rule_metrics": quality["semantic_rule_metrics"],
+                "totals": quality["semantic_rule_totals"],
             },
         }
 

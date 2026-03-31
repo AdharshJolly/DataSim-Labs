@@ -393,12 +393,14 @@ class DatasetService:
         user_id: uuid.UUID,
         dataset_version_id: uuid.UUID,
         semantic_rules: list[dict[str, Any]],
+        conflict_policy: str | None = None,
     ) -> DatasetVersion:
         return DatasetRepository.update_dataset_version_semantic_rules(
             db=db,
             user_id=user_id,
             dataset_version_id=dataset_version_id,
             semantic_rules=semantic_rules,
+            conflict_policy=conflict_policy,
         )
 
     @staticmethod

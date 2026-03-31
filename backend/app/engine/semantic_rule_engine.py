@@ -9,6 +9,13 @@ import numpy as np
 
 CONFIDENCE_THRESHOLD = 0.7
 CONFIDENCE_STRICT_THRESHOLD = 0.85
+CONFLICT_POLICIES = {"priority_wins", "last_write_wins"}
+
+
+def normalize_conflict_policy(conflict_policy: str | None) -> str:
+    """Normalize the conflict resolution policy used for duplicate targets."""
+    policy = str(conflict_policy or "priority_wins").strip().lower()
+    return policy if policy in CONFLICT_POLICIES else "priority_wins"
 
 
 class SemanticRuleEngine:
@@ -439,16 +446,23 @@ def _detect_rule_cycles(rules: list[Dict[str, Any]]) -> list[list[str]]:
 
 def build_deterministic_execution_order(
     rules: list[Dict[str, Any]],
+    conflict_policy: str = "priority_wins",
 ) -> list[Dict[str, Any]]:
     """Build a deterministic, dependency-aware execution order for valid rules."""
     if not rules:
         return []
 
+    normalized_policy = normalize_conflict_policy(conflict_policy)
     sorted_rules = sort_rules_by_priority(rules)
     target_to_rule: dict[str, Dict[str, Any]] = {}
     for rule in sorted_rules:
         target = str(rule.get("target", "")).strip()
-        if target and target not in target_to_rule:
+        if not target:
+            continue
+        if target not in target_to_rule:
+            target_to_rule[target] = rule
+            continue
+        if normalized_policy == "last_write_wins":
             target_to_rule[target] = rule
 
     graph: dict[str, set[str]] = defaultdict(set)
@@ -495,12 +509,14 @@ def build_deterministic_execution_order(
 def validate_semantic_rules(
     rules: list[Dict[str, Any]],
     available_columns: list[str] | None = None,
+    conflict_policy: str = "priority_wins",
 ) -> dict[str, Any]:
     """Validate semantic rules and return sanitized output with diagnostics."""
     errors: list[str] = []
     warnings: list[str] = []
     sanitized: list[Dict[str, Any]] = []
     seen_ids: set[str] = set()
+    normalized_policy = normalize_conflict_policy(conflict_policy)
     available_set = {
         str(column).strip()
         for column in (available_columns or [])
@@ -591,16 +607,42 @@ def validate_semantic_rules(
         )
 
     target_counts: dict[str, int] = defaultdict(int)
+    target_rules: dict[str, list[Dict[str, Any]]] = defaultdict(list)
     for rule in sanitized:
-        target_counts[str(rule.get("target", ""))] += 1
+        target = str(rule.get("target", ""))
+        target_counts[target] += 1
+        target_rules[target].append(rule)
     conflict_targets = sorted(
         [target for target, count in target_counts.items() if count > 1]
     )
+    conflict_resolution: dict[str, Any] = {}
     if conflict_targets:
+        kept_rule_ids: dict[str, str] = {}
+        dropped_rule_ids: dict[str, list[str]] = {}
+        for target in conflict_targets:
+            candidates = sort_rules_by_priority(target_rules[target])
+            if normalized_policy == "last_write_wins":
+                winner = candidates[-1]
+            else:
+                winner = candidates[0]
+            winner_id = str(winner.get("id", ""))
+            kept_rule_ids[target] = winner_id
+            dropped_rule_ids[target] = [
+                str(rule.get("id", ""))
+                for rule in candidates
+                if str(rule.get("id", "")) != winner_id
+            ]
+        conflict_resolution = {
+            "policy": normalized_policy,
+            "kept_rule_ids": kept_rule_ids,
+            "dropped_rule_ids": dropped_rule_ids,
+        }
         warnings.append(
             "Multiple rules write to the same target column(s): "
             + ", ".join(conflict_targets)
-            + ". Execution uses deterministic ordering by priority/target/id."
+            + ". Conflict policy: "
+            + normalized_policy
+            + "."
         )
 
     cycles = _detect_rule_cycles(sanitized)
@@ -610,11 +652,15 @@ def validate_semantic_rules(
                 "Cyclic semantic rule dependency detected: " + " -> ".join(cycle)
             )
 
-    ordered_rules = build_deterministic_execution_order(sanitized)
+    ordered_rules = build_deterministic_execution_order(
+        sanitized, conflict_policy=normalized_policy
+    )
     return {
         "is_valid": len(errors) == 0,
         "errors": errors,
         "warnings": warnings,
+        "conflict_policy": normalized_policy,
+        "conflict_resolution": conflict_resolution,
         "sanitized_rules": sanitized,
         "ordered_rules": ordered_rules,
     }

@@ -20,6 +20,11 @@ from scipy.stats import anderson_ksamp, ks_2samp
 from app.core.config import settings
 from app.engine.dataset_generator import AttributeSpec, DatasetGenerator
 from app.engine.realism_planner import RealismPlanner
+from app.engine.semantic_rule_engine import (
+    build_deterministic_execution_order,
+    normalize_conflict_policy,
+    validate_semantic_rules,
+)
 from app.services.dataset_repository import DatasetRepository
 
 
@@ -52,6 +57,20 @@ class GenerationOrchestrator:
         semantic_rules = version.config_json.get("semantic_rules", [])
         if not isinstance(semantic_rules, list):
             semantic_rules = []
+        semantic_settings = version.config_json.get("semantic_rule_settings", {})
+        conflict_policy = normalize_conflict_policy(
+            (semantic_settings or {}).get("conflict_policy")
+        )
+        available_columns = [attribute.name for attribute in attributes]
+        semantic_validation = validate_semantic_rules(
+            semantic_rules,
+            available_columns=available_columns,
+            conflict_policy=conflict_policy,
+        )
+        semantic_ordered_rules = build_deterministic_execution_order(
+            semantic_validation.get("sanitized_rules", []),
+            conflict_policy=conflict_policy,
+        )
 
         generator_seed = seed if seed is not None else version.seed
         generator = DatasetGenerator(seed=generator_seed)
@@ -59,7 +78,7 @@ class GenerationOrchestrator:
             attributes=attributes,
             row_count=10,
             realism_rules=realism_rules,
-            semantic_rules=semantic_rules,
+            semantic_rules=semantic_ordered_rules,
         )
         return {
             "data": frame.to_dict(orient="records"),
@@ -135,6 +154,20 @@ class GenerationOrchestrator:
         semantic_rules = owned_version.config_json.get("semantic_rules", [])
         if not isinstance(semantic_rules, list):
             semantic_rules = []
+        semantic_settings = owned_version.config_json.get("semantic_rule_settings", {})
+        conflict_policy = normalize_conflict_policy(
+            (semantic_settings or {}).get("conflict_policy")
+        )
+        available_columns = [attribute.name for attribute in attributes]
+        semantic_validation = validate_semantic_rules(
+            semantic_rules,
+            available_columns=available_columns,
+            conflict_policy=conflict_policy,
+        )
+        semantic_ordered_rules = build_deterministic_execution_order(
+            semantic_validation.get("sanitized_rules", []),
+            conflict_policy=conflict_policy,
+        )
 
         GenerationOrchestrator.cleanup_old_artifacts(
             db=db,
@@ -171,7 +204,7 @@ class GenerationOrchestrator:
             output_root=output_root,
             chunk_size=chunk_size,
             realism_rules=realism_rules,
-            semantic_rules=semantic_rules,
+            semantic_rules=semantic_ordered_rules,
             min_chunk_size=settings.generation_min_chunk_size,
             target_cells_per_chunk=settings.generation_target_cells_per_chunk,
         )
@@ -218,6 +251,9 @@ class GenerationOrchestrator:
         generation_result["comparison"] = comparison
         generation_result["quality_guardrails"] = quality_guardrails
         generation_result["quality_dashboard"] = quality_dashboard
+        generation_result["semantic_rule_metrics"] = (
+            generation_result.get("quality_report", {}) or {}
+        ).get("semantic_rules")
         return generation_result
 
     @staticmethod

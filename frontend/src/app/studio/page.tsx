@@ -46,6 +46,7 @@ import {
   downloadDatasetFile,
   generationPreflight,
   generateDataset,
+  dryRunSemanticRules,
   getDatasetVersions,
   listDatasetTemplates,
   listDatasetFiles,
@@ -53,7 +54,10 @@ import {
   saveAttributes,
   getSemanticRules,
   upsertSemanticRules,
+  type DryRunSemanticRulesResponse,
   type SemanticRule,
+  type SemanticConflictPolicy,
+  type SemanticRulesMetadata,
   type GenerationPreflightResponse,
 } from "@/lib/api-client";
 
@@ -164,6 +168,13 @@ export default function StudioPage() {
   const [correlationRulesText, setCorrelationRulesText] = useState("[]");
   const [semanticRulesText, setSemanticRulesText] = useState("[]");
   const [semanticRulesSaving, setSemanticRulesSaving] = useState(false);
+  const [semanticRulesDryRunning, setSemanticRulesDryRunning] = useState(false);
+  const [semanticConflictPolicy, setSemanticConflictPolicy] =
+    useState<SemanticConflictPolicy>("priority_wins");
+  const [semanticRuleMetadata, setSemanticRuleMetadata] =
+    useState<SemanticRulesMetadata | null>(null);
+  const [semanticDryRunResult, setSemanticDryRunResult] =
+    useState<DryRunSemanticRulesResponse | null>(null);
 
   // Step 3
   const [previewRows, setPreviewRows] = useState<Record<string, unknown>[]>([]);
@@ -206,6 +217,10 @@ export default function StudioPage() {
     unknown
   > | null>(null);
   const [qualityGuardrails, setQualityGuardrails] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
+  const [semanticRuleMetrics, setSemanticRuleMetrics] = useState<Record<
     string,
     unknown
   > | null>(null);
@@ -497,6 +512,12 @@ export default function StudioPage() {
               setSemanticRulesText(
                 JSON.stringify(semanticResponse.rules ?? [], null, 2),
               );
+              setSemanticRuleMetadata(semanticResponse.metadata ?? null);
+              if (semanticResponse.metadata?.conflict_policy) {
+                setSemanticConflictPolicy(
+                  semanticResponse.metadata.conflict_policy,
+                );
+              }
             } catch {
               // Ignore if no semantic rules are stored yet.
             }
@@ -537,14 +558,22 @@ export default function StudioPage() {
 
   const handleSemanticRulesChange = (rules: SemanticRule[]) => {
     setSemanticRulesText(JSON.stringify(rules, null, 2));
+    setSemanticDryRunResult(null);
   };
 
   const persistSemanticRules = async (datasetVersionId: string) => {
     setSemanticRulesSaving(true);
     try {
-      await upsertSemanticRules(datasetVersionId, {
+      const response = await upsertSemanticRules(datasetVersionId, {
         rules: semanticRules,
+        conflict_policy: semanticConflictPolicy,
       });
+      setSemanticRulesText(JSON.stringify(response.rules ?? [], null, 2));
+      setSemanticRuleMetadata(response.metadata ?? null);
+      if (response.metadata?.conflict_policy) {
+        setSemanticConflictPolicy(response.metadata.conflict_policy);
+      }
+      return response;
     } finally {
       setSemanticRulesSaving(false);
     }
@@ -567,11 +596,67 @@ export default function StudioPage() {
         intent: "success",
       });
     } catch (e) {
-      notifyError(
-        "Save Semantic Rules Failed",
-        e,
-        "Unable to save semantic rules.",
+      const detail = (e as { detail?: unknown }).detail;
+      if (
+        detail &&
+        typeof detail === "object" &&
+        "errors" in detail &&
+        Array.isArray((detail as { errors?: unknown[] }).errors)
+      ) {
+        const detailObj = detail as {
+          message?: string;
+          errors?: string[];
+          warnings?: string[];
+        };
+        setSemanticRuleMetadata({
+          is_valid: false,
+          errors: detailObj.errors ?? [],
+          warnings: detailObj.warnings ?? [],
+          conflict_policy: semanticConflictPolicy,
+        });
+        setError(detailObj.message ?? "Semantic rule validation failed.");
+      } else {
+        notifyError(
+          "Save Semantic Rules Failed",
+          e,
+          "Unable to save semantic rules.",
+        );
+      }
+    }
+  };
+
+  const handleDryRunSemanticRules = async () => {
+    if (!versionId) {
+      setError(
+        "Save attributes first to create a version before running dry-run.",
       );
+      return;
+    }
+
+    setSemanticRulesDryRunning(true);
+    setError("");
+    try {
+      const response = await dryRunSemanticRules(versionId, {
+        rules: semanticRules,
+        conflict_policy: semanticConflictPolicy,
+        sample_rows: 10,
+        seed: seed.trim() ? Number(seed) : undefined,
+      });
+      setSemanticDryRunResult(response);
+      setSemanticRuleMetadata(response.metadata ?? null);
+      pushToast({
+        title: "Dry Run Completed",
+        message: `Changed ${response.metadata.changed_cells ?? 0} cells across ${response.metadata.changed_rows ?? 0} rows.`,
+        intent: "success",
+      });
+    } catch (e) {
+      notifyError(
+        "Semantic Dry Run Failed",
+        e,
+        "Unable to run semantic rule dry-run.",
+      );
+    } finally {
+      setSemanticRulesDryRunning(false);
     }
   };
 
@@ -861,6 +946,9 @@ export default function StudioPage() {
         setQualityGuardrails(
           (res.quality_guardrails as Record<string, unknown>) ?? null,
         );
+        setSemanticRuleMetrics(
+          (res.semantic_rule_metrics as Record<string, unknown>) ?? null,
+        );
         setGenerationSignature(res.generation_signature ?? "");
         setGenerationRunId(res.generation_run_id ?? "");
         setRunComparison((res.comparison as Record<string, unknown>) ?? null);
@@ -910,6 +998,9 @@ export default function StudioPage() {
           }
           setQualityGuardrails(
             (result.quality_guardrails as Record<string, unknown>) ?? null,
+          );
+          setSemanticRuleMetrics(
+            (result.semantic_rule_metrics as Record<string, unknown>) ?? null,
           );
           setGenerationSignature(result.generation_signature ?? "");
           setGenerationRunId(result.generation_run_id ?? "");
@@ -1365,10 +1456,16 @@ export default function StudioPage() {
               <SemanticRuleBuilder
                 attributeNames={attrs.map((attr) => attr.name)}
                 rules={semanticRules}
+                conflictPolicy={semanticConflictPolicy}
+                metadata={semanticRuleMetadata}
+                dryRunResult={semanticDryRunResult}
                 onChange={handleSemanticRulesChange}
+                onConflictPolicyChange={setSemanticConflictPolicy}
                 onSave={handleSaveSemanticRules}
+                onDryRun={handleDryRunSemanticRules}
                 saveDisabled={!versionId}
                 saveBusy={semanticRulesSaving}
+                dryRunBusy={semanticRulesDryRunning}
               />
 
               <Card className="mb-8 border-border bg-card/70 p-4">
@@ -2344,6 +2441,18 @@ export default function StudioPage() {
                           : 0}
                       </div>
                       <div>
+                        <span className="text-foreground">
+                          Semantic applied rows:
+                        </span>{" "}
+                        {String(
+                          ((
+                            semanticRuleMetrics?.totals as
+                              | Record<string, unknown>
+                              | undefined
+                          )?.applied_rows as number | undefined) ?? 0,
+                        )}
+                      </div>
+                      <div>
                         <span className="text-foreground">Guardrails:</span>{" "}
                         {qualityGuardrails
                           ? String(
@@ -2403,6 +2512,28 @@ export default function StudioPage() {
                       </div>
                     </div>
 
+                    {semanticRuleMetrics && (
+                      <div className="mt-3 rounded border border-border/60 bg-background/40 p-3 text-xs text-muted-foreground">
+                        <p className="font-medium text-foreground">
+                          Semantic Rule Metrics
+                        </p>
+                        <div className="mt-2 space-y-1">
+                          {Object.entries(
+                            (semanticRuleMetrics.rule_metrics as
+                              | Record<string, Record<string, unknown>>
+                              | undefined) ?? {},
+                          ).map(([ruleId, metric]) => (
+                            <p key={ruleId}>
+                              {ruleId}: applied{" "}
+                              {String(metric.applied_rows ?? 0)}, skipped{" "}
+                              {String(metric.skipped_rows ?? 0)}, errors{" "}
+                              {String(metric.error_rows ?? 0)}
+                            </p>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     {runComparison && (
                       <div className="mt-3 rounded border border-border/60 bg-background/40 p-3 text-xs text-muted-foreground">
                         <p className="font-medium text-foreground">
@@ -2430,6 +2561,7 @@ export default function StudioPage() {
                         setQualityDashboard(null);
                         setQualityGuardrails(null);
                         setValidationSummary(null);
+                        setSemanticRuleMetrics(null);
                         setGenerationSignature("");
                         setGenerationRunId("");
                         setRunComparison(null);
