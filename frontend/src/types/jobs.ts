@@ -1,8 +1,8 @@
-import type {
-  GenerationJobResponse as ApiGenerationJobResponse,
-  GenerationJobStatus as ApiGenerationJobStatus,
-} from "@/lib/api-client";
+import type { GenerationJobStatus } from "@/lib/api-client";
 
-export type JobStatus = ApiGenerationJobStatus;
-export type GenerationJobResponse = ApiGenerationJobResponse;
+export type {
+  GenerationJobResponse,
+  GenerationJobStatus,
+} from "@/lib/api-client";
+export type JobStatus = GenerationJobStatus;
 export type JobStage = string;

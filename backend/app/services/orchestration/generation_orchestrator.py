@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 generation_orchestrator.py
 
@@ -20,9 +22,9 @@ from scipy.stats import anderson_ksamp, ks_2samp
 from app.core.config import settings
 from app.engine.context.generation_context import GenerationContext
 from app.engine.dataset_generator import AttributeSpec, DatasetGenerator
+from app.engine.realism.planner import RealismPlanner
 from app.engine.trace.trace_manager import TraceManager
 from app.models.dataset import DatasetStatus, DatasetVersion
-from app.engine.realism_planner import RealismPlanner
 from app.schemas.dataset import AttributeConfig
 from app.services.orchestration.version_config import resolve_version_generation_config
 from app.services.dataset_repository import DatasetRepository

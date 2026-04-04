@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Trace utilities for explainability payloads."""
 
 from app.engine.trace.trace_manager import TraceManager

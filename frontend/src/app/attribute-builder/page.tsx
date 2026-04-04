@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { buildStudioUrl } from "@/lib/redirect-to-studio";
 
 export default function AttributeBuilderPage({
   searchParams,
@@ -6,9 +7,5 @@ export default function AttributeBuilderPage({
   searchParams?: { datasetId?: string };
 }) {
   const datasetId = searchParams?.datasetId;
-  redirect(
-    datasetId
-      ? `/studio?datasetId=${encodeURIComponent(datasetId)}`
-      : "/studio",
-  );
+  redirect(buildStudioUrl(datasetId));
 }

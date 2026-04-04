@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Column generator functions."""
 
 from app.engine.generators.boolean_generator import generate_boolean

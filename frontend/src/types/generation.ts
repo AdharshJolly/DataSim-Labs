@@ -1,11 +1,5 @@
-import type {
-  GenerateResponse,
-  GeneratedFileInfo as ApiGeneratedFileInfo,
-  ValidationSummary as ApiValidationSummary,
-} from "@/lib/api-client";
-
-export type GeneratedFileInfo = ApiGeneratedFileInfo;
-export type ValidationSummary = ApiValidationSummary;
+import type { GenerateResponse } from "@/lib/api-client";
+export type { GeneratedFileInfo, ValidationSummary } from "@/lib/api-client";
 
 export type QualityDashboard = NonNullable<
   GenerateResponse["quality_dashboard"]

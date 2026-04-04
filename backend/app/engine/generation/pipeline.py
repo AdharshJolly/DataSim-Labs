@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any
 
 import pandas as pd
 
+from app.engine.realism.processor import RealismProcessor
 from app.engine.rules.rule_engine import CONFIDENCE_THRESHOLD
 from app.engine.rules.rule_executor import filter_rules_by_confidence
 from app.engine.null_injector import inject_nulls
@@ -19,18 +20,10 @@ class GenerationPipeline:
         core_generator: Any,
         rng: Any,
         faker: Any,
-        apply_semantic_rules: Callable[..., tuple[pd.DataFrame, dict[str, Any]]],
-        topological_sort_rules: Callable[[list[dict[str, Any]]], list[dict[str, Any]]],
-        extract_dependencies: Callable[
-            [list[dict[str, Any]]], tuple[set[str], set[str]]
-        ],
     ) -> None:
         self.core_generator = core_generator
         self.rng = rng
         self.faker = faker
-        self.apply_semantic_rules = apply_semantic_rules
-        self.topological_sort_rules = topological_sort_rules
-        self.extract_dependencies = extract_dependencies
 
     def generate_chunk(
         self,
@@ -46,8 +39,12 @@ class GenerationPipeline:
         filtered_semantic_rules = filter_rules_by_confidence(
             semantic_rules or [], CONFIDENCE_THRESHOLD
         )
-        sorted_semantic_rules = self.topological_sort_rules(filtered_semantic_rules)
-        _, dependent_columns = self.extract_dependencies(sorted_semantic_rules)
+        sorted_semantic_rules = self.core_generator._topological_sort_semantic_rules(
+            filtered_semantic_rules
+        )
+        _, dependent_columns = self.core_generator._extract_dependencies(
+            sorted_semantic_rules
+        )
 
         data: dict[str, pd.Series] = {}
         grouped_columns: set[str] = set()
@@ -83,7 +80,7 @@ class GenerationPipeline:
             },
         }
         if sorted_semantic_rules:
-            frame, semantic_stats = self.apply_semantic_rules(
+            frame, semantic_stats = self.core_generator._apply_semantic_rules(
                 frame=frame,
                 rules=sorted_semantic_rules,
                 attributes=attributes,
@@ -96,8 +93,6 @@ class GenerationPipeline:
         }
 
         if realism_rules:
-            from app.engine.realism_processor import RealismProcessor  # deferred
-
             processor = RealismProcessor(faker=self.faker, rng=self.rng)
             frame, realism_stats = processor.apply_with_stats(frame, realism_rules)
 

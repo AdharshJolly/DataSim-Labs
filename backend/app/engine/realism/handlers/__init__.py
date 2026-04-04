@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Realism rule handlers package."""
 
 from app.engine.realism.handlers.handler_map import build_handler_map

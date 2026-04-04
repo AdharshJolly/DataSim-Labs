@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from fastapi import APIRouter
 
 from app.api.v1.routes.dataset_assets import router as assets_router

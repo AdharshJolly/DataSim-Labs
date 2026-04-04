@@ -1,6 +1,6 @@
 import { AlertTriangle, LoaderCircle } from "lucide-react";
 
-import { FORMAT_OPTIONS } from "@/components/studio/constants";
+import { FORMAT_OPTIONS } from "@/lib/studio-constants";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import type {

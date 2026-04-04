@@ -1,6 +1,10 @@
-import type { AttributeConfig, AttributeSuggestion } from "@/lib/api-client";
+import type {
+  AttributeConfig,
+  AttributeSuggestion,
+  DataType,
+} from "@/lib/api-client";
 
-import { NUMERIC_TYPES } from "./constants";
+import { ALL_TYPE_OPTIONS, NUMERIC_TYPES } from "@/lib/studio-constants";
 import type { AttrRow } from "./types";
 
 let _uid = 0;
@@ -189,4 +193,16 @@ export function templateColumnsToAttrRows(
 
     return row;
   });
+}
+
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+export function typeLabel(type: DataType): string {
+  return (
+    ALL_TYPE_OPTIONS.find((option) => option.value === type)?.label ?? type
+  );
 }

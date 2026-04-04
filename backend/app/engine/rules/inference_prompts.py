@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Prompt constants used by semantic rule inference."""
 
 SEMANTIC_RULES_SYSTEM_PROMPT = """\

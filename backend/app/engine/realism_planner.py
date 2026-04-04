@@ -1,5 +1,0 @@
-"""Compatibility wrapper for realism planner imports."""
-
-from app.engine.realism.planner import RealismPlanner
-
-__all__ = ["RealismPlanner"]

@@ -62,3 +62,11 @@ def build_handler_map() -> dict[str, RuleHandler]:
         "iban_format": apply_iban_format,
         "salary_band": apply_salary_band,
     }
+
+
+def get_handler_map() -> dict[str, RuleHandler]:
+    """Compatibility alias for map construction."""
+    return build_handler_map()
+
+
+__all__ = ["get_handler_map", "build_handler_map"]

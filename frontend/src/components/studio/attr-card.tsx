@@ -4,11 +4,11 @@ import { useState } from "react";
 import { ThemedDropdown } from "@/components/ui/themed-dropdown";
 
 import {
+  TYPE_OPTIONS,
   DIST_OPTIONS,
   DIST_TYPES,
   NUMERIC_TYPES,
-  TYPE_OPTIONS,
-} from "./constants";
+} from "@/lib/studio-constants";
 import type { AttrRow, AttrUpdate } from "./types";
 
 interface AttrCardProps {

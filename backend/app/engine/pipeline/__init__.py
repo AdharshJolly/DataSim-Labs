@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Shared dataframe and dataset pipeline utilities."""
 
 from app.engine.pipeline.dataframe_builder import DataFrameBuilder

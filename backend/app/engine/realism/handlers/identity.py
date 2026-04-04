@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import logging
 import re
-import unicodedata
 from typing import Any, Protocol
 
 import pandas as pd
+
+from app.engine.text_utils import normalize_token, split_name
 
 logger = logging.getLogger(__name__)
 
@@ -71,22 +72,13 @@ def apply_name_email_alignment(
         )
         return 0
 
-    def normalize(value: str) -> str:
-        ascii_val = (
-            unicodedata.normalize("NFKD", value)
-            .encode("ascii", "ignore")
-            .decode("ascii")
-            .lower()
-        )
-        return re.sub(r"[^a-z0-9]+", "", ascii_val)
-
     def name_tokens(full_name: str) -> list[str]:
         parts = re.findall(r"[A-Za-z]+", full_name)
-        return [normalize(part) for part in parts if len(part) >= 2]
+        return [normalize_token(part) for part in parts if len(part) >= 2]
 
     def build_local_part(first: str, last: str) -> str:
-        first_part = normalize(first) or "user"
-        last_part = normalize(last) or "profile"
+        first_part = normalize_token(first) or "user"
+        last_part = normalize_token(last) or "profile"
         idx = int(processor.rng.integers(0, 5))
         if idx == 0:
             return f"{first_part}.{last_part}"
@@ -114,9 +106,7 @@ def apply_name_email_alignment(
         if any(token in local_lower for token in tokens if token):
             continue
 
-        parts = re.findall(r"[A-Za-z]+", name_val)
-        first = parts[0] if parts else "user"
-        last = parts[-1] if len(parts) > 1 else "profile"
+        first, last = split_name(name_val)
         new_local = build_local_part(first, last)
         df.at[row_idx, email_col] = f"{new_local}@{domain}"
         updates += 1

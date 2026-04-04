@@ -1,4 +1,4 @@
-import { API_BASE_URL, apiRequest, fetchWithAuth } from "./core";
+import { apiRequest } from "./core";
 import type {
   DryRunSemanticRulesRequest,
   DryRunSemanticRulesResponse,
@@ -20,42 +20,13 @@ export function upsertSemanticRules(
   datasetVersionId: string,
   payload: UpsertSemanticRulesRequest,
 ): Promise<SemanticRulesResponse> {
-  return fetchWithAuth(
-    `${API_BASE_URL}/api/v1/rules/dataset/${datasetVersionId}`,
+  return apiRequest<SemanticRulesResponse>(
+    `/api/v1/rules/dataset/${datasetVersionId}`,
     {
       method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-      },
       body: JSON.stringify(payload),
-      credentials: "include",
-      cache: "no-store",
     },
-  ).then(async (response) => {
-    if (!response.ok) {
-      let detail: unknown = null;
-      try {
-        const parsed = (await response.json()) as {
-          detail?: unknown;
-          message?: string;
-        };
-        detail = parsed.detail ?? parsed;
-      } catch {
-        detail = null;
-      }
-
-      const message = response.statusText || `HTTP ${response.status}`;
-      const error = new Error(`${message} (${response.status})`) as Error & {
-        detail?: unknown;
-        status?: number;
-      };
-      error.detail = detail;
-      error.status = response.status;
-      throw error;
-    }
-
-    return (await response.json()) as SemanticRulesResponse;
-  });
+  );
 }
 
 export function dryRunSemanticRules(

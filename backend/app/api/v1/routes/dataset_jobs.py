@@ -3,9 +3,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pymongo.database import Database
 
-from app.auth.dependencies import get_current_user
+from app.api.v1.dependencies import get_current_user, get_db
 from app.auth.models import User
-from app.db.session import get_db
 from app.schemas.dataset import (
     CancelGenerationJobResponse,
     GenerationJobListResponse,

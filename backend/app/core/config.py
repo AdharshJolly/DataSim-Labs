@@ -1,29 +1,19 @@
+from __future__ import annotations
+
 from pathlib import Path
 import json
 import re
 from typing import Annotated
 from typing import Literal
-from urllib.parse import urlparse
 import warnings
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from app.core.config_validators import _validate_upstash_tls
+
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
-
-
-def _is_upstash_host(url: str) -> bool:
-    parsed = urlparse(url)
-    return bool(parsed.hostname and parsed.hostname.endswith("upstash.io"))
-
-
-def _validate_upstash_tls(url: str, field_name: str) -> None:
-    if not url:
-        return
-    parsed = urlparse(url)
-    if _is_upstash_host(url) and parsed.scheme != "rediss":
-        raise ValueError(f"{field_name} uses Upstash and must use rediss:// (TLS).")
 
 
 class Settings(BaseSettings):
@@ -34,23 +24,24 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # --- App ---
+    # ── Application ────────────────────────────────────────────────────────────────
     app_name: str = "DataSim Lab API"
     api_prefix: str = "/api/v1"
     app_env: Literal["development", "staging", "production"] = "development"
 
-    # --- Database ---
-
+    # ── Database ───────────────────────────────────────────────────────────────────
     mongodb_uri: str = Field(validation_alias="MONGODB_URI")
     mongodb_database: str = Field(
         default="datasim_lab",
         validation_alias="MONGODB_DATABASE",
     )
+
+    # ── CORS ───────────────────────────────────────────────────────────────────────
     cors_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["http://localhost:3000"]
     )
 
-    # --- Generation ---
+    # ── Generation Limits ──────────────────────────────────────────────────────────
     artifacts_dir: str = "artifacts"
     generation_chunk_size: int = 100000
     generation_min_chunk_size: int = 10000
@@ -63,7 +54,7 @@ class Settings(BaseSettings):
     quality_alert_threshold: int = 5
     artifact_retention_hours: int = 24
 
-    # --- Auth & Cookies ---
+    # ── Auth & JWT ─────────────────────────────────────────────────────────────────
     jwt_secret_key: str = Field(validation_alias="JWT_SECRET_KEY")
     jwt_algorithm: str = "HS256"
     jwt_expiration_minutes: int = 60
@@ -86,13 +77,7 @@ class Settings(BaseSettings):
         validation_alias="AUTH_COOKIE_SAMESITE",
     )
 
-    # --- AI ---
-    gemini_api_key: str = Field(default="", validation_alias="GEMINI_API_KEY")
-    gemini_model: str = Field(
-        default="gemini-2.5-flash", validation_alias="GEMINI_MODEL"
-    )
-
-    # --- Async / Celery ---
+    # ── Async / Celery / Redis ─────────────────────────────────────────────────────
     redis_url: str = Field(default="", validation_alias="REDIS_URL")
     celery_broker_url: str = Field(default="", validation_alias="CELERY_BROKER_URL")
     celery_result_backend: str = Field(
@@ -114,6 +99,14 @@ class Settings(BaseSettings):
     async_generation_enabled: bool = Field(
         default=False,
         validation_alias="ASYNC_GENERATION_ENABLED",
+    )
+
+    # ── Storage ────────────────────────────────────────────────────────────────────
+
+    # ── AI / LLM ───────────────────────────────────────────────────────────────────
+    gemini_api_key: str = Field(default="", validation_alias="GEMINI_API_KEY")
+    gemini_model: str = Field(
+        default="gemini-2.5-flash", validation_alias="GEMINI_MODEL"
     )
 
     @field_validator("cors_origins", mode="before")

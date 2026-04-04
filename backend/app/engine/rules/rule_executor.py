@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Semantic rule execution helpers."""
 
 from app.engine.rules.rule_engine import (

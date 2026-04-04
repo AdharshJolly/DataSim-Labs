@@ -1,9 +1,11 @@
 export {
   API_BASE_URL,
+  ApiError,
   setAuthToken,
   clearAuthToken,
   parseApiError,
   fetchWithAuth,
+  assertResponseOk,
   apiRequest,
   type TokenRefreshResponse,
 } from "./api-client/core";

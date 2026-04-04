@@ -1,9 +1,6 @@
-"""
-dataset_service.py
+"""Write-focused dataset service facade."""
 
-Public facade for dataset operations.
-Delegates responsibilities to focused modules while preserving the existing API.
-"""
+from __future__ import annotations
 
 import uuid
 from pathlib import Path
@@ -15,12 +12,12 @@ from app.engine.context.generation_context import GenerationContext
 from app.engine.dataset_generator import DatasetGenerator
 from app.engine.pipeline.dataframe_builder import DataFrameBuilder
 from app.engine.pipeline.dataset_pipeline import DatasetPipeline
-from app.models.dataset import Dataset, DatasetStatus, DatasetVersion
+from app.models.dataset import Dataset, DatasetStatus
 from app.schemas.dataset import AttributeConfig
 from app.services.comparison_engine import ComparisonEngine
 from app.services.dataset_repository import DatasetRepository
-from app.services.orchestration.generation_orchestrator import GenerationOrchestrator
 from app.services.job_manager import JobManager
+from app.services.orchestration.generation_orchestrator import GenerationOrchestrator
 from app.services.orchestration.generation_orchestrator import (
     GenerationWorkflowOrchestrator,
 )
@@ -32,7 +29,7 @@ from app.utils.attribute_utils import model_attributes_to_specs
 
 
 class DatasetService:
-    """High-level API for dataset CRUD, generation, and job orchestration."""
+    """High-level API for dataset writes and generation orchestration."""
 
     TERMINAL_JOB_STATUSES = JobManager.TERMINAL_JOB_STATUSES
 
@@ -49,18 +46,6 @@ class DatasetService:
             name=name,
             description=description,
         )
-
-    @staticmethod
-    def get_dataset(db: Database, user_id: uuid.UUID, dataset_id: uuid.UUID) -> Dataset:
-        return DatasetRepository.get_dataset(
-            db=db,
-            user_id=user_id,
-            dataset_id=dataset_id,
-        )
-
-    @staticmethod
-    def list_datasets(db: Database, user_id: uuid.UUID) -> list[Dataset]:
-        return DatasetRepository.list_datasets(db=db, user_id=user_id)
 
     @staticmethod
     def delete_dataset(db: Database, user_id: uuid.UUID, dataset_id: uuid.UUID) -> None:
@@ -82,36 +67,6 @@ class DatasetService:
             user_id=user_id,
             dataset_id=dataset_id,
             status=status,
-        )
-
-    @staticmethod
-    def create_dataset_version(
-        db: Database,
-        user_id: uuid.UUID,
-        dataset_id: uuid.UUID,
-        attributes: list[AttributeConfig],
-        seed: int | None = None,
-        correlations: list[dict[str, Any]] | None = None,
-    ) -> DatasetVersion:
-        return GenerationOrchestrator.create_dataset_version(
-            db=db,
-            user_id=user_id,
-            dataset_id=dataset_id,
-            attributes=attributes,
-            seed=seed,
-            correlations=correlations,
-        )
-
-    @staticmethod
-    def get_dataset_versions(
-        db: Database,
-        user_id: uuid.UUID,
-        dataset_id: uuid.UUID,
-    ) -> list[DatasetVersion]:
-        return DatasetRepository.get_dataset_versions(
-            db=db,
-            user_id=user_id,
-            dataset_id=dataset_id,
         )
 
     @staticmethod
@@ -209,35 +164,12 @@ class DatasetService:
         )
 
     @staticmethod
-    def list_generation_jobs(
-        db: Database,
-        user_id: uuid.UUID,
-        limit: int = 20,
-    ) -> list[dict[str, Any]]:
-        return JobManager.list_generation_jobs(db=db, user_id=user_id, limit=limit)
-
-    @staticmethod
-    def get_generation_job(
-        db: Database,
-        user_id: uuid.UUID,
-        job_id: str,
-    ) -> dict[str, Any]:
-        return JobManager.get_generation_job(db=db, user_id=user_id, job_id=job_id)
-
-    @staticmethod
     def retry_generation_job(
         db: Database,
         user_id: uuid.UUID,
         job_id: str,
     ) -> dict[str, Any]:
         return JobManager.retry_generation_job(db=db, user_id=user_id, job_id=job_id)
-
-    @staticmethod
-    def list_active_generation_job_dataset_ids(
-        db: Database,
-        user_id: uuid.UUID,
-    ) -> set[str]:
-        return JobManager.list_active_generation_job_dataset_ids(db=db, user_id=user_id)
 
     @staticmethod
     def cancel_generation_job(
@@ -372,32 +304,6 @@ class DatasetService:
         JobManager.mark_job_failed(db=db, job_id=job_id, message=message)
 
     @staticmethod
-    def serialize_generation_job(job: dict[str, Any]) -> dict[str, Any]:
-        return JobManager.serialize_generation_job(job)
-
-    @staticmethod
-    def list_generated_files(
-        dataset_id: uuid.UUID,
-        output_root: Path,
-    ) -> list[dict[str, Any]]:
-        return GenerationOrchestrator.list_generated_files(
-            dataset_id=dataset_id,
-            output_root=output_root,
-        )
-
-    @staticmethod
-    def resolve_generated_file(
-        dataset_id: uuid.UUID,
-        output_root: Path,
-        export_format: str,
-    ) -> Path | None:
-        return GenerationOrchestrator.resolve_generated_file(
-            dataset_id=dataset_id,
-            output_root=output_root,
-            export_format=export_format,
-        )
-
-    @staticmethod
     def sanitize_download_filename(file_name: str) -> str:
         return GenerationOrchestrator.sanitize_download_filename(file_name)
 
@@ -430,62 +336,5 @@ class DatasetService:
         )
 
     @staticmethod
-    def resolve_effective_dataset_status(
-        dataset: Dataset,
-        output_root: Path,
-        active_job_dataset_ids: set[str] | None = None,
-    ) -> DatasetStatus:
-        if dataset.status is DatasetStatus.archived:
-            return DatasetStatus.archived
-
-        if active_job_dataset_ids and str(dataset.id) in active_job_dataset_ids:
-            return DatasetStatus.generating
-
-        files = GenerationOrchestrator.list_generated_files(
-            dataset_id=dataset.id,
-            output_root=output_root,
-        )
-        return DatasetStatus.active if files else DatasetStatus.draft
-
-    @staticmethod
     def evaluate_quality_guardrails(quality_report: dict[str, Any]) -> dict[str, Any]:
         return GenerationOrchestrator.evaluate_quality_guardrails(quality_report)
-
-    @staticmethod
-    def get_dataset_version_for_user(
-        db: Database,
-        user_id: uuid.UUID,
-        dataset_version_id: uuid.UUID,
-    ) -> DatasetVersion:
-        return DatasetRepository.get_dataset_version_for_user(
-            db=db,
-            user_id=user_id,
-            dataset_version_id=dataset_version_id,
-        )
-
-    @staticmethod
-    def update_dataset_version_semantic_rules(
-        db: Database,
-        user_id: uuid.UUID,
-        dataset_version_id: uuid.UUID,
-        semantic_rules: list[dict[str, Any]],
-        conflict_policy: str | None = None,
-    ) -> DatasetVersion:
-        return DatasetRepository.update_dataset_version_semantic_rules(
-            db=db,
-            user_id=user_id,
-            dataset_version_id=dataset_version_id,
-            semantic_rules=semantic_rules,
-            conflict_policy=conflict_policy,
-        )
-
-    @staticmethod
-    def get_dataset_version_attribute_names(
-        db: Database,
-        dataset_version_id: uuid.UUID,
-    ) -> list[str]:
-        attributes = DatasetRepository.load_version_attributes(
-            db=db,
-            dataset_version_id=dataset_version_id,
-        )
-        return [attribute.name for attribute in attributes]

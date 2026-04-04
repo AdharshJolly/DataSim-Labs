@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Unified semantic rules package."""
 
 from app.engine.rules.rule_engine import SemanticRuleEngine

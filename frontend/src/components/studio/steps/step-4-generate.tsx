@@ -1,4 +1,4 @@
-import { formatBytes } from "@/components/studio/format-utils";
+import { formatBytes } from "@/components/studio/utils";
 import { Step4ResultsPanel } from "@/components/studio/steps/step-4-results-panel";
 import { Step4SetupPanel } from "@/components/studio/steps/step-4-setup-panel";
 import type {

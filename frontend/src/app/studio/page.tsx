@@ -3,6 +3,15 @@
 import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  clearStoredDatasetId,
+  clearStoredDatasetVersionId,
+  clearStoredValidationSummary,
+  getStoredDatasetId,
+  setStoredDatasetId,
+  setStoredDatasetVersionId,
+} from "@/lib/local-storage";
+import { STEP_LABELS, Step } from "@/lib/studio-constants";
+import {
   Check,
   Download,
   HelpCircle,
@@ -13,7 +22,6 @@ import {
   X,
 } from "lucide-react";
 
-import { STEP_LABELS } from "@/components/studio/constants";
 import { validateCategoricalWeights } from "@/components/studio/studio-helpers";
 import {
   applySuggestionToAttr,
@@ -21,13 +29,14 @@ import {
   newAttr,
   templateColumnsToAttrRows,
   uid,
-} from "@/components/studio/attr-transform";
+} from "@/components/studio/utils";
 import { mergeSemanticRuleSets } from "@/components/studio/rule-parsers";
-import type { AttrRow, OutputFormat, Step } from "@/components/studio/types";
+import type { AttrRow } from "@/components/studio/types";
 import { Step1CreateDataset } from "@/components/studio/steps/step-1-create-dataset";
 import { Step2DefineFields } from "@/components/studio/steps/step-2-define-fields";
 import { Step3PreviewRefine } from "@/components/studio/steps/step-3-preview-refine";
 import { Step4Generate } from "@/components/studio/steps/step-4-generate";
+import { useGenerationSetup, usePreflight } from "@/components/studio/hooks";
 import { useStudioGenerationFlow } from "@/components/studio/hooks/use-studio-generation-flow";
 import { useStudioRules } from "@/components/studio/hooks/use-studio-rules";
 import {
@@ -36,7 +45,6 @@ import {
   type GenerationJobStatus,
   type PreviewColumnComparison,
   createDataset,
-  generationPreflight,
   dryRunSemanticRules,
   getDatasetVersions,
   listDatasetTemplates,
@@ -52,7 +60,6 @@ import {
   type DryRunSemanticRulesResponse,
   type SemanticConflictPolicy,
   type SemanticRulesMetadata,
-  type GenerationPreflightResponse,
   type ExplainResponse,
   type AttributeSuggestion,
   type CompareResponse,
@@ -145,9 +152,25 @@ export default function StudioPage() {
   const optimisticSaveSeq = useRef(0);
 
   // Step 4
-  const [rowCount, setRowCount] = useState(1000);
-  const [formats, setFormats] = useState<OutputFormat[]>(["csv"]);
-  const [seed, setSeed] = useState("");
+  const {
+    rowCount,
+    setRowCount,
+    formats,
+    setFormats,
+    seed,
+    setSeed,
+    driftEnabled,
+    setDriftEnabled,
+    driftIntensity,
+    setDriftIntensity,
+    driftColumnsText,
+    setDriftColumnsText,
+    preflightResult,
+    setPreflightResult,
+    preflightBusy,
+    setPreflightBusy,
+    toggleFormat,
+  } = useGenerationSetup();
   const [generatedFiles, setGeneratedFiles] = useState<GeneratedFileInfo[]>([]);
   const [qualityReport, setQualityReport] = useState<Record<
     string,
@@ -188,14 +211,8 @@ export default function StudioPage() {
   const [jobStatus, setJobStatus] = useState<GenerationJobStatus | "">("");
   const [jobStage, setJobStage] = useState("");
   const [jobProgress, setJobProgress] = useState(0);
-  const [driftEnabled, setDriftEnabled] = useState(false);
-  const [driftIntensity, setDriftIntensity] = useState(0.1);
-  const [driftColumnsText, setDriftColumnsText] = useState("");
   const [streamingBusy, setStreamingBusy] = useState(false);
   const [streamedBytes, setStreamedBytes] = useState(0);
-  const [preflightResult, setPreflightResult] =
-    useState<GenerationPreflightResponse | null>(null);
-  const [preflightBusy, setPreflightBusy] = useState(false);
   const [allowLowQualityDownloads, setAllowLowQualityDownloads] =
     useState(false);
   const [feedbackRating, setFeedbackRating] = useState(0);
@@ -294,9 +311,9 @@ export default function StudioPage() {
     const params = new URLSearchParams(window.location.search);
 
     if (params.get("new") === "true") {
-      localStorage.removeItem("datasim:dataset_id");
-      localStorage.removeItem("datasim:dataset_version_id");
-      localStorage.removeItem("datasim:validation_summary");
+      clearStoredDatasetId();
+      clearStoredDatasetVersionId();
+      clearStoredValidationSummary();
 
       setDatasetId("");
       setVersionId("");
@@ -325,7 +342,7 @@ export default function StudioPage() {
     }
 
     const queryDatasetId = params.get("datasetId");
-    const storedDatasetId = localStorage.getItem("datasim:dataset_id");
+    const storedDatasetId = getStoredDatasetId();
     const id = queryDatasetId || storedDatasetId;
     if (!id) return;
 
@@ -684,7 +701,7 @@ export default function StudioPage() {
           await persistSemanticRules(res.version_id);
 
           setVersionId(res.version_id);
-          localStorage.setItem("datasim:dataset_version_id", res.version_id);
+          setStoredDatasetVersionId(res.version_id);
           await loadPreview(res.version_id);
           pushToast({
             title: "Changes Synced",
@@ -789,7 +806,7 @@ export default function StudioPage() {
         description: dsDesc.trim() || undefined,
       });
       setDatasetId(res.dataset_id);
-      localStorage.setItem("datasim:dataset_id", res.dataset_id);
+      setStoredDatasetId(res.dataset_id);
       setStep(2);
     } catch (e) {
       notifyError("Create Dataset Failed", e, "Failed to create dataset");
@@ -833,7 +850,7 @@ export default function StudioPage() {
       });
       await persistSemanticRules(res.version_id);
       setVersionId(res.version_id);
-      localStorage.setItem("datasim:dataset_version_id", res.version_id);
+      setStoredDatasetVersionId(res.version_id);
       setStep(3);
       await loadPreview(res.version_id);
     } catch (e) {
@@ -1029,42 +1046,8 @@ export default function StudioPage() {
 
   // ── Step 4: Generate ─────────────────────────────────────────
 
-  useEffect(() => {
-    if (step !== 4 || !datasetId || formats.length === 0) {
-      return;
-    }
-
-    let isCancelled = false;
-    setPreflightBusy(true);
-
-    void generationPreflight({
-      dataset_id: datasetId,
-      dataset_version_id: versionId || undefined,
-      row_count: rowCount,
-      formats,
-      seed: seed.trim() ? Number(seed) : undefined,
-    })
-      .then((response) => {
-        if (!isCancelled) {
-          setPreflightResult(response);
-        }
-      })
-      .catch(() => {
-        if (!isCancelled) {
-          setPreflightResult(null);
-        }
-      })
-      .finally(() => {
-        if (!isCancelled) {
-          setPreflightBusy(false);
-        }
-      });
-
-    return () => {
-      isCancelled = true;
-    };
-  }, [
-    step,
+  usePreflight({
+    enabled: step === 4,
     datasetId,
     versionId,
     rowCount,
@@ -1073,7 +1056,9 @@ export default function StudioPage() {
     driftEnabled,
     driftIntensity,
     driftColumnsText,
-  ]);
+    setPreflightResult,
+    setPreflightBusy,
+  });
 
   // ── Attribute helpers ────────────────────────────────────────
   const updateAttr = <K extends keyof AttrRow>(
@@ -1115,10 +1100,6 @@ export default function StudioPage() {
   const addAttr = () => setAttrs((prev) => [...prev, newAttr(prev.length)]);
   const removeAttr = (i: number) =>
     setAttrs((prev) => prev.filter((_, idx) => idx !== i));
-  const toggleFormat = (f: OutputFormat) =>
-    setFormats((prev) =>
-      prev.includes(f) ? prev.filter((x) => x !== f) : [...prev, f],
-    );
 
   // ─────────────────────────────────────────────────────────────
 

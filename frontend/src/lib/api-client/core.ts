@@ -1,17 +1,52 @@
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
+interface ParsedApiError {
+  message: string;
+  code?: string;
+  detail?: unknown;
+}
+
+export class ApiError extends Error {
+  status: number;
+  code?: string;
+  detail?: unknown;
+
+  constructor(
+    message: string,
+    options: {
+      status: number;
+      code?: string;
+      detail?: unknown;
+    },
+  ) {
+    super(message);
+    this.name = "ApiError";
+    this.status = options.status;
+    this.code = options.code;
+    this.detail = options.detail;
+  }
+}
+
+/**
+ * Backward-compatible auth token setter (cookies are authoritative).
+ */
 export function setAuthToken(token: string, refreshToken?: string): void {
   // Backward compatibility shim during migration to HttpOnly cookies.
   void token;
   void refreshToken;
 }
 
+/**
+ * Backward-compatible auth token clearer (cookies are authoritative).
+ */
 export function clearAuthToken(): void {
   // Backward compatibility shim during migration to HttpOnly cookies.
 }
 
-export async function parseApiError(response: Response): Promise<string> {
+async function parseApiErrorDetails(
+  response: Response,
+): Promise<ParsedApiError> {
   try {
     const payload = (await response.json()) as {
       success?: boolean;
@@ -25,6 +60,12 @@ export async function parseApiError(response: Response): Promise<string> {
       detail?: string | { message?: string };
       message?: string;
     };
+
+    const code =
+      typeof payload.error === "object" && payload.error?.code
+        ? payload.error.code
+        : undefined;
+
     if (
       payload.success === false &&
       typeof payload.error === "object" &&
@@ -33,18 +74,47 @@ export async function parseApiError(response: Response): Promise<string> {
       const requestId = payload.error.request_id
         ? ` [request_id=${payload.error.request_id}]`
         : "";
-      return `${payload.error.message}${requestId}`;
+      return {
+        message: `${payload.error.message}${requestId}`,
+        code,
+        detail: payload.detail,
+      };
     }
-    if (typeof payload.detail === "string") return payload.detail;
+    if (typeof payload.detail === "string") {
+      return { message: payload.detail, code, detail: payload.detail };
+    }
     if (typeof payload.detail === "object" && payload.detail?.message) {
-      return payload.detail.message;
+      return {
+        message: payload.detail.message,
+        code,
+        detail: payload.detail,
+      };
     }
-    if (typeof payload.message === "string") return payload.message;
-    if (typeof payload.error === "string") return payload.error;
+    if (typeof payload.message === "string") {
+      return { message: payload.message, code, detail: payload.detail };
+    }
+    if (typeof payload.error === "string") {
+      return { message: payload.error, code, detail: payload.detail };
+    }
+    return {
+      message: response.statusText || `HTTP ${response.status}`,
+      code,
+      detail: payload.detail,
+    };
   } catch {
-    // Ignore parse failure and fallback to status text below.
+    return {
+      message: response.statusText || `HTTP ${response.status}`,
+      detail: null,
+    };
   }
-  return response.statusText || `HTTP ${response.status}`;
+}
+
+/**
+ * Parse an API error response and return a user-friendly message.
+ */
+export async function parseApiError(response: Response): Promise<string> {
+  const parsed = await parseApiErrorDetails(response);
+  return parsed.message;
 }
 
 export interface TokenRefreshResponse {
@@ -103,6 +173,9 @@ async function attemptRefresh(): Promise<TokenRefreshResponse | null> {
   return refreshPromise;
 }
 
+/**
+ * Fetch with auth cookies and retry once after token refresh on 401.
+ */
 export async function fetchWithAuth(
   url: string | URL,
   init?: RequestInit,
@@ -132,6 +205,24 @@ export async function fetchWithAuth(
   return response;
 }
 
+/**
+ * Validate an HTTP response and throw a typed ApiError on failure.
+ */
+export async function assertResponseOk(response: Response): Promise<void> {
+  if (response.ok) {
+    return;
+  }
+  const parsed = await parseApiErrorDetails(response);
+  throw new ApiError(`${parsed.message} (${response.status})`, {
+    status: response.status,
+    code: parsed.code,
+    detail: parsed.detail,
+  });
+}
+
+/**
+ * Perform a JSON API request and parse a typed JSON payload.
+ */
 export async function apiRequest<T>(
   path: string,
   init?: RequestInit,
@@ -148,10 +239,7 @@ export async function apiRequest<T>(
     cache: "no-store",
   });
 
-  if (!response.ok) {
-    const detail = await parseApiError(response);
-    throw new Error(`${detail} (${response.status})`);
-  }
+  await assertResponseOk(response);
 
   return (await response.json()) as T;
 }

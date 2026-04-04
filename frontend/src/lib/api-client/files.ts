@@ -1,4 +1,9 @@
-import { API_BASE_URL, fetchWithAuth, parseApiError, apiRequest } from "./core";
+import {
+  API_BASE_URL,
+  apiRequest,
+  assertResponseOk,
+  fetchWithAuth,
+} from "./core";
 import type { DownloadListResponse } from "./types";
 
 export function listDatasetFiles(
@@ -25,11 +30,7 @@ export async function downloadDatasetFile(
       method: "GET",
     },
   );
-
-  if (!response.ok) {
-    const detail = await parseApiError(response);
-    throw new Error(`${detail} (${response.status})`);
-  }
+  await assertResponseOk(response);
 
   const contentDisposition = response.headers.get("Content-Disposition") || "";
   const match = contentDisposition.match(/filename="?([^";]+)"?/i);
@@ -66,11 +67,7 @@ export async function streamDatasetCsv(
       method: "GET",
     },
   );
-
-  if (!response.ok) {
-    const detail = await parseApiError(response);
-    throw new Error(`${detail} (${response.status})`);
-  }
+  await assertResponseOk(response);
 
   const reader = response.body?.getReader();
   if (!reader) {

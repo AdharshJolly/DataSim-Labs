@@ -47,9 +47,6 @@ class DatasetGenerator(GeneratorInterface):
             core_generator=self.core_generator,
             rng=self.rng,
             faker=self.faker,
-            apply_semantic_rules=self._apply_semantic_rules,
-            topological_sort_rules=self._topological_sort_semantic_rules,
-            extract_dependencies=self._extract_dependencies,
         )
 
     def generate_dataframe(

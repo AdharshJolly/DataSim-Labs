@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from app.schemas.attribute import AttributeConfig
 from app.schemas.dataset import (
     CorrelationRule,

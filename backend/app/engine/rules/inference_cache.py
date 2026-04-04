@@ -1,5 +1,9 @@
 """In-memory cache helpers for semantic rule inference."""
 
+# NOTE: This is a process-local in-memory cache. In multi-process deployments
+# (e.g., multiple Uvicorn workers) each worker maintains its own cache.
+# For a distributed cache, replace with Redis-backed storage.
+
 from __future__ import annotations
 
 import hashlib

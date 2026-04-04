@@ -2,33 +2,11 @@
 
 from __future__ import annotations
 
-import re
-import unicodedata
-
 import numpy as np
 import pandas as pd
 from faker import Faker
 
-
-def _normalize_token(value: str) -> str:
-    """Lowercase ASCII-only token from an arbitrary Unicode string."""
-    ascii_value = (
-        unicodedata.normalize("NFKD", value)
-        .encode("ascii", "ignore")
-        .decode("ascii")
-        .lower()
-    )
-    return re.sub(r"[^a-z0-9]+", "", ascii_value)
-
-
-def _split_name(full_name: str) -> tuple[str, str]:
-    """Split a full name into (first, last) tokens."""
-    parts = re.findall(r"[A-Za-z]+", full_name)
-    if not parts:
-        return "user", "profile"
-    if len(parts) == 1:
-        return parts[0], "profile"
-    return parts[0], parts[-1]
+from app.engine.text_utils import normalize_token, split_name
 
 
 _DEFAULT_DOMAINS = ["gmail.com", "yahoo.com", "outlook.com", "hotmail.com"]
@@ -52,9 +30,9 @@ def generate_email_from_name(
     results: list[str] = []
     for raw_name in names:
         name_str = str(raw_name) if not pd.isna(raw_name) else "User Profile"
-        first, last = _split_name(name_str)
-        first = _normalize_token(first) or "user"
-        last = _normalize_token(last) or "profile"
+        first, last = split_name(name_str)
+        first = normalize_token(first) or "user"
+        last = normalize_token(last) or "profile"
 
         domain = domains[int(rng.integers(0, len(domains)))]
         pattern_index = int(rng.integers(0, 5))
