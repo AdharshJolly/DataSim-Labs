@@ -18,6 +18,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from faker import Faker
+from app.engine.realism.handlers.handler_map import build_handler_map
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +75,7 @@ class RealismProcessor:
     def __init__(self, faker: Faker, rng: np.random.Generator) -> None:
         self.faker = faker
         self.rng = rng
+        self._handler_map = build_handler_map()
 
     # ── Public API ─────────────────────────────────────────────────────────────
 
@@ -99,42 +101,13 @@ class RealismProcessor:
         for rule in sorted_rules:
             rule_type = rule.get("type")
             try:
-                affected_rows = 0
-                if rule_type == "sequential_id":
-                    affected_rows = self._apply_sequential_id(df, rule)
-                elif rule_type == "name_gender_alignment":
-                    affected_rows = self._apply_name_gender_alignment(df, rule)
-                elif rule_type == "name_email_alignment":
-                    affected_rows = self._apply_name_email_alignment(df, rule)
-                elif rule_type == "age_gate":
-                    affected_rows = self._apply_age_gate(df, rule)
-                elif rule_type == "mutual_exclusion":
-                    affected_rows = self._apply_mutual_exclusion(df, rule)
-                elif rule_type == "conditional_value":
-                    affected_rows = self._apply_conditional_value(df, rule)
-                elif rule_type == "date_relative_to":
-                    affected_rows = self._apply_date_relative_to(df, rule)
-                elif rule_type == "credit_card_luhn":
-                    affected_rows = self._apply_credit_card_luhn(df, rule)
-                elif rule_type == "country_state_alignment":
-                    affected_rows = self._apply_country_state_alignment(df, rule)
-                elif rule_type == "country_postal_format":
-                    affected_rows = self._apply_country_postal_format(df, rule)
-                elif rule_type == "phone_format_by_country":
-                    affected_rows = self._apply_phone_format_by_country(df, rule)
-                elif rule_type == "email_domain_match":
-                    affected_rows = self._apply_email_domain_match(df, rule)
-                elif rule_type == "url_from_company":
-                    affected_rows = self._apply_url_from_company(df, rule)
-                elif rule_type == "iban_format":
-                    affected_rows = self._apply_iban_format(df, rule)
-                elif rule_type == "salary_band":
-                    affected_rows = self._apply_salary_band(df, rule)
-                else:
+                handler = self._handler_map.get(str(rule_type))
+                if handler is None:
                     logger.warning(
                         "Unknown rule type in processor: %r — skipping", rule_type
                     )
                     continue
+                affected_rows = handler(self, df, rule)
 
                 typed_rule = str(rule_type)
                 rule_impacts[typed_rule] = rule_impacts.get(typed_rule, 0) + int(

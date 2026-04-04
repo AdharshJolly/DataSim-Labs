@@ -13,59 +13,31 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 import re
-import hashlib
 
 import pandas as pd
 
 from app.core.config import settings
+from app.engine.rules.inference_cache import (
+    cache_rules,
+    compute_schema_hash,
+    get_cached_rules,
+)
+from app.engine.rules.inference_prompts import SEMANTIC_RULES_SYSTEM_PROMPT
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 FALLBACK_GEMINI_MODELS = ["gemini-2.5-flash-lite", "gemini-1.5-flash"]
 
-# In-memory cache: schema_hash -> (rules, timestamp)
-_SEMANTIC_RULES_CACHE: dict[str, tuple[dict[str, Any], float]] = {}
-_CACHE_TTL_SECONDS = 86400  # 24 hours
 
-_SEMANTIC_RULES_SYSTEM_PROMPT = """\
-Detect semantic relationships in datasets. Return JSON: {"rules": [rule1, rule2, ...]}.
-
-Each rule: {"id":"str","type":"derivation|mapping|conditional|function","priority":int,"target":"col","sources":["col1","col2"],"transform":{...},"confidence":0.0-1.0}
-
-Transform types:
-- template: "{col1}.{col2}" with extractors
-- mapping: column→value lookup
-- conditional: if X then Y
-- function: uppercase/lowercase/capitalize/hash/prefix/suffix
-
-Detection rules:
-- Email often derived from name: confidence >= 0.85
-- Use column_relationships examples as evidence
-- Return [] if no relationships found
-- Use exact column names
-"""
-
-
-def _compute_schema_hash(df: pd.DataFrame, column_metadata: dict[str, Any] | None = None) -> str:
-    """Compute hash of dataset schema to use as cache key."""
-    schema_info = {
-        "cols": sorted(df.columns.tolist()),
-        "dtypes": {col: str(df[col].dtype) for col in df.columns},
-    }
-    if column_metadata:
-        schema_info["metadata"] = {k: v.get("semantic_type", "") for k, v in column_metadata.items()}
-    
-    schema_json = json.dumps(schema_info, sort_keys=True)
-    return hashlib.md5(schema_json.encode()).hexdigest()
-
-
-def _should_skip_inference(df: pd.DataFrame, column_metadata: dict[str, Any] | None = None) -> bool:
+def _should_skip_inference(
+    df: pd.DataFrame, column_metadata: dict[str, Any] | None = None
+) -> bool:
     """Skip Gemini call if dataset is too small or has no semantic columns."""
     if len(df) < 5:
         logger.info("Skipping semantic inference: dataset < 5 rows")
         return True
-    
+
     # Check if dataset has name or email columns (main targets for derivation rules)
     has_semantic_cols = False
     for col in df.columns:
@@ -77,32 +49,12 @@ def _should_skip_inference(df: pd.DataFrame, column_metadata: dict[str, Any] | N
         if semantic_type in ("name", "email"):
             has_semantic_cols = True
             break
-    
+
     if not has_semantic_cols:
         logger.info("Skipping semantic inference: no semantic columns detected")
         return True
-    
+
     return False
-
-
-def _get_cached_rules(schema_hash: str) -> dict[str, Any] | None:
-    """Retrieve rules from cache if valid."""
-    if schema_hash not in _SEMANTIC_RULES_CACHE:
-        return None
-    
-    rules, timestamp = _SEMANTIC_RULES_CACHE[schema_hash]
-    age_seconds = datetime.now(timezone.utc).timestamp() - timestamp
-    
-    if age_seconds > _CACHE_TTL_SECONDS:
-        del _SEMANTIC_RULES_CACHE[schema_hash]
-        return None
-    
-    return rules
-
-
-def _cache_rules(schema_hash: str, rules: dict[str, Any]) -> None:
-    """Store rules in cache."""
-    _SEMANTIC_RULES_CACHE[schema_hash] = (rules, datetime.now(timezone.utc).timestamp())
 
 
 def _detect_semantic_type(column_name: str | None) -> str | None:
@@ -236,10 +188,10 @@ def infer_semantic_rules(
         }
 
     # Compute schema hash for caching
-    schema_hash = _compute_schema_hash(df, column_metadata)
-    
+    schema_hash = compute_schema_hash(df, column_metadata)
+
     # Check cache first
-    cached_result = _get_cached_rules(schema_hash)
+    cached_result = get_cached_rules(schema_hash)
     if cached_result is not None:
         logger.info(f"Using cached rules for schema {schema_hash[:8]}")
         return {
@@ -251,7 +203,7 @@ def infer_semantic_rules(
                 "cache_hit": True,
             },
         }
-    
+
     # Check if inference should be skipped
     if _should_skip_inference(df, column_metadata):
         logger.info("Skipping semantic inference for this dataset")
@@ -418,9 +370,9 @@ def infer_semantic_rules(
             "raw_rule_count": len(raw_rules),
         },
     }
-    
+
     # Cache the result
-    _cache_rules(schema_hash, result)
+    cache_rules(schema_hash, result)
     logger.info(f"Cached rules for schema {schema_hash[:8]} ({len(valid_rules)} rules)")
-    
+
     return result

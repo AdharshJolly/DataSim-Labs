@@ -2,7 +2,35 @@ import type { AttributeConfig, AttributeSuggestion } from "@/lib/api-client";
 
 import { NUMERIC_TYPES } from "./constants";
 import type { AttrRow } from "./types";
-import { uid } from "./studio-helpers";
+
+let _uid = 0;
+
+export function uid(): string {
+  return `attr-${Date.now()}-${++_uid}`;
+}
+
+export function newAttr(index: number): AttrRow {
+  return {
+    _id: uid(),
+    name: `field_${index + 1}`,
+    description: "",
+    type: "integer",
+    distribution: "uniform",
+    allow_nulls: false,
+    null_percentage: 10,
+    min: "0",
+    max: "100",
+    categories: "",
+    weights: "",
+    start_date: "",
+    end_date: "",
+    precision: "2",
+    max_length: "64",
+    true_probability: "0.5",
+    skew_direction: "right",
+    skew_intensity: "2",
+  };
+}
 
 export function attrRowToApiAttribute(attr: AttrRow): AttributeConfig {
   let distribution = attr.distribution;

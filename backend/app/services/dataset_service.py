@@ -9,7 +9,6 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
 from pymongo.database import Database
 
 from app.engine.context.generation_context import GenerationContext

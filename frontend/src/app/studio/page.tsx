@@ -14,15 +14,13 @@ import {
 } from "lucide-react";
 
 import { STEP_LABELS } from "@/components/studio/constants";
-import {
-  newAttr,
-  uid,
-  validateCategoricalWeights,
-} from "@/components/studio/studio-helpers";
+import { validateCategoricalWeights } from "@/components/studio/studio-helpers";
 import {
   applySuggestionToAttr,
   attrRowToApiAttribute,
+  newAttr,
   templateColumnsToAttrRows,
+  uid,
 } from "@/components/studio/attr-transform";
 import { mergeSemanticRuleSets } from "@/components/studio/rule-parsers";
 import type { AttrRow, OutputFormat, Step } from "@/components/studio/types";
@@ -1384,40 +1382,46 @@ export default function StudioPage() {
           {/* ════════════════ STEP 4 ════════════════ */}
           {step === 4 && (
             <Step4Generate
-              generatedFiles={generatedFiles}
-              rowCount={rowCount}
-              formats={formats}
-              seed={seed}
+              setupState={{
+                rowCount,
+                formats,
+                seed,
+                shouldUseAsyncGeneration,
+                autoAsyncRowThreshold: AUTO_ASYNC_ROW_THRESHOLD,
+                autoAsyncCellThreshold: AUTO_ASYNC_CELL_THRESHOLD,
+                driftEnabled,
+                driftIntensity,
+                driftColumnsText,
+              }}
+              jobState={{
+                jobId,
+                jobStatus,
+                jobStage,
+                jobProgress,
+              }}
+              resultState={{
+                generatedFiles,
+                qualityDashboard,
+                validationSummary,
+                qualityReport,
+                qualityGuardrails,
+                semanticRuleMetrics,
+                runComparison,
+                generationRunId,
+                generationSignature,
+                guardrailsPassed,
+              }}
               attrsCount={attrs.length}
               busy={busy}
               streamingBusy={streamingBusy}
               streamedBytes={streamedBytes}
               versionId={versionId}
-              shouldUseAsyncGeneration={shouldUseAsyncGeneration}
               preflightBusy={preflightBusy}
               preflightResult={preflightResult}
-              jobId={jobId}
-              jobStatus={jobStatus}
-              jobStage={jobStage}
-              jobProgress={jobProgress}
-              driftEnabled={driftEnabled}
-              driftIntensity={driftIntensity}
-              driftColumnsText={driftColumnsText}
-              guardrailsPassed={guardrailsPassed}
               allowLowQualityDownloads={allowLowQualityDownloads}
               feedbackRating={feedbackRating}
               feedbackComment={feedbackComment}
               feedbackBusy={feedbackBusy}
-              qualityDashboard={qualityDashboard}
-              validationSummary={validationSummary}
-              qualityReport={qualityReport}
-              qualityGuardrails={qualityGuardrails}
-              semanticRuleMetrics={semanticRuleMetrics}
-              runComparison={runComparison}
-              generationRunId={generationRunId}
-              generationSignature={generationSignature}
-              autoAsyncRowThreshold={AUTO_ASYNC_ROW_THRESHOLD}
-              autoAsyncCellThreshold={AUTO_ASYNC_CELL_THRESHOLD}
               onSetStep={setStep}
               onSetRowCount={setRowCount}
               onToggleFormat={toggleFormat}

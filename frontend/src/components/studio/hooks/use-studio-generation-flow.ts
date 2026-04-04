@@ -3,12 +3,11 @@ import { useCallback } from "react";
 import type { AttrRow, OutputFormat } from "@/components/studio/types";
 import {
   cancelGenerationJob,
-  downloadDatasetFile,
-  generateDatasetAsync,
   type GenerationJobStatus,
-  streamDatasetCsv,
-  submitDatasetFeedback,
 } from "@/lib/api-client";
+import { useAsyncGeneration } from "./use-async-generation";
+import { useDownloadActions } from "./use-download-actions";
+import { useFeedbackActions } from "./use-feedback-actions";
 import { useJobPolling } from "./use-job-polling";
 import { useSyncGeneration } from "./use-sync-generation";
 
@@ -156,6 +155,47 @@ export function useStudioGenerationFlow({
     applyGenerationResult,
   });
 
+  const { runAsyncGeneration } = useAsyncGeneration({
+    datasetId,
+    versionId,
+    rowCount,
+    formats,
+    seed,
+    setJobId,
+    setJobStatus,
+    setJobStage,
+    setJobProgress,
+    setAllowLowQualityDownloads,
+    pollQueuedJob,
+  });
+
+  const { handleDownload, handleStreamCsvDownload } = useDownloadActions({
+    datasetId,
+    versionId,
+    rowCount,
+    seed,
+    setError,
+    setStreamingBusy,
+    setStreamedBytes,
+    notifyError,
+  });
+
+  const { handleSubmitFeedback } = useFeedbackActions({
+    datasetId,
+    versionId,
+    rowCount,
+    formats,
+    attrs,
+    feedbackRating,
+    feedbackComment,
+    generationSignature,
+    setError,
+    setFeedbackBusy,
+    setFeedbackComment,
+    pushToast,
+    notifyError,
+  });
+
   const handleGenerate = useCallback(async () => {
     setBusy(true);
     setError("");
@@ -165,46 +205,19 @@ export function useStudioGenerationFlow({
         await runSyncGeneration();
         return;
       }
-
-      const payload = {
-        dataset_id: datasetId,
-        dataset_version_id: versionId || undefined,
-        row_count: rowCount,
-        formats,
-        seed: seed.trim() ? Number(seed) : undefined,
-      };
-
-      const queued = await generateDatasetAsync(payload);
-      setAllowLowQualityDownloads(false);
-      setJobId(queued.job_id);
-      setJobStatus(queued.status);
-      setJobStage("queued");
-      setJobProgress(0);
-      await pollQueuedJob(queued.job_id);
+      await runAsyncGeneration();
     } catch (error) {
       notifyError("Generation Failed", error, "Generation failed");
     } finally {
       setBusy(false);
     }
   }, [
-    datasetId,
-    formats,
     setBusy,
     setError,
-    attrs,
-    versionId,
-    rowCount,
-    seed,
     shouldUseAsyncGeneration,
-    setAllowLowQualityDownloads,
-    applyGenerationResult,
-    setJobId,
-    setJobStatus,
-    setJobStage,
-    setJobProgress,
     notifyError,
     runSyncGeneration,
-    pollQueuedJob,
+    runAsyncGeneration,
   ]);
 
   const handleCancelJob = useCallback(async () => {
@@ -222,119 +235,6 @@ export function useStudioGenerationFlow({
       notifyError("Cancel Job Failed", error, "Failed to cancel job");
     }
   }, [jobId, setJobStatus, setJobStage, setJobProgress, notifyError]);
-
-  const handleDownload = useCallback(
-    async (format: string) => {
-      try {
-        const { blob, fileName } = await downloadDatasetFile(datasetId, format);
-        const url = URL.createObjectURL(blob);
-        const anchor = document.createElement("a");
-        anchor.href = url;
-        anchor.download = fileName;
-        document.body.appendChild(anchor);
-        anchor.click();
-        anchor.remove();
-        URL.revokeObjectURL(url);
-      } catch (error) {
-        notifyError("Download Failed", error, "Download failed");
-      }
-    },
-    [datasetId, notifyError],
-  );
-
-  const handleStreamCsvDownload = useCallback(async () => {
-    if (!versionId) {
-      setError("No saved version to stream.");
-      return;
-    }
-
-    setStreamingBusy(true);
-    setStreamedBytes(0);
-    setError("");
-    try {
-      const { blob, fileName } = await streamDatasetCsv(versionId, rowCount, {
-        chunkSize: 50000,
-        seed: seed.trim() ? Number(seed) : undefined,
-        onProgressBytes: (bytesRead) => setStreamedBytes(bytesRead),
-      });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = fileName;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      notifyError(
-        "Streaming Download Failed",
-        error,
-        "Unable to stream CSV download.",
-      );
-    } finally {
-      setStreamingBusy(false);
-    }
-  }, [
-    versionId,
-    setError,
-    setStreamingBusy,
-    setStreamedBytes,
-    rowCount,
-    seed,
-    notifyError,
-  ]);
-
-  const handleSubmitFeedback = useCallback(async () => {
-    if (!datasetId || feedbackRating < 1) {
-      setError("Select a rating before submitting feedback.");
-      return;
-    }
-
-    setFeedbackBusy(true);
-    setError("");
-    try {
-      await submitDatasetFeedback({
-        dataset_id: datasetId,
-        dataset_version_id: versionId || undefined,
-        rating: feedbackRating,
-        comment: feedbackComment.trim() || undefined,
-        generation_signature: generationSignature || undefined,
-        config_snapshot: {
-          row_count: rowCount,
-          formats,
-          attribute_count: attrs.length,
-        },
-      });
-      pushToast({
-        title: "Feedback Submitted",
-        message: "Thanks! Your rating was recorded for adaptive tuning.",
-        intent: "success",
-      });
-      setFeedbackComment("");
-    } catch (error) {
-      notifyError(
-        "Feedback Failed",
-        error,
-        "Unable to submit feedback right now.",
-      );
-    } finally {
-      setFeedbackBusy(false);
-    }
-  }, [
-    datasetId,
-    feedbackRating,
-    setError,
-    setFeedbackBusy,
-    versionId,
-    feedbackComment,
-    generationSignature,
-    rowCount,
-    formats,
-    attrs.length,
-    pushToast,
-    setFeedbackComment,
-    notifyError,
-  ]);
 
   return {
     handleGenerate,

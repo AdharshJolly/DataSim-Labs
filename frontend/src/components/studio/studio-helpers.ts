@@ -1,7 +1,5 @@
 import type { AttrRow } from "./types";
 
-let _uid = 0;
-
 /**
  * Validates that a categorical field's weights string is consistent with its
  * categories string. Returns a human-readable error or null if valid.
@@ -37,31 +35,4 @@ export function validateCategoricalWeights(attr: AttrRow): string | null {
     return `"${attr.name}": ${cats.length} categories but ${weights.length} weights - counts must match`;
   }
   return null;
-}
-
-export function uid(): string {
-  return `attr-${Date.now()}-${++_uid}`;
-}
-
-export function newAttr(index: number): AttrRow {
-  return {
-    _id: uid(),
-    name: `field_${index + 1}`,
-    description: "",
-    type: "integer",
-    distribution: "uniform",
-    allow_nulls: false,
-    null_percentage: 10,
-    min: "0",
-    max: "100",
-    categories: "",
-    weights: "",
-    start_date: "",
-    end_date: "",
-    precision: "2",
-    max_length: "64",
-    true_probability: "0.5",
-    skew_direction: "right",
-    skew_intensity: "2",
-  };
 }

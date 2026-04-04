@@ -6,36 +6,16 @@ import { ValidationDashboard } from "@/components/studio/validation-dashboard";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import type { GeneratedFileInfo } from "@/lib/api-client";
+import type { GenerationResultState } from "@/types/studio";
 
 interface Step4ResultsPanelProps {
-  generatedFiles: GeneratedFileInfo[];
+  resultState: GenerationResultState;
   rowCount: number;
   attrsCount: number;
-  guardrailsPassed: boolean;
   allowLowQualityDownloads: boolean;
   feedbackRating: number;
   feedbackComment: string;
   feedbackBusy: boolean;
-  qualityDashboard: {
-    overall_score: number;
-    metrics: {
-      distribution_fidelity: number;
-      relationship_integrity: number;
-      null_pattern_match: number;
-      uniqueness: number;
-      freshness: number;
-    };
-    warnings: string[];
-    recommendations: string[];
-  } | null;
-  validationSummary: any;
-  qualityReport: Record<string, unknown> | null;
-  qualityGuardrails: Record<string, unknown> | null;
-  semanticRuleMetrics: Record<string, unknown> | null;
-  runComparison: Record<string, unknown> | null;
-  generationRunId: string;
-  generationSignature: string;
   driftEnabled: boolean;
   driftIntensity: number;
   formatBytes: (bytes: number) => string;
@@ -48,22 +28,13 @@ interface Step4ResultsPanelProps {
 }
 
 export function Step4ResultsPanel({
-  generatedFiles,
+  resultState,
   rowCount,
   attrsCount,
-  guardrailsPassed,
   allowLowQualityDownloads,
   feedbackRating,
   feedbackComment,
   feedbackBusy,
-  qualityDashboard,
-  validationSummary,
-  qualityReport,
-  qualityGuardrails,
-  semanticRuleMetrics,
-  runComparison,
-  generationRunId,
-  generationSignature,
   driftEnabled,
   driftIntensity,
   formatBytes,
@@ -74,6 +45,19 @@ export function Step4ResultsPanel({
   onSubmitFeedback,
   onGenerateAgain,
 }: Step4ResultsPanelProps) {
+  const {
+    generatedFiles,
+    guardrailsPassed,
+    qualityDashboard,
+    validationSummary,
+    qualityReport,
+    qualityGuardrails,
+    semanticRuleMetrics,
+    runComparison,
+    generationRunId,
+    generationSignature,
+  } = resultState;
+
   return (
     <div className="space-y-8">
       <div className="flex items-center gap-4">

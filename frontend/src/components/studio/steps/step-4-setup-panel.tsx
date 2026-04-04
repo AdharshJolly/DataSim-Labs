@@ -3,28 +3,21 @@ import { AlertTriangle, LoaderCircle } from "lucide-react";
 import { FORMAT_OPTIONS } from "@/components/studio/constants";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import type { Step } from "@/components/studio/types";
+import type {
+  GenerationJobState,
+  GenerationSetupState,
+  Step,
+} from "@/types/studio";
 
 interface Step4SetupPanelProps {
-  rowCount: number;
-  formats: Array<"csv" | "json" | "jsonl" | "excel">;
-  seed: string;
+  setupState: GenerationSetupState;
+  jobState: GenerationJobState;
   busy: boolean;
   streamingBusy: boolean;
   streamedBytes: number;
   versionId: string;
-  shouldUseAsyncGeneration: boolean;
   preflightBusy: boolean;
   preflightResult: { issues?: Array<{ code: string; message: string }> } | null;
-  jobId: string;
-  jobStatus: string;
-  jobStage: string;
-  jobProgress: number;
-  driftEnabled: boolean;
-  driftIntensity: number;
-  driftColumnsText: string;
-  autoAsyncRowThreshold: number;
-  autoAsyncCellThreshold: number;
   formatBytes: (bytes: number) => string;
   onSetStep: (step: Step) => void;
   onSetRowCount: (value: number) => void;
@@ -39,25 +32,14 @@ interface Step4SetupPanelProps {
 }
 
 export function Step4SetupPanel({
-  rowCount,
-  formats,
-  seed,
+  setupState,
+  jobState,
   busy,
   streamingBusy,
   streamedBytes,
   versionId,
-  shouldUseAsyncGeneration,
   preflightBusy,
   preflightResult,
-  jobId,
-  jobStatus,
-  jobStage,
-  jobProgress,
-  driftEnabled,
-  driftIntensity,
-  driftColumnsText,
-  autoAsyncRowThreshold,
-  autoAsyncCellThreshold,
   formatBytes,
   onSetStep,
   onSetRowCount,
@@ -70,6 +52,19 @@ export function Step4SetupPanel({
   onSetDriftIntensity,
   onSetDriftColumnsText,
 }: Step4SetupPanelProps) {
+  const {
+    rowCount,
+    formats,
+    seed,
+    shouldUseAsyncGeneration,
+    autoAsyncRowThreshold,
+    autoAsyncCellThreshold,
+    driftEnabled,
+    driftIntensity,
+    driftColumnsText,
+  } = setupState;
+  const { jobId, jobStatus, jobStage, jobProgress } = jobState;
+
   return (
     <>
       <header className="mb-8">
